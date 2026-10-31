@@ -24,7 +24,7 @@ use tantivy::snippet::SnippetGenerator;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 use warp_errors::report_error;
-use warpui_core::r#async::executor::Background;
+use warpui_core::r#async::executor::{Background, BackgroundTask};
 use warpui_core::r#async::{Timer, block_on};
 
 pub type FullTextSearchDocumentEntry = HashMap<String, FullTextSearchFieldValue>;
@@ -712,6 +712,17 @@ impl<C: SearchSchemaConfig> SimpleFullTextSearcher<C> {
 
     pub fn clear_search_index(&mut self) -> anyhow::Result<()> {
         self.writer.lock().clear()
+    }
+
+    /// Releases committed writer state off the UI thread, serialized with subsequent writes.
+    /// The index and reader remain usable, and the next write recreates the writer.
+    pub fn release_writer(&self, background: &Background) -> BackgroundTask {
+        let writer = Arc::clone(&self.writer);
+        background.spawn_blocking(move || {
+            if let Err(error) = writer.lock().wait_on_and_drop_indexing_threads() {
+                report_error!(error.context("Failed to release idle search index writer"));
+            }
+        })
     }
 
     pub fn build_index(

@@ -205,6 +205,18 @@ impl Background {
         BackgroundTask { inner }
     }
 
+    /// Runs blocking work without occupying an asynchronous worker.
+    pub fn spawn_blocking(&self, work: impl FnOnce() + Send + 'static) -> BackgroundTask {
+        let inner = self
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.spawn_blocking(work));
+        if inner.is_none() {
+            report_error!("tried to spawn blocking work after the executor was shut down");
+        }
+        BackgroundTask { inner }
+    }
+
     /// Schedules an abortable asynchronous task to run on a background thread.
     ///
     /// This is the same as `spawn()` except the task may be aborted using the returned

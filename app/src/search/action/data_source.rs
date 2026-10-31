@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use fuzzy_match::{FuzzyMatchResult, match_indices_case_insensitive};
+use warpui::r#async::executor::Background;
 use warpui::keymap::{BindingId, DescriptionContext};
 use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 
@@ -79,7 +80,7 @@ impl CommandBindingDataSource {
             .map(|binding| (binding.id, binding))
             .collect();
 
-        self.searcher.build_index();
+        self.searcher.build_index(&ctx.background_executor());
         ctx.emit(Event::IndexUpdated);
     }
 }
@@ -114,7 +115,7 @@ type SearcherAction = <CommandBindingDataSource as SyncDataSource>::Action;
 trait ActionSearcher {
     fn search(&self, _search_term: &str) -> anyhow::Result<Vec<QueryResult<SearcherAction>>>;
 
-    fn build_index(&mut self);
+    fn build_index(&mut self, background: &Background);
 
     /// Set of cached bindings, keyed on [`BindingId`]. This is cached via the [`BindingSource`]
     /// model to ensure that we surface bindings to the user that were executable _before_ the
@@ -159,7 +160,7 @@ impl ActionSearcher for FuzzyActionSearcher {
             .collect())
     }
 
-    fn build_index(&mut self) {}
+    fn build_index(&mut self, _background: &Background) {}
 
     fn bindings(&self) -> &HashMap<BindingId, Arc<CommandBinding>> {
         &self.all_bindings
@@ -175,6 +176,7 @@ mod full_text_searcher {
 
     use fuzzy_match::FuzzyMatchResult;
     use warp_search_core::define_search_schema;
+    use warpui::r#async::executor::Background;
     use warpui::keymap::{BindingId, DescriptionContext};
 
     use crate::search::action::data_source::{ActionSearcher, SearcherAction, is_excluded_binding};
@@ -245,11 +247,12 @@ mod full_text_searcher {
                 .collect())
         }
 
-        fn build_index(&mut self) {
+        fn build_index(&mut self, background: &Background) {
             if self.rebuild_search_index().is_err() {
                 warp_errors::report_error!("Failed to create search index writer for actions");
                 self.clear_search_index();
             }
+            self.searcher.release_writer(background).detach();
         }
 
         fn bindings(&self) -> &HashMap<BindingId, Arc<CommandBinding>> {
