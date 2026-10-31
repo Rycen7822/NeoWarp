@@ -1954,6 +1954,11 @@ impl TerminalModel {
         self.registered_session_ids.insert(session_id);
     }
 
+    /// Includes previous subshells so cleanup covers the whole terminal.
+    pub(crate) fn registered_session_ids(&self) -> impl Iterator<Item = SessionId> + '_ {
+        self.registered_session_ids.iter().copied()
+    }
+
     pub fn needs_bracketed_paste(&mut self) -> bool {
         delegate!(self.needs_bracketed_paste())
     }

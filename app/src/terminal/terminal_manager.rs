@@ -13,7 +13,7 @@ use super::safe_mode_settings::get_secret_obfuscation_mode;
 use super::session_settings::SessionSettings;
 use super::settings::TerminalSettings;
 use super::view::{WARP_PROMPT_HEIGHT_LINES, create_size_info_for_blocklist};
-use super::{BlockPadding, ShellLaunchState, SizeInfo, TerminalModel, color};
+use super::{BlockPadding, History, ShellLaunchState, SizeInfo, TerminalModel, color};
 use crate::appearance::Appearance;
 use crate::pane_group::pane::DetachType;
 use crate::settings::{BlockVisibilitySettings, DebugSettings, InputModeSettings};
@@ -28,9 +28,20 @@ pub trait TerminalManager: Any {
     /// do not do anything with high latency here. Note that we cannot rely on events emitted
     /// here to be processed before the window closes.
     ///
-    /// Implementations should preserve state on [`DetachType::HiddenForClose`] or
-    /// [`DetachType::Moved`] and clean up only on [`DetachType::Closed`].
-    fn on_view_detached(&self, _detach_type: DetachType, _app: &mut AppContext) {}
+    /// Preserve state on [`DetachType::HiddenForClose`] or [`DetachType::Moved`];
+    /// only a permanent close releases the session's history lookup state.
+    fn on_view_detached(&self, detach_type: DetachType, app: &mut AppContext) {
+        if !matches!(detach_type, DetachType::Closed) {
+            return;
+        }
+        let terminal = self.model();
+        let model = terminal.lock();
+        History::handle(app).update(app, |history, _| {
+            for session_id in model.registered_session_ids() {
+                history.remove_session(session_id);
+            }
+        });
+    }
 
     fn replace_shell(
         &mut self,

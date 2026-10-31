@@ -354,6 +354,18 @@ impl History {
         self.session_id_to_shell_host.keys().cloned().collect()
     }
 
+    /// Releases a closed session's lookup state while preserving shared command history.
+    pub fn remove_session(&mut self, session_id: SessionId) {
+        self.session_skip_indices.remove(&session_id);
+        self.session_start_indices.remove(&session_id);
+        if let Some(host) = self.session_id_to_shell_host.remove(&session_id)
+            && let Some(ReadHistoryFileState::InProgress { session_ids, .. }) =
+                self.read_history_file_state.get_mut(&host)
+        {
+            session_ids.remove(&session_id);
+        }
+    }
+
     /// Initializes the history model for the given session.
     ///
     /// Command history from the shell's history file is read asynchronously on a background
