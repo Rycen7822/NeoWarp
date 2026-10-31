@@ -230,6 +230,7 @@ impl ImageMap {
         self.image_placement_data.clear();
         self.image_ids_by_point.clear();
         self.point_by_image_id.clear();
+        self.image_type_by_image_id.clear();
         self.largest_height = 0;
     }
 
@@ -257,6 +258,14 @@ impl ImageMap {
             }
 
             self.point_by_image_id.remove(&(image_id, placement_id));
+        }
+        if self
+            .point_by_image_id
+            .range((image_id, 0)..=(image_id, u32::MAX))
+            .next()
+            .is_none()
+        {
+            self.image_type_by_image_id.remove(&image_id);
         }
     }
 }
