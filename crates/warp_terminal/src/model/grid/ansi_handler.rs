@@ -854,14 +854,12 @@ impl ansi::Handler for GridHandler {
                     self.active_hyperlink_id = None;
                 }
             }
-            ansi::ClearMode::Saved if self.history_size() > 0 => {
-                self.flat_storage.clear();
+            ansi::ClearMode::Saved => {
+                self.flat_storage.clear_and_shrink();
                 self.grid.clear_history();
             }
-            // We have no history to clear.
-            ansi::ClearMode::Saved => (),
             ansi::ClearMode::ResetAndClear | ansi::ClearMode::ActiveBlock => {
-                self.flat_storage.clear();
+                self.flat_storage.clear_and_shrink();
                 self.grid.clear_and_reset_saving_cursor_line();
 
                 // Clear out state that will no longer be valid now that the
@@ -896,7 +894,7 @@ impl ansi::Handler for GridHandler {
     #[inline]
     fn reset_state(&mut self) {
         self.grid.reset();
-        self.flat_storage.clear();
+        self.flat_storage.clear_and_shrink();
 
         self.clear_secrets();
 

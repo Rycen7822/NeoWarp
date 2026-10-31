@@ -294,6 +294,12 @@ impl FlatStorage {
         self.truncate(0);
     }
 
+    /// Clears explicitly discarded history and releases the row index capacity.
+    pub fn clear_and_shrink(&mut self) {
+        self.clear();
+        self.index.shrink_to_fit();
+    }
+
     /// Updates the width of the grid.
     pub fn set_columns(&mut self, new_columns: usize) {
         if self.columns == new_columns {

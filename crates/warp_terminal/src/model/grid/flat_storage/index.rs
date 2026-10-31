@@ -158,6 +158,10 @@ impl Index {
         new_content_len
     }
 
+    pub fn shrink_to_fit(&mut self) {
+        self.rows.shrink_to_fit();
+    }
+
     /// Removes the first `count` rows from the index, returning the new start
     /// offset for the remaining content.
     pub fn truncate_front(&mut self, count: usize) -> ByteOffset {
