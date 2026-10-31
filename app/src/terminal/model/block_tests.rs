@@ -1607,12 +1607,8 @@ fn test_mark_end_of_prompt_with_some_rows_in_flat_storage() {
     block.start();
     block.finish(0);
 
-    // Resize the grid so that everything ends up in grid storage.
-    let rows = block
-        .header_grid
-        .prompt_and_command_grid()
-        .grid_handler()
-        .total_rows();
+    // Height-only resizes must keep completed grids compact.
+    let rows = block.prompt_and_command_grid().grid_handler().total_rows();
     block.resize(SizeInfo::new_without_font_metrics(rows, 40));
 
     // Assert that the end-of-prompt marker is set where we expect it to be.
@@ -1623,7 +1619,11 @@ fn test_mark_end_of_prompt_with_some_rows_in_flat_storage() {
         panic!("Expected to have a well-defined prompt end point; got: {prompt_end_point:?}");
     };
     assert_eq!(point, Point::new(0, 39));
-    assert!(block.header_grid.prompt_and_command_grid().grid_storage()[point].is_end_of_prompt());
+    let grid = block.prompt_and_command_grid().grid_handler();
+    assert_eq!(grid.visible_rows(), 1);
+    assert!(point.row < grid.history_size());
+    let row = grid.row(point.row).expect("prompt row should exist");
+    assert!(row[point.col].is_end_of_prompt());
 }
 
 #[test]
