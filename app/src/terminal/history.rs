@@ -505,6 +505,10 @@ impl History {
         ctx: &mut ModelContext<Self>,
     ) {
         let deduped_history_file_commands = dedupe_from_last(history_file_commands);
+        let mut summaries = self
+            .persisted_commands_summary
+            .remove(&host)
+            .unwrap_or_default();
 
         let mut start_index = deduped_history_file_commands.len();
         self.history_file_commands.insert(
@@ -512,10 +516,8 @@ impl History {
             deduped_history_file_commands
                 .into_iter()
                 .map(|command| {
-                    self.persisted_commands_summary
-                        .get(&host)
-                        .and_then(|summaries| summaries.get(&command))
-                        .cloned()
+                    summaries
+                        .remove(&command)
                         .unwrap_or_else(|| HistoryEntry::command_only(command))
                 })
                 .map(Arc::new)
