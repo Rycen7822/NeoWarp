@@ -207,8 +207,18 @@ impl CodeEditorView {
                         )
                 })
                 .collect();
+            let hidden = model
+                .diff()
+                .as_ref(ctx)
+                .unchanged_line_ranges(model.line_count(ctx) + 1, 3);
             for range in visible_lines {
-                model.set_visible_line_range(range, ctx);
+                // The reveal API handles one hidden section per call.
+                for section in hidden.overlapping(&range) {
+                    model.set_visible_line_range(
+                        range.start.max(section.start)..range.end.min(section.end),
+                        ctx,
+                    );
+                }
             }
             model.selection().update(ctx, |selection, ctx| {
                 selection.update_selection(
