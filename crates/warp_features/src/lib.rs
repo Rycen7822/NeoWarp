@@ -93,7 +93,6 @@ pub enum FeatureFlag {
     MultiWorkspace,
 
     /// Maximizes data in flat storage to reduce memory usage.
-    MaximizeFlatStorage,
 
     /// Recognizes the OSC 8 hyperlink escape sequence and makes the
     /// linked text Cmd+click-able.

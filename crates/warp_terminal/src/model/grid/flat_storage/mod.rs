@@ -316,7 +316,6 @@ impl FlatStorage {
     }
 
     /// Sets the maximum number of rows that can be stored.
-    #[cfg(any(test, feature = "test-util"))]
     pub fn set_max_rows(&mut self, max_rows: Option<usize>) {
         self.max_rows = max_rows;
     }

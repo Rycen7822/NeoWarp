@@ -1805,11 +1805,14 @@ impl GridHandler {
         // calling the finish byte processing hook on _that_ block.
         self.on_finish_byte_processing(&ansi::ProcessorInput::new(&[]));
 
-        // If we're using flat storage, push as many rows as possible into
-        // flat storage to minimize memory consumption.
-        if FeatureFlag::MaximizeFlatStorage.is_enabled() {
-            self.resize_storage(1, self.columns());
+        // Move the immutable rows into flat storage without reducing the
+        // content budget that included the visible grid before finishing.
+        if let Some(max_rows) = self.flat_storage.max_rows() {
+            let extra_rows = self.visible_rows().saturating_sub(1);
+            self.flat_storage
+                .set_max_rows(Some(max_rows.saturating_add(extra_rows)));
         }
+        self.resize_storage(1, self.columns());
     }
 
     /// Returns the total number of rows that _precede_ the row containing the

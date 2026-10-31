@@ -22,7 +22,7 @@ impl GridHandler {
         let num_cols = size.columns();
         let num_rows = size.rows();
 
-        if old_cols == num_cols && old_rows == num_rows {
+        if old_cols == num_cols && (self.finished || old_rows == num_rows) {
             log::debug!("Term::resize dimensions unchanged");
             return;
         }
@@ -40,7 +40,8 @@ impl GridHandler {
         }
 
         // Resize the internal storage structures.
-        self.resize_storage(num_rows, num_cols);
+        let storage_rows = if self.finished { 1 } else { num_rows };
+        self.resize_storage(storage_rows, num_cols);
 
         // Reset scrolling region.
         self.ansi_handler_state.scroll_region = VisibleRow(0)..VisibleRow(self.visible_rows());
@@ -100,10 +101,8 @@ impl GridHandler {
         // Resize flat storage.
         self.flat_storage.set_columns(num_cols);
 
-        // If the grid is finished, don't let the number of visible rows exceed
-        // the number of total rows (i.e.: if we can't pop a full num_rows
-        // from flat storage, limit visible_rows to the number of rows we
-        // _could_ pop).
+        // Internal callers can still materialize immutable rows temporarily,
+        // for example to mark the end of a prompt stored in scrollback.
         let visible_rows = if self.finished {
             num_rows.min(self.flat_storage.total_rows())
         } else {
