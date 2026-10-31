@@ -62,7 +62,7 @@ use warpui::{
 
 use self::decorations::InputBackgroundJobOptions;
 use super::alias::is_expandable_alias;
-use super::event::{BlockCompletedEvent, BlockType, UserBlockCompleted};
+use super::event::{BlockCompletedEvent, BlockType};
 use super::ligature_settings::LigatureSettings;
 use super::model::block::{BlockId, BlockMetadata};
 use super::model::completions::ShellCompletion;
@@ -450,15 +450,14 @@ struct LastWordInsertion {
     is_latest_editor_event: bool,
 }
 
-/// Data pertaining to the session state and history is bundled together, making
-/// it accessible to other objects coupled with the same terminal session, such as a notebook.
+/// Session and command metadata shared by terminal completion consumers.
 #[derive(Clone)]
 pub struct CompleterData {
     pub sessions: ModelHandle<Sessions>,
     pub active_block_metadata: Option<BlockMetadata>,
     command_registry: Arc<CommandRegistry>,
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    last_user_block_completed: Option<UserBlockCompleted>,
+    last_completed_command: Option<Arc<HistoryEntry>>,
 }
 
 impl CompleterData {
@@ -466,13 +465,13 @@ impl CompleterData {
         sessions: ModelHandle<Sessions>,
         active_block_metadata: Option<BlockMetadata>,
         command_registry: Arc<CommandRegistry>,
-        last_user_block_completed: Option<UserBlockCompleted>,
+        last_completed_command: Option<Arc<HistoryEntry>>,
     ) -> Self {
         Self {
             sessions,
             active_block_metadata,
             command_registry,
-            last_user_block_completed,
+            last_completed_command,
         }
     }
 
@@ -745,7 +744,7 @@ pub struct Input {
 
     /// The last block that the user ran. This is used for generating autosuggestions.
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    last_user_block_completed: Option<UserBlockCompleted>,
+    last_completed_command: Option<Arc<HistoryEntry>>,
 
     hoverable_handle: MouseStateHandle,
 
@@ -988,7 +987,7 @@ impl Input {
                 sessions.clone(),
                 None, // active_block_metadata will be set later when blocks are available
                 CommandRegistry::global_instance(),
-                None, // last_user_block_completed will be set later
+                None, // last_completed_command will be set later
             );
             completer_data.completion_session_context(ctx)
         };
@@ -1217,7 +1216,7 @@ impl Input {
                 .as_ref(ctx)
                 .enable_autosuggestions,
             latest_block_id,
-            last_user_block_completed: None,
+            last_completed_command: None,
             hoverable_handle: Default::default(),
             #[cfg(feature = "local_fs")]
             conn: None,
@@ -1418,7 +1417,7 @@ impl Input {
             self.sessions.clone(),
             self.active_block_metadata.clone(),
             CommandRegistry::global_instance(),
-            self.last_user_block_completed.clone(),
+            self.last_completed_command.clone(),
         )
     }
 
@@ -2237,31 +2236,8 @@ impl Input {
             .get_ignored_suggestions_for_type(SuggestionType::ShellCommand);
         #[cfg(feature = "local_fs")]
         let conn = self.conn.clone();
-        // Resolve the last completed block's lazily-computed fields now, synchronously, since the
-        // spawned future below doesn't have access to the terminal model to resolve them later.
         #[cfg(feature = "local_fs")]
-        let last_user_block_completed_data =
-            completer_data
-                .last_user_block_completed
-                .as_ref()
-                .map(|block| {
-                    (
-                        block
-                            .command
-                            .get_with(|compute| {
-                                let model = self.model.lock();
-                                compute(model.block_list())
-                            })
-                            .to_owned(),
-                        block
-                            .serialized_block
-                            .get_with(|compute| {
-                                let model = self.model.lock();
-                                compute(model.block_list())
-                            })
-                            .clone(),
-                    )
-                });
+        let last_completed_command = completer_data.last_completed_command.clone();
         let abort_handle = ctx
             .spawn_abortable(
                 async move {
@@ -2269,17 +2245,17 @@ impl Input {
                     // First, use rich history to find commands with a matching prefix that were run
                     // in a similar context, taking into account the most recent block run.
                     if let Some(conn) = conn
-                        && let Some((last_command, last_serialized_block)) =
-                            &last_user_block_completed_data
+                        && let Some(last_command) = &last_completed_command
+                        && let Some(exit_code) = last_command.exit_code
                     {
                         let similar_history_commands = {
                             let mut conn = conn.lock();
                             find_next_commands_from_similar_history(
                                 &mut conn,
-                                last_command,
-                                &last_serialized_block.pwd,
-                                last_serialized_block.exit_code,
-                                last_serialized_block.shell_host.as_ref(),
+                                &last_command.command,
+                                &last_command.pwd,
+                                exit_code,
+                                last_command.shell_host.as_ref(),
                             )
                         };
                         if !similar_history_commands.is_empty() {
@@ -4340,7 +4316,14 @@ impl Input {
         ctx: &mut ViewContext<Self>,
     ) {
         if let BlockType::User(block_completed) = block {
-            self.last_user_block_completed = Some(block_completed.clone());
+            let command = {
+                let model = self.model.lock();
+                HistoryEntry::for_completed_block(
+                    block_completed.command.get(model.block_list()).clone(),
+                    block_completed.serialized_block.get(model.block_list()),
+                )
+            };
+            self.last_completed_command = Some(Arc::new(command));
 
             ctx.emit(Event::InputStateChanged(InputState::Enabled));
         } else if block.is_bootstrap_block()
