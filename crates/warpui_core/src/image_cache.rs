@@ -497,8 +497,10 @@ impl ImageType {
 pub enum CacheOption {
     /// Only the specific used sizes are cached.
     /// Best for situations when the image/asset is used with a fixed size.
-    /// Example: icons, theme picker previews.
+    /// Example: icons.
     BySize,
+    /// Caches rendered sizes and releases unused bundled static source pixels, for theme previews.
+    Thumbnail,
     /// Only the original asset is cached.
     /// Best for situations when the image/asset doesn't have a fixed size, and it may change
     /// significantly on every window resize.
@@ -874,13 +876,43 @@ impl ImageCache {
         asset_source.hash(&mut s);
         let cache_key = s.finish();
 
+        let limit_bounds = |bounds: Vector2I| {
+            if let Some(max_dimension) = max_dimension {
+                let width = bounds.x() as u32;
+                let height = bounds.y() as u32;
+                if width > max_dimension || height > max_dimension {
+                    let (width, height) =
+                        resize_dimensions(width, height, max_dimension, max_dimension, fit_type);
+                    return Vector2I::new(width as i32, height as i32);
+                }
+            }
+            bounds
+        };
+        if matches!(cache_option, CacheOption::Thumbnail) {
+            let key = RenderedImageCacheKey {
+                bounds: limit_bounds(bounds),
+                fit_type,
+                animated_image_behavior,
+            };
+            if let Some(image) = self
+                .images
+                .read()
+                .get(&cache_key)
+                .and_then(|sizes| sizes.get(&key))
+            {
+                return AssetState::Loaded {
+                    data: image.clone(),
+                };
+            }
+        }
+
         match asset_cache.load_asset::<ImageType>(asset_source.clone()) {
             AssetState::Loading { handle } => AssetState::Loading { handle },
             AssetState::Evicted => AssetState::Evicted,
             AssetState::FailedToLoad(err) => AssetState::FailedToLoad(err),
             AssetState::Loaded { data } => {
                 let (mut needs_resize, mut bounds) = match cache_option {
-                    CacheOption::BySize => {
+                    CacheOption::BySize | CacheOption::Thumbnail => {
                         // Only resize the source asset if a specific size was requested and it
                         // does not match the source asset's size.
                         let needs_resize = data.image_size() != Some(bounds);
@@ -900,25 +932,9 @@ impl ImageCache {
                     }
                 };
 
-                // If we need to ensure the image isn't larger than a given
-                // size along either dimension, check if a resize is needed
-                // and update needs_resize and bounds accordingly.
-                if let Some(max_dimension) = max_dimension {
-                    let width = bounds.x() as u32;
-                    let height = bounds.y() as u32;
-
-                    if width > max_dimension || height > max_dimension {
-                        needs_resize = true;
-                        let (nwidth, nheight) = resize_dimensions(
-                            width,
-                            height,
-                            max_dimension,
-                            max_dimension,
-                            fit_type,
-                        );
-                        bounds = Vector2I::new(nwidth as i32, nheight as i32);
-                    }
-                }
+                let limited_bounds = limit_bounds(bounds);
+                needs_resize |= limited_bounds != bounds;
+                bounds = limited_bounds;
 
                 let rendered_image_cache_key = RenderedImageCacheKey {
                     bounds,
@@ -967,6 +983,10 @@ impl ImageCache {
                         });
                     }
                     sizes.insert(rendered_image_cache_key, image.clone());
+                }
+
+                if matches!(cache_option, CacheOption::Thumbnail) && should_cache_rendered_image {
+                    asset_cache.release_unused_bundled_image(&asset_source);
                 }
 
                 AssetState::Loaded { data: image }

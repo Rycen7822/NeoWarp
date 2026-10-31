@@ -636,7 +636,7 @@ pub fn render_preview(
                 1.,
                 warpui::elements::Image::new(
                     background_image.source(),
-                    warpui::elements::CacheOption::BySize,
+                    warpui::elements::CacheOption::Thumbnail,
                 )
                 .cover()
                 .finish(),

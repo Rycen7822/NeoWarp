@@ -17,7 +17,7 @@ use warp_errors::report_error;
 
 use super::AssetProvider;
 use crate::r#async::executor;
-use crate::image_cache::ImageCache;
+use crate::image_cache::{ImageCache, ImageType};
 use crate::{Entity, ModelContext, SingletonEntity};
 
 pub trait FetchAsset: crate::r#async::Spawnable + Future<Output = Result<Bytes>> {}
@@ -255,6 +255,25 @@ impl Asset for String {
 impl AssetCache {
     const MAX_RAW_ASSET_SIZE: usize = 320 * 1000 * 1000; // 320MB
     const MAX_VERSIONED_LOCAL_FILE_ASSET_SIZE: usize = 320 * 1000 * 1000; // 320MB
+
+    /// Discards an immutable decoded source once a thumbnail owns its own pixels.
+    /// Keep sources still used by a scene or an original-sized image.
+    pub(crate) fn release_unused_bundled_image(&self, source: &AssetSource) {
+        if !matches!(source, AssetSource::Bundled { .. }) {
+            return;
+        }
+        let key = AssetHandle {
+            source: source.clone(),
+            asset_type: TypeId::of::<ImageType>(),
+        };
+        let mut assets = self.inner.borrow_mut();
+        if let Some(AssetStateInternal::Loaded { data, .. }) = assets.get(&key)
+            && let Some(ImageType::StaticBitmap { image }) = data.downcast_ref::<ImageType>()
+            && Arc::strong_count(image) == 1
+        {
+            assets.remove(&key);
+        }
+    }
 
     pub fn new(
         bundled_asset_provider: Box<dyn AssetProvider>,

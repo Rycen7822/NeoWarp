@@ -74,7 +74,7 @@ pub struct Image {
 impl Image {
     /// Creates an image element with an explicit [`CacheOption`].
     ///
-    /// Use [`CacheOption::BySize`] for images rendered at a fixed size (icons, thumbnails);
+    /// Use [`CacheOption::BySize`] for fixed-size icons, and [`CacheOption::Thumbnail`] for previews;
     /// a CPU-resized copy is cached per size.
     /// Use [`CacheOption::Original`] for images whose display size changes continuously
     /// (e.g. background images); only the original asset is cached and the GPU scales it.
