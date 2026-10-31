@@ -615,6 +615,9 @@ async fn initialize_device(
             // If we use any WGSL features that aren't included in
             // these defaults, we can add specific overrides as needed.
             required_limits: limits,
+            // D3D12's default pools commit much more memory than the terminal needs.
+            #[cfg(windows)]
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
             ..Default::default()
         })
         .await
