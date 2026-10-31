@@ -13,7 +13,45 @@ use crate::platform::GraphicsBackend;
 use crate::rendering::GPUPowerPreference;
 use crate::windowing;
 
-static WGPU_INSTANCE: LazyLock<Mutex<Option<Arc<wgpu::Instance>>>> = LazyLock::new(Mutex::default);
+struct CachedInstance {
+    instance: Arc<wgpu::Instance>,
+    backends: wgpu::Backends,
+    display_handle: Arc<dyn WgpuHasDisplayHandle>,
+}
+
+static WGPU_INSTANCE: LazyLock<Mutex<Option<CachedInstance>>> = LazyLock::new(Mutex::default);
+
+fn create_wgpu_instance(
+    display_handle: Arc<dyn WgpuHasDisplayHandle>,
+    backends: wgpu::Backends,
+) -> CachedInstance {
+    let disable_dcomp = std::env::var("WARP_USE_DIRECT_COMPOSITION")
+        .ok()
+        .is_some_and(|val| val == "0" || val.eq_ignore_ascii_case("false"));
+    let instance = Arc::new(wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        backend_options: wgpu::BackendOptions {
+            dx12: wgpu::Dx12BackendOptions {
+                presentation_system: if disable_dcomp {
+                    wgpu::wgt::Dx12SwapchainKind::DxgiFromHwnd
+                } else {
+                    wgpu::wgt::Dx12SwapchainKind::DxgiFromVisual
+                },
+                shader_compiler: get_dx12_shader_compiler().unwrap_or(wgpu::Dx12Compiler::Fxc),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        flags: wgpu::InstanceFlags::empty(),
+        memory_budget_thresholds: Default::default(),
+        display: Some(Box::new(display_handle.clone())),
+    }));
+    CachedInstance {
+        instance,
+        backends,
+        display_handle,
+    }
+}
 
 /// Drops and recreates the global shared [`wgpu::Instance`].
 pub fn reset_wgpu_instance(display_handle: Box<dyn wgpu::wgt::WgpuHasDisplayHandle>) {
@@ -31,43 +69,23 @@ pub fn reset_wgpu_instance(display_handle: Box<dyn wgpu::wgt::WgpuHasDisplayHand
 
 /// Initializes the global wgpu instance.  This MUST be called before [`get_wgpu_instance()`].
 pub fn init_wgpu_instance(display_handle: Box<dyn WgpuHasDisplayHandle>) {
-    // Check whether DirectComposition should be explicitly disabled on Windows.
-    let disable_dcomp = std::env::var("WARP_USE_DIRECT_COMPOSITION")
-        .ok()
-        .is_some_and(|val| {
-            let val = val.to_lowercase();
-            val == "0" || val == "false"
-        });
-
-    // A helper function to create a wgpu instance with the appropriate configuration.
-    let create_instance = move || {
-        let dx12_shader_compiler = get_dx12_shader_compiler();
-        Arc::new(wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu_backend_options(),
-            backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions {
-                    presentation_system: if disable_dcomp {
-                        wgpu::wgt::Dx12SwapchainKind::DxgiFromHwnd
-                    } else {
-                        wgpu::wgt::Dx12SwapchainKind::DxgiFromVisual
-                    },
-                    shader_compiler: dx12_shader_compiler.unwrap_or(wgpu::Dx12Compiler::Fxc),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            flags: wgpu::InstanceFlags::empty(),
-            memory_budget_thresholds: Default::default(),
-            display: Some(display_handle),
-        }))
+    let display_handle: Arc<dyn WgpuHasDisplayHandle> = display_handle.into();
+    let backends = wgpu_backend_options();
+    // Other Windows backends remain available, but their drivers are loaded only when needed.
+    #[cfg(windows)]
+    let backends = if std::env::var_os("WGPU_BACKEND").is_none() {
+        wgpu::Backends::DX12
+    } else {
+        backends
     };
+    let create_instance = move || create_wgpu_instance(display_handle.clone(), backends);
 
     // A helper function for initializing the WGPU_INSTANCE static variable.
     //
     // If `lock_acquired_tx` is provided, it will be used to signal when the lock has been acquired, allowing
     // for asynchronous initialization in a dedicated thread while ensuring that `get_wgpu_instance()` cannot
     // race with the initialization.
-    let init_static_var = |lock_acquired_tx: Option<std::sync::mpsc::Sender<()>>| {
+    let init_static_var = move |lock_acquired_tx: Option<std::sync::mpsc::Sender<()>>| {
         let mut instance_lock_guard = WGPU_INSTANCE
             .lock()
             .expect("wgpu instance lock should not be poisoned");
@@ -127,13 +145,29 @@ pub fn init_wgpu_instance(display_handle: Box<dyn WgpuHasDisplayHandle>) {
 /// This should always be used over [`wgpu::Instance::new`] or
 /// [`wgpu::Instance::default`] to ensure that configuration is consistent
 /// across the app.
-fn get_wgpu_instance() -> Arc<wgpu::Instance> {
-    WGPU_INSTANCE
+fn get_wgpu_instance() -> (Arc<wgpu::Instance>, wgpu::Backends) {
+    let instance = WGPU_INSTANCE
         .lock()
-        .expect("wgpu instance lock should not be poisoned")
+        .expect("wgpu instance lock should not be poisoned");
+    let instance = instance
         .as_ref()
-        .expect("wgpu instance should have been initialized")
-        .clone()
+        .expect("wgpu instance should have been initialized");
+    (instance.instance.clone(), instance.backends)
+}
+
+fn get_full_wgpu_instance() -> (Arc<wgpu::Instance>, wgpu::Backends) {
+    let mut instance = WGPU_INSTANCE
+        .lock()
+        .expect("wgpu instance lock should not be poisoned");
+    let instance = instance
+        .as_mut()
+        .expect("wgpu instance should have been initialized");
+    let backends = wgpu_backend_options();
+    if !instance.backends.contains(backends) {
+        log::info!("Initializing additional wgpu backends: {backends:?}");
+        *instance = create_wgpu_instance(instance.display_handle.clone(), backends);
+    }
+    (instance.instance.clone(), instance.backends)
 }
 
 /// Returns the set of wgpu backends that we can select from.
@@ -145,8 +179,7 @@ pub async fn print_wgpu_adapters(
     backend_preference: Option<GraphicsBackend>,
     windowing_system: Option<windowing::System>,
 ) {
-    let instance = get_wgpu_instance();
-    let backends = wgpu_backend_options();
+    let (instance, backends) = get_full_wgpu_instance();
     let adapters = instance.enumerate_adapters(backends).await;
 
     let sorted = resources::sort_adapters(
@@ -184,8 +217,9 @@ pub async fn print_wgpu_adapters(
 /// machines with two GPUs -- a dedicated discrete high-performance GPU and a lower power
 /// integrated GPU.
 pub async fn is_low_power_gpu_available() -> bool {
-    get_wgpu_instance()
-        .enumerate_adapters(::wgpu::Backends::all())
+    let (instance, backends) = get_wgpu_instance();
+    instance
+        .enumerate_adapters(backends)
         .await
         .iter()
         .any(|adapter| adapter.get_info().device_type == ::wgpu::DeviceType::IntegratedGpu)

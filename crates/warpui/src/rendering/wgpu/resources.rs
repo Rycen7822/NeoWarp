@@ -73,7 +73,7 @@ pub struct Resources {
 impl Resources {
     /// Attempts to construct a new instance of [`Resources`] via the provided `window_handle`.
     pub fn new(
-        window_handle: impl Into<wgpu::SurfaceTarget<'static>> + wgpu::rwh::HasDisplayHandle,
+        window_handle: impl Into<wgpu::SurfaceTarget<'static>> + wgpu::rwh::HasDisplayHandle + Clone,
         gpu_power_preference: GPUPowerPreference,
         backend_preference: Option<wgpu::Backend>,
         initial_surface_size: Vector2F,
@@ -81,59 +81,95 @@ impl Resources {
     ) -> Result<Self> {
         let windowing_system = window_handle.display_handle()?.as_raw().try_into().ok();
 
-        let instance = super::get_wgpu_instance();
-        let surface = instance.create_surface(window_handle)?;
-
-        let backends = super::wgpu_backend_options();
+        let (mut instance, mut backends) = super::get_wgpu_instance();
+        if backend_preference.is_some_and(|backend| !backends.contains(backend.into()))
+            || downrank_non_nvidia_vulkan_adapters
+        {
+            (instance, backends) = super::get_full_wgpu_instance();
+        }
         // All of the WGPU initialization functions are asynchronous. For simplicity while
         // prototyping, we just use `block_on` to force them to be synchronous.
-        block_on(async {
-            let (adapter, device, queue, surface_config, supported_backends) = select_adapter(
-                &instance,
-                &surface,
-                backends,
-                backend_preference,
-                gpu_power_preference,
-                initial_surface_size,
-                windowing_system,
-                downrank_non_nvidia_vulkan_adapters,
-            )
-            .await
-            .ok_or_else(|| anyhow!("No usable wgpu adapter was found"))?;
-            let adapter_info = adapter.get_info();
-
-            log::info!(
-                "Using {:?} {:?} ({}) for rendering new window.",
-                adapter_info.backend,
-                adapter_info.device_type,
-                adapter_info.name,
-            );
-
-            let uniforms = uniforms::Uniforms::new(&device);
-            let quad = quad::Resources::new(&device);
-
-            let device_lost = Arc::new(AtomicBool::new(false));
-
-            let device_lost_clone = device_lost.clone();
-            device.set_device_lost_callback(move |device_lost_reason, message| {
-                device_lost_clone.store(true, Ordering::SeqCst);
-                log::warn!(
-                    "The current device is lost. Reason: {device_lost_reason:?}. Message: {message}"
+        loop {
+            let result: Result<Self> = block_on(async {
+                let surface = instance.create_surface(window_handle.clone())?;
+                let (adapter, device, queue, surface_config, supported_backends) = select_adapter(
+                    &instance,
+                    &surface,
+                    backends,
+                    backend_preference,
+                    gpu_power_preference,
+                    initial_surface_size,
+                    windowing_system,
+                    downrank_non_nvidia_vulkan_adapters,
                 )
-            });
+                .await
+                .ok_or_else(|| anyhow!("No usable wgpu adapter was found"))?;
+                let adapter_info = adapter.get_info();
 
-            Ok(Self {
-                device,
-                device_lost,
-                queue,
-                adapter,
-                surface,
-                surface_config: surface_config.into(),
-                supported_backends: supported_backends.into_iter().collect(),
-                uniforms,
-                quad,
-            })
-        })
+                log::info!(
+                    "Using {:?} {:?} ({}) for rendering new window.",
+                    adapter_info.backend,
+                    adapter_info.device_type,
+                    adapter_info.name,
+                );
+
+                let uniforms = uniforms::Uniforms::new(&device);
+                let quad = quad::Resources::new(&device);
+
+                let device_lost = Arc::new(AtomicBool::new(false));
+
+                let device_lost_clone = device_lost.clone();
+                device.set_device_lost_callback(move |device_lost_reason, message| {
+                    device_lost_clone.store(true, Ordering::SeqCst);
+                    log::warn!(
+                        "The current device is lost. Reason: {device_lost_reason:?}. Message: {message}"
+                    )
+                });
+
+                Ok(Self {
+                    device,
+                    device_lost,
+                    queue,
+                    adapter,
+                    surface,
+                    surface_config: surface_config.into(),
+                    supported_backends: supported_backends.into_iter().collect(),
+                    uniforms,
+                    quad,
+                })
+            });
+            if backends == super::wgpu_backend_options() {
+                return result;
+            }
+            let needs_fallback = result.as_ref().map_or(true, |resources| {
+                !matches!(
+                    resources.adapter.get_info().device_type,
+                    wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu
+                ) || adapter_stability_sort_func(&resources.adapter, windowing_system, false)
+                    != AdapterSupport::Supported
+            });
+            if !needs_fallback {
+                return result;
+            }
+            drop(result);
+            log::info!("Retrying window initialization with all permitted wgpu backends");
+            (instance, backends) = super::get_full_wgpu_instance();
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn available_backends(
+        window_handle: impl Into<wgpu::SurfaceTarget<'static>>,
+    ) -> Result<Vec<wgpu::Backend>> {
+        let (instance, backends) = super::get_full_wgpu_instance();
+        let surface = instance.create_surface(window_handle)?;
+        Ok(block_on(instance.enumerate_adapters(backends))
+            .iter()
+            .filter(|adapter| is_supported_adapter(adapter, &surface))
+            .map(|adapter| adapter.get_info().backend)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect())
     }
 
     pub fn uniform_bind_group_layout(&self) -> &wgpu::BindGroupLayout {

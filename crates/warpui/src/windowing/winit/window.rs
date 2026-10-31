@@ -1577,6 +1577,21 @@ impl crate::platform::Window for Window {
     }
 
     fn supported_backends(&self) -> Vec<GraphicsBackend> {
+        #[cfg(windows)]
+        {
+            let Some(window) = self
+                .inner
+                .borrow()
+                .as_ref()
+                .map(|inner| inner.window.clone())
+            else {
+                return Vec::new();
+            };
+            match Resources::available_backends(window) {
+                Ok(backends) => return backends.into_iter().map(from_wgpu_backend).collect(),
+                Err(error) => log::warn!("Could not query all graphics backends: {error:#}"),
+            }
+        }
         self.inner
             .borrow()
             .as_ref()

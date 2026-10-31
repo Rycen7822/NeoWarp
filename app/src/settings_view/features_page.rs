@@ -786,6 +786,8 @@ pub struct FeaturesPageView {
 
     tab_behavior_dropdown: ViewHandle<Dropdown<FeaturesPageAction>>,
     graphics_backend_dropdown: ViewHandle<Dropdown<FeaturesPageAction>>,
+    // Settings pages are created eagerly; load other GPU drivers only after this page is selected.
+    graphics_backend_options_requested: bool,
     new_tab_placement_dropdown: ViewHandle<Dropdown<FeaturesPageAction>>,
     osc52_clipboard_access_dropdown: ViewHandle<Dropdown<FeaturesPageAction>>,
     default_session_mode_dropdown: ViewHandle<FilterableDropdown<FeaturesPageAction>>,
@@ -1906,6 +1908,7 @@ impl FeaturesPageView {
             ctrl_tab_behavior_dropdown,
             right_click_behavior_dropdown,
             graphics_backend_dropdown,
+            graphics_backend_options_requested: false,
             new_tab_placement_dropdown,
             osc52_clipboard_access_dropdown,
             default_session_mode_dropdown,
@@ -2651,7 +2654,9 @@ impl FeaturesPageView {
         ctx: &mut ViewContext<Self>,
     ) {
         self.graphics_backend_dropdown.update(ctx, |dropdown, ctx| {
-            if let Some(window) = ctx.windows().platform_window(ctx.window_id()) {
+            if self.graphics_backend_options_requested
+                && let Some(window) = ctx.windows().platform_window(ctx.window_id())
+            {
                 let mut items = vec![DropdownItem::new(
                     "Default",
                     FeaturesPageAction::SetPreferredGraphicsBackend(None),
@@ -3533,6 +3538,7 @@ impl SettingsPageMeta for FeaturesPageView {
         // since we last loaded this page.
         self.refresh_tab_behavior_state(ctx);
         self.refresh_tab_behavior_dropdown(ctx);
+        self.graphics_backend_options_requested = true;
         self.refresh_preferred_graphics_backend_dropdown(ctx);
     }
 
