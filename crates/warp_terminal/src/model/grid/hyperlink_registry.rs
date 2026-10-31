@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use get_size::GetSize;
 use serde::{Deserialize, Serialize};
@@ -41,10 +42,10 @@ impl GetSize for HyperlinkId {}
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct HyperlinkRegistry {
     /// Reverse map: hyperlink → id. Lets `intern` dedupe.
-    by_link: HashMap<Hyperlink, HyperlinkId>,
+    by_link: HashMap<Arc<Hyperlink>, HyperlinkId>,
     /// Forward array: id → hyperlink. An id's `NonZeroU32` value is its index
     /// in this vec plus one (the `+ 1` keeps the first id non-zero).
-    by_id: Vec<Hyperlink>,
+    by_id: Vec<Arc<Hyperlink>>,
     /// Whether we've already logged a warning that the distinct-entries cap
     /// was hit. Untrusted terminal output can emit unlimited unique URIs, so
     /// we warn at most once per registry to avoid log spam. Not serialized:
@@ -89,7 +90,8 @@ impl HyperlinkRegistry {
         // MAX_DISTINCT_ENTRIES (= 4096) checked above, so it can't truncate.
         let next_value = (self.by_id.len() + 1) as u32;
         let id = HyperlinkId(NonZeroU32::new(next_value).expect("len + 1 is never 0"));
-        self.by_id.push(hyperlink.clone());
+        let hyperlink = Arc::new(hyperlink);
+        self.by_id.push(Arc::clone(&hyperlink));
         self.by_link.insert(hyperlink, id);
         Some(id)
     }
@@ -99,7 +101,7 @@ impl HyperlinkRegistry {
     /// registry via a buggy migration path).
     pub fn get(&self, id: HyperlinkId) -> Option<&Hyperlink> {
         let index = id.0.get() as usize - 1;
-        self.by_id.get(index)
+        self.by_id.get(index).map(Arc::as_ref)
     }
 
     /// The current number of distinct entries. Test-only because the

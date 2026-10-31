@@ -220,6 +220,9 @@ fn parse_number(input: &[u8]) -> Option<u8> {
     Some(num)
 }
 
+/// Keep ordinary sequence buffers reusable without retaining one unusually large message.
+const MAX_RETAINED_SEQUENCE_BYTES: usize = 64 * 1024;
+
 #[derive(Debug, Default)]
 struct DcsData {
     data: Vec<u8>,
@@ -767,6 +770,11 @@ where
             }
             _ => (),
         }
+        self.state.dcs_data.data.clear();
+        self.state
+            .dcs_data
+            .data
+            .shrink_to(MAX_RETAINED_SEQUENCE_BYTES);
     }
 
     // TODO replace OSC parsing with parser combinators.
@@ -1559,19 +1567,9 @@ where
     }
 
     fn apc_end(&mut self) {
-        let first_byte = match self.state.apc_data.first() {
-            Some(&first_byte) => first_byte,
-            None => return,
-        };
-
-        let writer = &mut self.writer;
-
         // 'G' identifies a Kitty image APC message
-        if first_byte == b'G' {
-            if !FeatureFlag::KittyImages.is_enabled() {
-                return;
-            }
-
+        if self.state.apc_data.first() == Some(&b'G') && FeatureFlag::KittyImages.is_enabled() {
+            let writer = &mut self.writer;
             let parsed_chunk = parse_kitty_chunk(self.state.apc_data[1..].to_vec());
 
             let further_chunks = parsed_chunk.control_data.further_chunks;
@@ -1582,6 +1580,8 @@ where
                 self.handler.end_kitty_action_receiving(writer)
             }
         }
+        self.state.apc_data.clear();
+        self.state.apc_data.shrink_to(MAX_RETAINED_SEQUENCE_BYTES);
     }
 }
 
