@@ -273,28 +273,6 @@ fn load_default_monospace_font_family(ctx: &mut AppContext) -> anyhow::Result<Fa
 
 fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
     warpui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
-        let roboto = font_cache.load_family_from_bytes(
-            "Roboto",
-            vec![
-                ASSETS
-                    .get("bundled/fonts/roboto/Roboto-Italic.ttf")?
-                    .to_vec(),
-                ASSETS.get("bundled/fonts/roboto/Roboto-Bold.ttf")?.to_vec(),
-                ASSETS
-                    .get("bundled/fonts/roboto/Roboto-Regular.ttf")?
-                    .to_vec(),
-                ASSETS
-                    .get("bundled/fonts/roboto/Roboto-Medium.ttf")?
-                    .to_vec(),
-                ASSETS
-                    .get("bundled/fonts/roboto/RobotoFlex-Semibold.ttf")?
-                    .to_vec(),
-                ASSETS
-                    .get("bundled/fonts/roboto/Roboto-BoldItalic.ttf")?
-                    .to_vec(),
-            ],
-        );
-
         // On Windows, default to use Segoe UI as the UI font. This font is recommended by
         // Windows when rendering any UI text: https://learn.microsoft.com/en-us/windows/win32/uxguide/vis-fonts.
         // This font should be bundled with any modern version of Windows, if we can't load it for
@@ -304,8 +282,32 @@ fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId>
             return Ok(font_family_id);
         }
 
-        roboto
+        load_roboto_font_family(font_cache)
     })
+}
+
+fn load_roboto_font_family(font_cache: &mut warpui::fonts::Cache) -> anyhow::Result<FamilyId> {
+    font_cache.load_family_from_bytes(
+        "Roboto",
+        vec![
+            ASSETS
+                .get("bundled/fonts/roboto/Roboto-Italic.ttf")?
+                .to_vec(),
+            ASSETS.get("bundled/fonts/roboto/Roboto-Bold.ttf")?.to_vec(),
+            ASSETS
+                .get("bundled/fonts/roboto/Roboto-Regular.ttf")?
+                .to_vec(),
+            ASSETS
+                .get("bundled/fonts/roboto/Roboto-Medium.ttf")?
+                .to_vec(),
+            ASSETS
+                .get("bundled/fonts/roboto/RobotoFlex-Semibold.ttf")?
+                .to_vec(),
+            ASSETS
+                .get("bundled/fonts/roboto/Roboto-BoldItalic.ttf")?
+                .to_vec(),
+        ],
+    )
 }
 
 fn load_password_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
@@ -322,7 +324,16 @@ fn load_password_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
 /// Then we fall back to loading a system font.
 fn get_or_load_font_family(font_name: &str, ctx: &mut AppContext) -> Option<FamilyId> {
     warpui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
-        match font_cache.get_or_load_system_font(font_name) {
+        let family = font_cache
+            .get_or_load_system_font(font_name)
+            .or_else(|error| {
+                if font_name == "Roboto" {
+                    load_roboto_font_family(font_cache)
+                } else {
+                    Err(error)
+                }
+            });
+        match family {
             Ok(family) => {
                 let font_id = font_cache.select_font(family, warpui::fonts::Properties::default());
 

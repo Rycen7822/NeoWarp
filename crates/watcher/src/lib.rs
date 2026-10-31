@@ -5,10 +5,8 @@ use std::sync::mpsc::{self, channel};
 use std::thread;
 use std::time::Duration;
 
-pub mod home_watcher;
 use anyhow::{Context, Result};
 use futures::channel::oneshot;
-pub use home_watcher::{HomeDirectoryWatcher, HomeDirectoryWatcherEvent};
 use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
 use notify_debouncer_full::notify::{
     self, EventKind, RecommendedWatcher, RecursiveMode, WatchFilter,

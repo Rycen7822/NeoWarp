@@ -13,7 +13,6 @@ use terminal::view::ActiveSessionState;
 use warp_files::FileModel;
 use warpui::platform::WindowStyle;
 use warpui::{AddSingletonModel, App, ViewHandle};
-use watcher::HomeDirectoryWatcher;
 
 use super::*;
 use crate::code::persisted_workspace::PersistedWorkspace;
@@ -61,7 +60,6 @@ pub(crate) fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| SettingsPaneManager::new());
 
     app.add_singleton_model(|_| DetectedRepositories::default());
-    app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
 

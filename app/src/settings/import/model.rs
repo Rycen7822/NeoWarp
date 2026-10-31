@@ -44,6 +44,16 @@ impl ImportedConfigModel {
         use strum::IntoEnumIterator;
         self.started = true;
 
+        let terminals = TerminalType::iter()
+            .filter(|terminal| {
+                *terminal != TerminalType::Alacritty
+                    || FeatureFlag::AlacrittySettingsImport.is_enabled()
+            })
+            .collect::<Vec<_>>();
+        if terminals.is_empty() {
+            return;
+        }
+
         let loaded_system_fonts = warpui::fonts::Cache::handle(ctx)
             .update(ctx, |font_cache, ctx| font_cache.all_system_fonts(ctx));
         ctx.spawn(loaded_system_fonts, |_, fonts, ctx| {
@@ -52,12 +62,7 @@ impl ImportedConfigModel {
                 .map(|(_family_id, font_info)| font_info)
                 .collect_vec();
             let fonts_ref = Arc::new(fonts);
-            for terminal_type in TerminalType::iter() {
-                if terminal_type == TerminalType::Alacritty
-                    && !FeatureFlag::AlacrittySettingsImport.is_enabled()
-                {
-                    continue;
-                }
+            for terminal_type in terminals {
                 let fonts_ref_clone = Arc::clone(&fonts_ref);
                 ctx.spawn(
                     async move {

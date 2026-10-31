@@ -108,8 +108,6 @@ use terminal::keys_settings::KeysSettings;
 use terminal::local_shell::LocalShellState;
 pub use util::bindings::cmd_or_ctrl_shift;
 #[cfg(feature = "local_fs")]
-use watcher::HomeDirectoryWatcher;
-
 pub mod workspace;
 
 use std::borrow::Cow;
@@ -840,11 +838,6 @@ pub(crate) fn initialize_app(
     {
         ctx.add_singleton_model(DirectoryWatcher::new);
         ctx.add_singleton_model(|_| DetectedRepositories::default());
-        if let Some(home_dir) = dirs::home_dir() {
-            ctx.add_singleton_model(|ctx| HomeDirectoryWatcher::new(home_dir, ctx));
-        } else {
-            log::info!("Home directory not found; skipping HomeDirectoryWatcher registration");
-        }
     }
 
     #[cfg(feature = "local_fs")]

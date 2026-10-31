@@ -11,7 +11,6 @@ use warpui::platform::{WindowBounds, WindowStyle};
 use warpui::windowing::WindowManager;
 use warpui::windowing::state::ApplicationStage;
 use warpui::{App, ModelHandle};
-use watcher::HomeDirectoryWatcher;
 
 use super::*;
 use crate::code::persisted_workspace::PersistedWorkspace;
@@ -45,7 +44,6 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| SystemStats::new());
 
     app.add_singleton_model(|_| DetectedRepositories::default());
-    app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(DirectoryWatcher::new);
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
 

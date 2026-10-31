@@ -22,7 +22,6 @@ use warpui::keymap::Keystroke;
 use warpui::platform::WindowStyle;
 use warpui::text::SelectionType;
 use warpui::{App, UpdateView, WindowId};
-use watcher::HomeDirectoryWatcher;
 
 use super::*;
 use crate::code::persisted_workspace::PersistedWorkspace;
@@ -230,7 +229,6 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(RepoMetadataModel::new);
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(|_| IgnoredSuggestionsModel::new(vec![]));
-    app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
 
     // Add GlobalResourceHandlesProvider for persistence
