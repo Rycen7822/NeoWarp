@@ -26,10 +26,8 @@ use std::sync::{Arc, LazyLock};
 use ignore::gitignore::Gitignore;
 use parking_lot::Mutex;
 
-/// Total `.gitignore` source bytes the cache may hold before evicting least-recently-used
-/// entries, bounding memory regardless of `.gitignore` count. A compiled matcher can retain up
-/// to ~163x its source size in the worst case observed, so this bounds worst-case retained
-/// heap to roughly 60 MiB.
+/// Total `.gitignore` source bytes held before evicting least-recently-used entries.
+/// This limits source bytes, not compiled matcher size or matchers retained by an index.
 #[cfg(not(test))]
 const MAX_CACHED_SOURCE_BYTES: u64 = 384 * 1024;
 /// Small in tests so eviction can be exercised without huge fixtures.
@@ -118,6 +116,7 @@ impl Cache {
 }
 
 static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(|| Mutex::new(Cache::default()));
+static EMPTY_GITIGNORE: LazyLock<Arc<Gitignore>> = LazyLock::new(|| Arc::new(Gitignore::empty()));
 
 fn content_digest(content: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -141,6 +140,14 @@ pub(crate) fn get_or_parse(gitignore_path: &Path) -> Arc<Gitignore> {
         let (gitignore, _) = Gitignore::new(gitignore_path);
         return Arc::new(gitignore);
     };
+    if content.is_empty() {
+        // Empty files need no rooted matcher, per-file pool, or zero-weight cache entry.
+        let mut cache = CACHE.lock();
+        if let Some(previous) = cache.entries.remove(gitignore_path) {
+            cache.total_source_bytes -= previous.source_len;
+        }
+        return Arc::clone(&EMPTY_GITIGNORE);
+    }
     let content_digest = content_digest(&content);
 
     if let Some(gitignore) = CACHE.lock().lookup(gitignore_path, content_digest) {
