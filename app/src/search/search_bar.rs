@@ -531,6 +531,8 @@ impl<T: Action + Clone> SearchBar<T> {
         self.editor_handle
             .update(ctx, |editor: &mut EditorView, ctx| {
                 editor.clear_buffer_and_reset_undo_stack(ctx);
+                // Clearing undo alone retains deleted text in the CRDT history.
+                editor.reinitialize_buffer(None, ctx);
                 if let Some(initial_query) = initial_query {
                     editor.user_initiated_insert(
                         initial_query.as_str(),
