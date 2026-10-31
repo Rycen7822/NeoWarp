@@ -954,10 +954,19 @@ impl ImageCache {
                     };
                 if let Some(cache) = cache {
                     let mut images_cache = RwLockUpgradableReadGuard::upgrade(cache);
-                    images_cache
-                        .entry(cache_key)
-                        .or_default()
-                        .insert(rendered_image_cache_key, image.clone());
+                    let sizes = images_cache.entry(cache_key).or_default();
+                    if matches!(asset_source, AssetSource::Raw { .. }) {
+                        // Scenes hold the inner pixels after dropping Rc<Image>.
+                        // Keep active sizes and the existing animation policy.
+                        sizes.retain(|_, cached| {
+                            Rc::strong_count(cached) > 1
+                                || match cached.as_ref() {
+                                    Image::Static(pixels) => Arc::strong_count(pixels) > 1,
+                                    Image::Animated(_) => true,
+                                }
+                        });
+                    }
+                    sizes.insert(rendered_image_cache_key, image.clone());
                 }
 
                 AssetState::Loaded { data: image }
