@@ -162,6 +162,7 @@ fn embed_resource_file(target_dir: &Path) {
         .join("no-padding")
         .join("icon.ico");
 
+    println!("cargo:rerun-if-changed={}", icon_path.display());
     fs::copy(icon_path, target_dir.join("icon.ico"))
         .unwrap_or_else(|err| panic!("Could not copy icon: {err:#}"));
 
