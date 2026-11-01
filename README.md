@@ -5,6 +5,10 @@ terminal sessions and local data.
 
 ## Product Scope
 
+Use the upper-left Files toggle to browse the active terminal's directory. Expand folders on demand
+and select a file to open it beside the terminal, with basic editing and saving. On Windows, WSL
+directory changes arrive through the bundled Linux filesystem watcher, including ignored folders.
+
 - Terminal blocks, history, completion, tabs, splits, and basic text editing.
 - Ordinary SSH/WSL and advanced SSH daemon support without Warp account or cloud-service dependencies.
 - Git change statistics and a dedicated review panel with file lists and inline diffs.

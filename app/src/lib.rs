@@ -20,6 +20,9 @@ mod debug_dump;
 mod default_terminal;
 #[cfg(windows)]
 mod dynamic_libraries;
+#[cfg(feature = "local_fs")]
+mod file_browser;
+mod file_watcher;
 mod global_resource_handles;
 mod gpu_state;
 mod interval_timer;

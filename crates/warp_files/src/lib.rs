@@ -153,7 +153,9 @@ struct LocalFile {
 
 impl LocalFile {
     fn should_receive_update_for_path(&self, path: &Path) -> bool {
-        self.path.as_deref() == Some(path) && self.subscribes_to_updates() && self.version.is_some()
+        (self.path.as_deref() == Some(path) || self.entry_path.as_deref() == Some(path))
+            && self.subscribes_to_updates()
+            && self.version.is_some()
     }
 }
 
@@ -1189,8 +1191,12 @@ impl FileModel {
         }
     }
 
-    /// Reloads file content if the given path matches any tracked file.
-    fn reload_file_paths(&mut self, file_paths: HashSet<PathBuf>, ctx: &mut ModelContext<Self>) {
+    /// Reloads subscribed, loaded files matching a canonical path or their original entry path.
+    pub fn reload_file_paths(
+        &mut self,
+        file_paths: HashSet<PathBuf>,
+        ctx: &mut ModelContext<Self>,
+    ) {
         // First filter to keep only the paths that are tracked.
         let matching_files: Vec<PathBuf> = file_paths
             .into_iter()

@@ -19,18 +19,25 @@ use serde::Deserialize;
 use serde_json::json;
 use warpui::r#async::executor::Background;
 
-use super::GitInvalidation;
+use super::FileChanges;
 
 type Services = HashMap<String, Weak<Sender<Control>>>;
 static SERVICES: LazyLock<Mutex<Services>> = LazyLock::new(Mutex::default);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone, Copy)]
+pub(crate) enum WatchScope {
+    Repository,
+    Directory,
+}
+
 enum Control {
     Watch {
         id: u64,
         path: String,
+        scope: WatchScope,
         events: Sender<()>,
-        pending: Arc<Mutex<GitInvalidation>>,
+        pending: Arc<Mutex<FileChanges>>,
     },
     Unwatch {
         id: u64,
@@ -46,7 +53,7 @@ enum Event {
     Dirty {
         id: u64,
         #[serde(flatten)]
-        changes: GitInvalidation,
+        changes: FileChanges,
     },
     Error {
         id: u64,
@@ -54,14 +61,14 @@ enum Event {
     },
 }
 
-pub(super) struct Subscription {
+pub(crate) struct Subscription {
     control: Arc<Sender<Control>>,
     id: u64,
-    pending: Arc<Mutex<GitInvalidation>>,
+    pending: Arc<Mutex<FileChanges>>,
 }
 
 impl Subscription {
-    pub(super) fn take_changes(&self) -> GitInvalidation {
+    pub(crate) fn take_changes(&self) -> FileChanges {
         std::mem::take(&mut *self.pending.lock())
     }
 }
@@ -74,8 +81,9 @@ impl Drop for Subscription {
     }
 }
 
-pub(super) fn subscribe(
+pub(crate) fn subscribe(
     path: &Path,
+    scope: WatchScope,
     executor: &Background,
 ) -> Option<(Subscription, Receiver<()>)> {
     let path = warp_util::path::parse_wsl_unc_path(path)?;
@@ -93,7 +101,7 @@ pub(super) fn subscribe(
             executor
                 .spawn(async move {
                     if let Err(error) = run(&path.distro, rx).await {
-                        log::warn!("WSL Git watcher unavailable: {error:#}");
+                        log::warn!("WSL filesystem watcher unavailable: {error:#}");
                     }
                 })
                 .detach();
@@ -101,10 +109,11 @@ pub(super) fn subscribe(
         });
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (events, receiver) = async_channel::bounded(1);
-    let pending = Arc::new(Mutex::new(GitInvalidation::default()));
+    let pending = Arc::new(Mutex::new(FileChanges::default()));
     let _ = control.try_send(Control::Watch {
         id,
         path: path.linux_path,
+        scope,
         events,
         pending: pending.clone(),
     });
@@ -136,10 +145,10 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .context("cannot start WSL Git watcher")?;
+        .context("cannot start WSL filesystem watcher")?;
     let mut input = child.stdin.take().context("missing helper stdin")?;
     let mut lines = BufReader::new(child.stdout.take().context("missing helper stdout")?).lines();
-    let mut subscribers = HashMap::<u64, (Sender<()>, Arc<Mutex<GitInvalidation>>)>::new();
+    let mut subscribers = HashMap::<u64, (Sender<()>, Arc<Mutex<FileChanges>>)>::new();
     let result = async {
         loop {
             // Keep the lines stream alive across cancelled selects; partially
@@ -153,17 +162,19 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                         Control::Watch {
                             id,
                             path,
+                            scope,
                             events,
                             pending,
                         } => {
                             subscribers.insert(id, (events, pending));
-                            json!({"op": "watch", "id": id, "path": path})
+                            let scope = match scope {
+                                WatchScope::Repository => "repository",
+                                WatchScope::Directory => "directory",
+                            };
+                            json!({"op": "watch", "id": id, "path": path, "scope": scope})
                         }
                         Control::Unwatch { id } => {
                             subscribers.remove(&id);
-                            if subscribers.is_empty() {
-                                break;
-                            }
                             json!({"op": "unwatch", "id": id})
                         }
                     };
@@ -180,7 +191,7 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                     {
                         Event::Ready { id } => (
                             id,
-                            GitInvalidation {
+                            FileChanges {
                                 full: true,
                                 git_changed: true,
                                 ..Default::default()
@@ -188,7 +199,7 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                         ),
                         Event::Dirty { id, changes } => (id, changes),
                         Event::Error { id, message } => {
-                            log::warn!("WSL Git watcher subscription failed: {message}");
+                            log::warn!("WSL filesystem watcher subscription failed: {message}");
                             subscribers.remove(&id);
                             if subscribers.is_empty() {
                                 break;

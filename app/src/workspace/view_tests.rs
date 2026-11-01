@@ -1230,6 +1230,46 @@ fn test_switch_focus_panels() {
 }
 
 #[test]
+#[cfg(feature = "local_fs")]
+fn test_file_browser_reuses_editor_without_replacing_terminal() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let group = workspace.read(&app, |workspace, _| {
+            workspace.active_tab_pane_group().clone()
+        });
+        let terminal = group.read(&app, |group, ctx| group.active_session_id(ctx));
+        let directory = TempDir::new().unwrap();
+        let first = directory.path().join("first.txt");
+        let second = directory.path().join("second.txt");
+        std::fs::write(&first, "first").unwrap();
+        std::fs::write(&second, "second").unwrap();
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.toggle_file_browser(ctx);
+            assert!(workspace.file_browser.is_some());
+            workspace.open_sidebar_file(first, ctx);
+        });
+        let editor = group.read(&app, |group, ctx| {
+            assert_eq!(group.code_panes(ctx).count(), 1);
+            group.focused_pane_id(ctx)
+        });
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.open_sidebar_file(second, ctx)
+        });
+        group.read(&app, |group, ctx| {
+            assert_eq!(group.code_panes(ctx).count(), 1);
+            assert_eq!(group.focused_pane_id(ctx), editor);
+            assert_eq!(group.active_session_id(ctx), terminal);
+        });
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.toggle_file_browser(ctx);
+            assert!(workspace.file_browser.is_none());
+        });
+    });
+}
+
+#[test]
 fn test_focus_code_pane() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);

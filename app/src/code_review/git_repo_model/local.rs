@@ -11,6 +11,8 @@ use warpui::{Entity, ModelContext, ModelHandle};
 use super::{GitInvalidation, GitRepoStatusEvent, GitStatusMetadata};
 use crate::code_review::diff_state::diff_metadata_against_head;
 use crate::context_chips::display_chip::GitBranchTrackingStatus;
+#[cfg(windows)]
+use crate::file_watcher::wsl;
 use crate::util::git::{FileChangeEntry, detect_current_branch_display, detect_main_branch};
 
 /// Per-repository model that owns the filesystem watcher and exposes git status
@@ -29,7 +31,7 @@ pub struct LocalGitRepoStatusModel {
     computing_metadata_abort_handle: Option<SpawnedFutureHandle>,
     refresh_pending: bool,
     #[cfg(windows)]
-    wsl_subscription: Option<super::wsl::Subscription>,
+    wsl_subscription: Option<wsl::Subscription>,
     #[cfg(windows)]
     fallback_poll_handle: Option<SpawnedFutureHandle>,
 }
@@ -65,9 +67,11 @@ impl LocalGitRepoStatusModel {
         model.refresh_metadata(ctx);
 
         #[cfg(windows)]
-        if let Some((subscription, events)) =
-            super::wsl::subscribe(&repo_path, &ctx.background_executor())
-        {
+        if let Some((subscription, events)) = wsl::subscribe(
+            &repo_path,
+            wsl::WatchScope::Repository,
+            &ctx.background_executor(),
+        ) {
             model.wsl_subscription = Some(subscription);
             // A stalled startup must not leave counts frozen. A Ready/Dirty
             // event cancels this grace timer; EOF enables the normal fallback.

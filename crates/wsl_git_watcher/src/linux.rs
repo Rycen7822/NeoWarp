@@ -364,9 +364,8 @@ fn run_loop(
                 dirty.remove(&id);
                 rebuild.remove(&id);
                 prune(&repositories, watcher, &mut registered)?;
-                if repositories.is_empty() {
-                    return Ok(());
-                }
+                // Stdin owns the process lifetime. A new Watch may already be
+                // queued when the last directory is collapsed and reopened.
             }
             Some(Input::Files(event)) => {
                 let event = event?;

@@ -521,6 +521,8 @@ pub struct Workspace {
     resource_center_view: ViewHandle<ResourceCenterView>,
     #[cfg(feature = "local_fs")]
     git_review_view: Option<ViewHandle<crate::code_review::review::GitReviewView>>,
+    #[cfg(feature = "local_fs")]
+    file_browser: Option<ViewHandle<crate::file_browser::FileBrowserView>>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
     settings_error_banner_dismissed: bool,
@@ -1507,6 +1509,8 @@ impl Workspace {
             resource_center_view,
             #[cfg(feature = "local_fs")]
             git_review_view: None,
+            #[cfg(feature = "local_fs")]
+            file_browser: None,
             command_search_view,
             settings_file_error,
             settings_error_banner_dismissed: false,
@@ -4374,6 +4378,43 @@ impl Workspace {
             Some("Settings".to_owned()),
             ctx,
         );
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn toggle_file_browser(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.file_browser.take().is_none() {
+            let browser = ctx.add_typed_action_view(crate::file_browser::FileBrowserView::new);
+            ctx.subscribe_to_view(&browser, |me, _, path, ctx| {
+                me.open_sidebar_file(path.clone(), ctx);
+            });
+            self.file_browser = Some(browser);
+        }
+        ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn open_sidebar_file(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
+        let group = self.active_tab_pane_group().clone();
+        let existing = group
+            .as_ref(ctx)
+            .code_panes(ctx)
+            .find(|(id, _)| !group.as_ref(ctx).is_pane_hidden_for_close(*id));
+        if let Some((id, view)) = existing {
+            view.update(ctx, |view, ctx| {
+                view.open_or_focus_existing(Some(LocalOrRemotePath::Local(path)), None, ctx);
+            });
+            group.update(ctx, |group, ctx| group.focus_pane(id, true, ctx));
+        } else {
+            let source = CodeSource::Link {
+                path,
+                range_start: None,
+                range_end: None,
+            };
+            let pane = CodePane::new(source, None, ctx);
+            group.update(ctx, |group, ctx| {
+                group.add_pane_with_direction(Direction::Right, pane, true, ctx);
+            });
+        }
     }
 
     #[cfg(feature = "local_fs")]
@@ -9068,6 +9109,24 @@ impl Workspace {
         ctx: &AppContext,
     ) -> Box<dyn Element> {
         let mut tab_bar = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
+        #[cfg(feature = "local_fs")]
+        tab_bar.add_child(
+            self.render_tab_bar_icon_button(
+                appearance,
+                if self.file_browser.is_some() {
+                    icons::Icon::LeftSidebarClose
+                } else {
+                    icons::Icon::LeftSidebarOpen
+                },
+                &self.mouse_states.file_browser_icon,
+                WorkspaceAction::ToggleFileBrowser,
+                "Files".to_owned(),
+                None,
+                self.file_browser.is_some(),
+                false,
+            )
+            .finish(),
+        );
 
         // Check if vertical tabs mode is active
         let vertical_tabs_active =
@@ -10196,6 +10255,15 @@ impl Workspace {
     fn render_panels(&self, app: &AppContext, terminal_view: Box<dyn Element>) -> Box<dyn Element> {
         let mut panels_view = Flex::row();
         let mut prev_panel_added = false;
+        #[cfg(feature = "local_fs")]
+        if let Some(browser) = &self.file_browser {
+            panels_view.add_child(
+                ConstrainedBox::new(ChildView::new(browser).finish())
+                    .with_width(280.)
+                    .finish(),
+            );
+            prev_panel_added = true;
+        }
 
         // Config-driven vertical-tabs-era panels (left side).
         let vertical_tabs_active =
@@ -11143,6 +11211,10 @@ impl TypedActionView for Workspace {
             }
             ToggleVerticalTabsPanel => {
                 self.toggle_vertical_tabs_panel(ctx);
+            }
+            ToggleFileBrowser => {
+                #[cfg(feature = "local_fs")]
+                self.toggle_file_browser(ctx);
             }
             OpenVerticalTabsPanel => {
                 if !self.vertical_tabs_panel_open {

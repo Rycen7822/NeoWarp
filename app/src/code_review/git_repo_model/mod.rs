@@ -1,15 +1,9 @@
-use std::collections::HashSet;
-use std::path::PathBuf;
-
 use warpui::{AppContext, Entity, ModelContext, ModelHandle};
 
 #[cfg(feature = "local_fs")]
 mod local;
 #[cfg(feature = "local_fs")]
 pub use local::LocalGitRepoStatusModel;
-
-#[cfg(all(windows, feature = "local_fs"))]
-mod wsl;
 
 mod remote;
 pub use remote::RemoteGitRepoStatusModel;
@@ -31,27 +25,7 @@ pub struct GitStatusMetadata {
 
 // ── GitRepoStatusModel ──────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default)]
-#[cfg_attr(all(windows, feature = "local_fs"), derive(serde::Deserialize))]
-pub struct GitInvalidation {
-    /// Repository-relative paths; full invalidation supersedes this set.
-    pub paths: HashSet<PathBuf>,
-    pub full: bool,
-    pub git_changed: bool,
-}
-
-#[cfg(all(windows, feature = "local_fs"))]
-impl GitInvalidation {
-    pub(super) fn merge(&mut self, update: Self) {
-        self.full |= update.full;
-        self.git_changed |= update.git_changed;
-        self.paths.extend(update.paths);
-        if self.full || self.paths.len() > 1024 {
-            self.full = true;
-            self.paths.clear();
-        }
-    }
-}
+pub use crate::file_watcher::FileChanges as GitInvalidation;
 
 #[derive(Debug, Clone)]
 pub enum GitRepoStatusEvent {
