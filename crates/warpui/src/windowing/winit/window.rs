@@ -658,9 +658,139 @@ fn enable_decorations_if_needed(window: &winit::window::Window, adapter_info: &A
     }
 }
 
-struct RenderingResources {
-    resources: Resources,
-    renderer: Renderer,
+enum RenderingResources {
+    Wgpu {
+        resources: Resources,
+        renderer: Renderer,
+    },
+    #[cfg(windows)]
+    D3d11(renderer::d3d11::Renderer),
+}
+
+impl RenderingResources {
+    fn new(
+        window: Arc<winit::window::Window>,
+        preference: GPUPowerPreference,
+        backend: Option<GraphicsBackend>,
+        size: Vector2F,
+        downrank: bool,
+    ) -> Result<Self> {
+        #[cfg(windows)]
+        if backend == Some(GraphicsBackend::Dx11)
+            || (backend.is_none() && renderer::d3d11::requested())
+        {
+            use wgpu::rwh::{HasWindowHandle, RawWindowHandle};
+            let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
+                anyhow::bail!("Windows renderer requires a Win32 window handle");
+            };
+            let hwnd = windows::Win32::Foundation::HWND(handle.hwnd.get() as *mut _);
+            match renderer::d3d11::Renderer::new(hwnd, size, preference) {
+                Ok(renderer) => {
+                    crate::rendering::record_low_power_gpu_available(
+                        renderer.low_power_gpu_available(),
+                    );
+                    log::info!("Using Direct3D11 for rendering new window.");
+                    return Ok(Self::D3d11(renderer));
+                }
+                Err(error) => {
+                    log::warn!("Direct3D11 initialization failed; using wgpu fallback: {error:#}")
+                }
+            }
+        }
+        let resources = Resources::new(
+            window.clone(),
+            preference,
+            backend.and_then(to_wgpu_backend),
+            size,
+            downrank,
+        )?;
+        enable_decorations_if_needed(&window, &resources.adapter.get_info());
+        let renderer = Renderer::new(&resources, GlyphConfig::default());
+        Ok(Self::Wgpu {
+            resources,
+            renderer,
+        })
+    }
+
+    fn update_surface_size(&mut self, size: Vector2F) -> Result<(), renderer::Error> {
+        match self {
+            Self::Wgpu { resources, .. } => Ok(resources.update_surface_size(size)?),
+            #[cfg(windows)]
+            Self::D3d11(renderer) => renderer.resize(size),
+        }
+    }
+
+    fn supports_transparency(&self) -> bool {
+        match self {
+            Self::Wgpu { resources, .. } => resources
+                .surface
+                .get_capabilities(&resources.adapter)
+                .alpha_modes
+                .iter()
+                .any(|mode| {
+                    matches!(
+                        mode,
+                        CompositeAlphaMode::PreMultiplied
+                            | CompositeAlphaMode::PostMultiplied
+                            | CompositeAlphaMode::Inherit
+                    )
+                }),
+            #[cfg(windows)]
+            Self::D3d11(_) => true,
+        }
+    }
+
+    fn backend(&self) -> GraphicsBackend {
+        match self {
+            Self::Wgpu { resources, .. } => from_wgpu_backend(resources.adapter.get_info().backend),
+            #[cfg(windows)]
+            Self::D3d11(_) => GraphicsBackend::Dx11,
+        }
+    }
+
+    fn max_texture_dimension_2d(&self) -> u32 {
+        match self {
+            Self::Wgpu { resources, .. } => resources.device.limits().max_texture_dimension_2d,
+            // The native constructor requires D3D feature level 11.0 or later.
+            #[cfg(windows)]
+            Self::D3d11(_) => 16384,
+        }
+    }
+
+    fn render(
+        &mut self,
+        scene: &Scene,
+        font_cache: &fonts::Cache,
+        window: &winit::window::Window,
+        size: Vector2F,
+        capture: Option<FrameCaptureCallback>,
+    ) -> Result<(), renderer::Error> {
+        let rasterize = |key, scale, alignment, config: &GlyphConfig, format| {
+            font_cache.rasterized_glyph(key, scale, alignment, config, format)
+        };
+        let bounds =
+            |key, scale, config: &GlyphConfig| font_cache.glyph_raster_bounds(key, scale, config);
+        let pre_present: Option<Box<dyn FnOnce() + '_>> =
+            Some(Box::new(|| window.pre_present_notify()));
+        match self {
+            Self::Wgpu {
+                resources,
+                renderer,
+            } => renderer.render(
+                scene,
+                resources,
+                &rasterize,
+                &bounds,
+                size,
+                pre_present,
+                capture,
+            ),
+            #[cfg(windows)]
+            Self::D3d11(renderer) => {
+                renderer.render(scene, &rasterize, &bounds, size, pre_present, capture)
+            }
+        }
+    }
 }
 
 struct Inner {
@@ -669,7 +799,7 @@ struct Inner {
     is_cloaked: bool,
     #[cfg_attr(not(any(target_os = "linux", target_os = "freebsd")), allow(dead_code))]
     gpu_power_preference: GPUPowerPreference,
-    backend_preference: Option<wgpu::Backend>,
+    backend_preference: Option<GraphicsBackend>,
     rendering_resources: Option<RenderingResources>,
     /// Callback that reports when a GPU device is selected. We need to store this on the window
     /// because we may attempt to recreate resources (which in turns reselects a GPU device) to
@@ -746,18 +876,14 @@ impl Window {
         let initial_surface_size = window.inner_size().to_vec2f().max(Vector2F::splat(1.));
 
         let gpu_power_preference = window_options.gpu_power_preference;
-        let backend_preference = window_options.backend_preference.map(to_wgpu_backend);
-        let resources = Resources::new(
+        let backend_preference = window_options.backend_preference;
+        let rendering_resources = RenderingResources::new(
             window.clone(),
             gpu_power_preference,
             backend_preference,
             initial_surface_size,
             downrank_non_nvidia_vulkan_adapters,
         )?;
-
-        enable_decorations_if_needed(&window, &resources.adapter.get_info());
-
-        let renderer = Renderer::new(&resources, GlyphConfig::default());
 
         let window_id = window.id();
         self.inner.replace(Some(Inner {
@@ -766,10 +892,7 @@ impl Window {
             is_cloaked: true,
             gpu_power_preference,
             backend_preference,
-            rendering_resources: Some(RenderingResources {
-                resources,
-                renderer,
-            }),
+            rendering_resources: Some(rendering_resources),
             active_drag_resize_direction: None,
             surface_size: initial_surface_size,
             surface_requires_reconfiguration: false,
@@ -787,7 +910,7 @@ impl Window {
 
         let window_size = inner.physical_size().to_vec2f();
 
-        let Some(RenderingResources { resources, .. }) = inner.rendering_resources.as_mut() else {
+        let Some(rendering_resources) = inner.rendering_resources.as_mut() else {
             return Ok(());
         };
 
@@ -804,7 +927,7 @@ impl Window {
         // If the window size has changed since we last configured the
         // underlying surface, reconfigure the surface with the new size.
         if inner.surface_requires_reconfiguration || inner.surface_size != window_size {
-            resources.update_surface_size(window_size)?;
+            rendering_resources.update_surface_size(window_size)?;
             inner.surface_size = window_size;
             inner.surface_requires_reconfiguration = false;
         }
@@ -836,35 +959,15 @@ impl Window {
             return Ok(());
         };
 
-        let Some(RenderingResources {
-            resources,
-            renderer,
-        }) = inner.rendering_resources.as_mut()
-        else {
+        let Some(rendering_resources) = inner.rendering_resources.as_mut() else {
             return Ok(());
         };
-
         let capture_callback = self.capture_callback.borrow_mut().take();
-        let window = &inner.window;
-        renderer.render(
+        rendering_resources.render(
             scene.as_ref(),
-            resources,
-            &|glyph_key, scale, subpixel_alignment, glyph_config, format| {
-                font_cache.rasterized_glyph(
-                    glyph_key,
-                    scale,
-                    subpixel_alignment,
-                    glyph_config,
-                    format,
-                )
-            },
-            &|glyph_key, scale, alignment| {
-                font_cache.glyph_raster_bounds(glyph_key, scale, alignment)
-            },
+            font_cache,
+            &inner.window,
             inner.surface_size,
-            Some(Box::new(|| {
-                window.pre_present_notify();
-            })),
             capture_callback,
         )?;
 
@@ -896,12 +999,16 @@ impl Window {
             return;
         };
 
-        let _ = inner.rendering_resources.take();
+        let old = inner.rendering_resources.take();
+        let was_wgpu = matches!(old, Some(RenderingResources::Wgpu { .. }));
+        drop(old);
 
         // Forceably drop and recreate our cached `wgpu::Instance` after dropping the renderer.
         // Without this, certain NVIDIA drivers deadlock upon recreating the resources with the
         // existing `Instance`.
-        crate::rendering::wgpu::reset_wgpu_instance(display_handle);
+        if was_wgpu {
+            crate::rendering::wgpu::reset_wgpu_instance(display_handle);
+        }
     }
 
     /// Recreates the window's renderer and all associated resources.
@@ -915,7 +1022,7 @@ impl Window {
             return;
         };
 
-        let resources = match Resources::new(
+        match RenderingResources::new(
             inner.window.clone(),
             inner.gpu_power_preference,
             inner.backend_preference,
@@ -924,21 +1031,11 @@ impl Window {
         )
         .context("Failed to recreate window renderer")
         {
-            Ok(resources) => resources,
-            Err(err) => {
-                report_error!(err.context("Failed to create window resources"));
-                return;
+            Ok(resources) => {
+                inner.rendering_resources = Some(resources);
             }
-        };
-
-        enable_decorations_if_needed(&inner.window, &resources.adapter.get_info());
-
-        let renderer = Renderer::new(&resources, GlyphConfig::default());
-
-        let _ = inner.rendering_resources.insert(RenderingResources {
-            resources,
-            renderer,
-        });
+            Err(error) => report_error!(error),
+        }
     }
 
     pub fn has_scene(&self) -> bool {
@@ -1549,22 +1646,7 @@ impl crate::platform::Window for Window {
             .borrow()
             .as_ref()
             .and_then(|inner| inner.rendering_resources.as_ref())
-            .is_some_and(|resources| {
-                let surface = &resources.resources.surface;
-                let adapter = &resources.resources.adapter;
-                surface
-                    .get_capabilities(adapter)
-                    .alpha_modes
-                    .iter()
-                    .any(|&mode| {
-                        matches!(
-                            mode,
-                            CompositeAlphaMode::PreMultiplied
-                                | CompositeAlphaMode::PostMultiplied
-                                | CompositeAlphaMode::Inherit
-                        )
-                    })
-            })
+            .is_some_and(RenderingResources::supports_transparency)
     }
 
     fn graphics_backend(&self) -> GraphicsBackend {
@@ -1572,7 +1654,7 @@ impl crate::platform::Window for Window {
             .borrow()
             .as_ref()
             .and_then(|inner| inner.rendering_resources.as_ref())
-            .map(|resources| from_wgpu_backend(resources.resources.adapter.get_info().backend))
+            .map(RenderingResources::backend)
             .unwrap_or(GraphicsBackend::Empty)
     }
 
@@ -1588,7 +1670,12 @@ impl crate::platform::Window for Window {
                 return Vec::new();
             };
             match Resources::available_backends(window) {
-                Ok(backends) => return backends.into_iter().map(from_wgpu_backend).collect(),
+                Ok(backends) => {
+                    let mut backends: Vec<_> =
+                        backends.into_iter().map(from_wgpu_backend).collect();
+                    backends.push(GraphicsBackend::Dx11);
+                    return backends;
+                }
                 Err(error) => log::warn!("Could not query all graphics backends: {error:#}"),
             }
         }
@@ -1596,13 +1683,14 @@ impl crate::platform::Window for Window {
             .borrow()
             .as_ref()
             .and_then(|inner| inner.rendering_resources.as_ref())
-            .map(|resources| {
-                resources
-                    .resources
+            .map(|resources| match resources {
+                RenderingResources::Wgpu { resources, .. } => resources
                     .supported_backends
                     .iter()
                     .map(|backend| from_wgpu_backend(*backend))
-                    .collect_vec()
+                    .collect_vec(),
+                #[cfg(windows)]
+                RenderingResources::D3d11(_) => vec![GraphicsBackend::Dx11],
             })
             .unwrap_or_default()
     }
@@ -1671,7 +1759,7 @@ impl platform::WindowContext for Window {
             .borrow()
             .as_ref()
             .and_then(|inner| inner.rendering_resources.as_ref())
-            .map(|resources| resources.resources.device.limits().max_texture_dimension_2d)
+            .map(RenderingResources::max_texture_dimension_2d)
     }
 
     fn render_scene(&self, scene: Rc<Scene>) {

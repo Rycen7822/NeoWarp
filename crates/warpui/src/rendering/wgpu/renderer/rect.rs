@@ -90,6 +90,16 @@ impl Pipeline {
             return None;
         }
 
+        let mut rect_instance_data = Self::instance_data(layer, scene);
+
+        let start_offset = per_frame_state.rect_data.len();
+        let len = rect_instance_data.len();
+        per_frame_state.rect_data.append(&mut rect_instance_data);
+
+        Some(LayerState { start_offset, len })
+    }
+
+    pub(super) fn instance_data(layer: &Layer, scene: &Scene) -> Vec<shader_types::RectData> {
         let scale_factor = scene.scale_factor();
         let mut rect_instance_data = Vec::with_capacity(layer.rects.len());
         for rect in &layer.rects {
@@ -189,11 +199,7 @@ impl Pipeline {
             rect_instance_data.push(rect_data);
         }
 
-        let start_offset = per_frame_state.rect_data.len();
-        let len = rect_instance_data.len();
-        per_frame_state.rect_data.append(&mut rect_instance_data);
-
-        Some(LayerState { start_offset, len })
+        rect_instance_data
     }
 
     pub(super) fn finalize_per_frame_state(

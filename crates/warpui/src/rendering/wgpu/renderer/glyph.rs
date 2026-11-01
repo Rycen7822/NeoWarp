@@ -293,7 +293,7 @@ impl Pipeline {
     }
 }
 
-mod shaders {
+pub(in crate::rendering::wgpu::renderer) mod shaders {
     use pathfinder_color::ColorU;
     use pathfinder_geometry::rect::RectF;
 
@@ -320,7 +320,7 @@ mod shaders {
             6 => Sint32,        // Is Emoji
         ];
 
-        pub(super) fn new(
+        pub(in crate::rendering::wgpu::renderer) fn new(
             bounds: RectF,
             uv_left: RectF,
             fade_start: f32,
@@ -338,7 +338,7 @@ mod shaders {
             }
         }
 
-        pub(super) fn desc() -> wgpu::VertexBufferLayout<'static> {
+        pub(in crate::rendering::wgpu::renderer) fn desc() -> wgpu::VertexBufferLayout<'static> {
             use std::mem;
 
             wgpu::VertexBufferLayout {

@@ -11,6 +11,12 @@ use warpui_core::scene::Dash;
 /// check can be expensive.
 static LOW_POWER_GPU_AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
+#[cfg(windows)]
+pub(crate) fn record_low_power_gpu_available(available: bool) {
+    // Publish only after the chosen native renderer has initialized successfully.
+    let _ = LOW_POWER_GPU_AVAILABLE.set(available);
+}
+
 /// Returns `true` if a low power GPU is available for rendering. Typically, this is true for
 /// machines with two GPUs -- a dedicated discrete high-performance GPU and a lower power
 /// integrated GPU.

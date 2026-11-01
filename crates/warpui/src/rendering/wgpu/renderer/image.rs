@@ -305,7 +305,7 @@ impl TextureInfo {
     }
 }
 
-mod shaders {
+pub(in crate::rendering::wgpu::renderer) mod shaders {
     use pathfinder_color::ColorU;
     use pathfinder_geometry::rect::RectF;
 
@@ -313,7 +313,7 @@ mod shaders {
     use crate::rendering::wgpu::shader_types::{ColorF, Vector4F, vec4f};
 
     /// Icons support overriding the color, whereas images only allow setting the opacity.
-    pub(super) enum ColorModifier {
+    pub(in crate::rendering::wgpu::renderer) enum ColorModifier {
         Icon { color: ColorU },
         Image { opacity: u8 },
     }
@@ -329,7 +329,7 @@ mod shaders {
 
     #[repr(C)]
     #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-    pub(super) struct ImageInstanceData {
+    pub(in crate::rendering::wgpu::renderer) struct ImageInstanceData {
         bounds: Vector4F,
         color: ColorF,
         is_icon: u32,
@@ -344,7 +344,7 @@ mod shaders {
             4 => Float32x4,    // Corner radius
         ];
 
-        pub(super) fn new(
+        pub(in crate::rendering::wgpu::renderer) fn new(
             bounds: RectF,
             color_modifier: ColorModifier,
             corner_radius: CornerRadius,
@@ -362,7 +362,7 @@ mod shaders {
             }
         }
 
-        pub(super) fn desc() -> wgpu::VertexBufferLayout<'static> {
+        pub(in crate::rendering::wgpu::renderer) fn desc() -> wgpu::VertexBufferLayout<'static> {
             use std::mem;
 
             wgpu::VertexBufferLayout {

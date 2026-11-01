@@ -9,7 +9,13 @@ use std::process::Command;
 
 use cfg_aliases::cfg_aliases;
 
+#[path = "build/d3d11_shaders.rs"]
+mod d3d11_shaders;
+
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        d3d11_shaders::generate();
+    }
     cfg_aliases! {
         macos: { target_os = "macos" },
         // We use winit on all platforms other than mac, where we have a custom

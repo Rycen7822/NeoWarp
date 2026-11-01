@@ -731,6 +731,11 @@ pub enum GraphicsBackend {
         schemars(description = "No-op backend for testing.")
     )]
     Empty,
+    #[cfg_attr(
+        feature = "schema_gen",
+        schemars(description = "DirectX 11 (Windows).")
+    )]
+    Dx11,
     #[cfg_attr(feature = "schema_gen", schemars(description = "DirectX 12."))]
     Dx12,
     #[cfg_attr(feature = "schema_gen", schemars(description = "Vulkan."))]
@@ -747,6 +752,7 @@ impl GraphicsBackend {
     pub fn to_label(&self) -> &'static str {
         match self {
             GraphicsBackend::Empty => "",
+            GraphicsBackend::Dx11 => "DirectX 11",
             GraphicsBackend::Dx12 => "DirectX 12",
             GraphicsBackend::Vulkan => "Vulkan",
             GraphicsBackend::Gl => "OpenGL",

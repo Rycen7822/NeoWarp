@@ -11033,6 +11033,7 @@ dependencies = [
  "log",
  "markdown_parser",
  "memmap2 0.9.7",
+ "naga",
  "native-dialog",
  "nix 0.26.4",
  "notify-rust",

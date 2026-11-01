@@ -200,6 +200,10 @@ dwrote = { git = "https://github.com/warpdotdev/dwrote-rs", rev = "a71ce6c0136f7
 winreg.workspace = true
 windows = { workspace = true, features = [
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Dxgi",
     "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
@@ -215,6 +219,7 @@ windows-version = "0.1.2"
 tauri-winrt-notification = "0.7.0"
 
 [build-dependencies]
+naga = { version = "30.0.0", features = ["wgsl-in", "hlsl-out"] }
 bindgen = "0.70.1"
 cc = { version = "1.0", features = ["parallel"] }
 cfg_aliases.workspace = true

@@ -3,7 +3,7 @@ mod resources;
 mod shader_types;
 mod texture_with_bind_group;
 
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 pub use renderer::Renderer;
 pub use resources::{Resources, adapter_has_rendering_offset_bug};
@@ -14,21 +14,48 @@ use crate::rendering::GPUPowerPreference;
 use crate::windowing;
 
 struct CachedInstance {
-    instance: Arc<wgpu::Instance>,
+    instance: OnceLock<Arc<wgpu::Instance>>,
     backends: wgpu::Backends,
     display_handle: Arc<dyn WgpuHasDisplayHandle>,
 }
 
 static WGPU_INSTANCE: LazyLock<Mutex<Option<CachedInstance>>> = LazyLock::new(Mutex::default);
 
+impl CachedInstance {
+    fn instance(&self) -> Arc<wgpu::Instance> {
+        self.instance
+            .get_or_init(|| create_gpu_instance(self.display_handle.clone(), self.backends))
+            .clone()
+    }
+}
+
 fn create_wgpu_instance(
     display_handle: Arc<dyn WgpuHasDisplayHandle>,
     backends: wgpu::Backends,
 ) -> CachedInstance {
+    let cached = CachedInstance {
+        instance: OnceLock::new(),
+        backends,
+        display_handle,
+    };
+    // Native D3D11 does not need a wgpu device or its driver state. Keep the display handle for
+    // explicit adapter queries and fallback, and initialize wgpu only if a real consumer asks.
+    #[cfg(windows)]
+    if renderer::d3d11::requested() {
+        return cached;
+    }
+    let _ = cached.instance();
+    cached
+}
+
+fn create_gpu_instance(
+    display_handle: Arc<dyn WgpuHasDisplayHandle>,
+    backends: wgpu::Backends,
+) -> Arc<wgpu::Instance> {
     let disable_dcomp = std::env::var("WARP_USE_DIRECT_COMPOSITION")
         .ok()
         .is_some_and(|val| val == "0" || val.eq_ignore_ascii_case("false"));
-    let instance = Arc::new(wgpu::Instance::new(wgpu::InstanceDescriptor {
+    Arc::new(wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
         backend_options: wgpu::BackendOptions {
             dx12: wgpu::Dx12BackendOptions {
@@ -45,12 +72,7 @@ fn create_wgpu_instance(
         flags: wgpu::InstanceFlags::empty(),
         memory_budget_thresholds: Default::default(),
         display: Some(Box::new(display_handle.clone())),
-    }));
-    CachedInstance {
-        instance,
-        backends,
-        display_handle,
-    }
+    }))
 }
 
 /// Drops and recreates the global shared [`wgpu::Instance`].
@@ -73,7 +95,7 @@ pub fn init_wgpu_instance(display_handle: Box<dyn WgpuHasDisplayHandle>) {
     let backends = wgpu_backend_options();
     // Other Windows backends remain available, but their drivers are loaded only when needed.
     #[cfg(windows)]
-    let backends = if std::env::var_os("WGPU_BACKEND").is_none() {
+    let backends = if std::env::var_os("WGPU_BACKEND").is_none() || renderer::d3d11::requested() {
         wgpu::Backends::DX12
     } else {
         backends
@@ -152,7 +174,7 @@ fn get_wgpu_instance() -> (Arc<wgpu::Instance>, wgpu::Backends) {
     let instance = instance
         .as_ref()
         .expect("wgpu instance should have been initialized");
-    (instance.instance.clone(), instance.backends)
+    (instance.instance(), instance.backends)
 }
 
 fn get_full_wgpu_instance() -> (Arc<wgpu::Instance>, wgpu::Backends) {
@@ -167,11 +189,15 @@ fn get_full_wgpu_instance() -> (Arc<wgpu::Instance>, wgpu::Backends) {
         log::info!("Initializing additional wgpu backends: {backends:?}");
         *instance = create_wgpu_instance(instance.display_handle.clone(), backends);
     }
-    (instance.instance.clone(), instance.backends)
+    (instance.instance(), instance.backends)
 }
 
 /// Returns the set of wgpu backends that we can select from.
 fn wgpu_backend_options() -> wgpu::Backends {
+    #[cfg(windows)]
+    if renderer::d3d11::requested() {
+        return wgpu::Backends::all();
+    }
     wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all())
 }
 pub async fn print_wgpu_adapters(
@@ -184,7 +210,7 @@ pub async fn print_wgpu_adapters(
 
     let sorted = resources::sort_adapters(
         adapters,
-        backend_preference.map(to_wgpu_backend),
+        backend_preference.and_then(to_wgpu_backend),
         &gpu_power_preference,
         windowing_system,
         // This value is only ever true after failing to render frames, which we never attempt when
@@ -255,13 +281,14 @@ pub(crate) fn from_wgpu_backend(backend: wgpu::Backend) -> GraphicsBackend {
 }
 
 /// Converts a [`GraphicsBackend`] to a [`wgpu::Backend`].
-pub(crate) fn to_wgpu_backend(backend: GraphicsBackend) -> wgpu::Backend {
-    match backend {
+pub(crate) fn to_wgpu_backend(backend: GraphicsBackend) -> Option<wgpu::Backend> {
+    Some(match backend {
+        GraphicsBackend::Dx11 => return None,
         GraphicsBackend::Empty => wgpu::Backend::Noop,
         GraphicsBackend::Dx12 => wgpu::Backend::Dx12,
         GraphicsBackend::Vulkan => wgpu::Backend::Vulkan,
         GraphicsBackend::Gl => wgpu::Backend::Gl,
         GraphicsBackend::Metal => wgpu::Backend::Metal,
         GraphicsBackend::BrowserWebGpu => wgpu::Backend::BrowserWebGpu,
-    }
+    })
 }

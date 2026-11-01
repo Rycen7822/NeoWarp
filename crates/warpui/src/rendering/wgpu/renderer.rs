@@ -1,3 +1,5 @@
+#[cfg(windows)]
+pub(crate) mod d3d11;
 mod frame;
 mod glyph;
 mod image;
@@ -146,6 +148,9 @@ impl Renderer {
 /// Errors that can occur while rendering a scene.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[cfg(windows)]
+    #[error("Direct3D11 rendering failed: {0:#}")]
+    Native(#[source] anyhow::Error),
     #[error("Device was lost")]
     DeviceLost,
     #[error("Failed to map buffer range: {0}")]
