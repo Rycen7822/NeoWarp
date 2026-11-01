@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use anyhow::Result;
+use device::{Device, Pipeline, Texture, create_buffer, create_texture};
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 use windows::Win32::Foundation::{HWND, RECT};
@@ -26,7 +27,6 @@ use crate::rendering::{
     CornerRadius, GPUPowerPreference, GlyphCache, GlyphRasterBoundsFn, RasterizeGlyphFn,
 };
 use crate::scene::GlyphFade;
-use device::{Device, Pipeline, Texture, create_buffer, create_texture};
 
 type CachedTexture = windows::core::Result<Texture>;
 

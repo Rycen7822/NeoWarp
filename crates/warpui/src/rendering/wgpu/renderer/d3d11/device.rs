@@ -1,6 +1,7 @@
 use std::ffi::CString;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use instant::Instant;
 use windows::Win32::Foundation::{E_INVALIDARG, HWND};
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile};
 use windows::Win32::Graphics::Direct3D::*;
@@ -8,7 +9,7 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::DirectComposition::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
-use windows::core::{Error, Interface, PCSTR, Result};
+use windows::core::{Error, Interface, PCSTR, Result, s};
 
 use crate::platform::CapturedFrame;
 use crate::rendering::GPUPowerPreference;
@@ -183,7 +184,7 @@ impl Device {
                     .CreateRenderTargetView(&buffer, None, Some(&mut self.render_target))?;
             }
             self.context
-                .OMSetRenderTargets(Some(&[self.render_target.clone()]), None);
+                .OMSetRenderTargets(Some(std::slice::from_ref(&self.render_target)), None);
             self.context.ClearRenderTargetView(
                 self.render_target
                     .as_ref()
@@ -498,7 +499,7 @@ impl Pipeline {
         let vertex_code = compile("vs_main", b"vs_5_0\0")?;
         let pixel_code = compile(fragment, b"ps_5_0\0")?;
         let mut elements = vec![D3D11_INPUT_ELEMENT_DESC {
-            SemanticName: PCSTR(b"LOC\0".as_ptr()),
+            SemanticName: s!("LOC"),
             Format: DXGI_FORMAT_R32G32_FLOAT,
             ..Default::default()
         }];
@@ -518,7 +519,7 @@ impl Pipeline {
                 }
             };
             elements.push(D3D11_INPUT_ELEMENT_DESC {
-                SemanticName: PCSTR(b"LOC\0".as_ptr()),
+                SemanticName: s!("LOC"),
                 SemanticIndex: attribute.shader_location,
                 Format: format,
                 InputSlot: 1,
