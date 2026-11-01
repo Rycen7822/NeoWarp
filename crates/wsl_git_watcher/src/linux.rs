@@ -22,8 +22,23 @@ const BATCH_DELAY: Duration = Duration::from_millis(150);
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Request {
-    Watch { id: u64, path: PathBuf },
-    Unwatch { id: u64 },
+    Watch {
+        id: u64,
+        path: PathBuf,
+        #[serde(default)]
+        scope: WatchScope,
+    },
+    Unwatch {
+        id: u64,
+    },
+}
+
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum WatchScope {
+    #[default]
+    Repository,
+    Directory,
 }
 
 #[derive(Serialize)]
@@ -82,6 +97,7 @@ enum Input {
 }
 
 struct Repository {
+    scope: WatchScope,
     root: PathBuf,
     git_dirs: Vec<PathBuf>,
     directories: HashSet<PathBuf>,
@@ -120,6 +136,7 @@ fn watch_directory(
 impl Repository {
     fn scan(
         root: &Path,
+        scope: WatchScope,
         watcher: &mut impl Watcher,
         registered: &mut HashSet<PathBuf>,
         stopping: &AtomicBool,
@@ -131,6 +148,14 @@ impl Repository {
         // Register each directory before enumerating its children. Events queued during
         // initial discovery are processed after Ready; the client also refreshes on Ready.
         watch_directory(&root, watcher, registered)?;
+        if matches!(scope, WatchScope::Directory) {
+            return Ok(Self {
+                scope,
+                root,
+                git_dirs: Vec::new(),
+                directories,
+            });
+        }
         let output = git(
             &root,
             &[
@@ -204,6 +229,7 @@ impl Repository {
             }
         }
         Ok(Self {
+            scope,
             root,
             git_dirs,
             directories,
@@ -211,7 +237,12 @@ impl Repository {
     }
 
     fn contains(&self, path: &Path) -> bool {
-        path.starts_with(&self.root) || self.git_dirs.iter().any(|git| path.starts_with(git))
+        // Other subscribers may watch ignored directories. Only deliver events
+        // from this subscription's own nonrecursive watches.
+        self.directories.contains(path)
+            || path
+                .parent()
+                .is_some_and(|parent| self.directories.contains(parent))
     }
 }
 
@@ -312,8 +343,8 @@ fn run_loop(
             Some(rx.recv()?)
         };
         match input {
-            Some(Input::Request(Request::Watch { id, path })) => {
-                match Repository::scan(&path, watcher, &mut registered, stopping) {
+            Some(Input::Request(Request::Watch { id, path, scope })) => {
+                match Repository::scan(&path, scope, watcher, &mut registered, stopping) {
                     Ok(repository) => {
                         repositories.insert(id, repository);
                         send(&mut output, Response::Ready { id })?;
@@ -411,7 +442,8 @@ fn run_loop(
                         continue;
                     };
                     let root = repository.root.clone();
-                    match Repository::scan(&root, watcher, &mut registered, stopping) {
+                    let scope = repository.scope;
+                    match Repository::scan(&root, scope, watcher, &mut registered, stopping) {
                         Ok(repository) => {
                             repositories.insert(id, repository);
                             // Discovery may have raced an edit in a new directory.
