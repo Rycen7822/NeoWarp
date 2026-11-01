@@ -1,12 +1,12 @@
 # Persistence and migrations
 
-NanoWarp uses a separate SQLite namespace. Keep ordinary terminal history, blocks, settings and window/tab/pane restoration when removing retired feature state.
+NeoWarp uses a separate SQLite namespace. Keep ordinary terminal history, blocks, settings and window/tab/pane restoration when removing retired feature state.
 
 ## Database boundaries
 
 Work from the repository root and use a fresh review database under `.work/`. Never run migration commands against original Warp data or an existing runtime profile. Editing an already-applied baseline does not update an existing development database.
 
-Before the first NanoWarp release, reduce the local-terminal baseline together with its consumers, models and schema. Once a NanoWarp baseline has shipped, preserve it and add forward migrations for supported NanoWarp data.
+Before the first NeoWarp release, reduce the local-terminal baseline together with its consumers, models and schema. Once a NeoWarp baseline has shipped, preserve it and add forward migrations for supported NeoWarp data.
 
 ## Updating the schema
 

@@ -1,9 +1,9 @@
-pkgname=nanowarp
+pkgname=neowarp
 pkgver=@@VERSION@@
 pkgrel=@@RELEASE@@
-pkgdesc="NanoWarp, a local terminal emulator"
+pkgdesc="NeoWarp, a local terminal emulator"
 arch=('@@ARCH@@')
-url="https://github.com/Rycen7822/NanoWarp"
+url="https://github.com/Rycen7822/NeoWarp"
 license=('AGPL-3.0-only')
 depends=(
 	'curl'

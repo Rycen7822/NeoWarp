@@ -1,6 +1,6 @@
 ---
 name: remove-feature-flag
-description: Retire unused NanoWarp flags or simplify a feature whose final behavior is settled.
+description: Retire unused NeoWarp flags or simplify a feature whose final behavior is settled.
 ---
 
 # Remove a Feature Flag

@@ -1,7 +1,7 @@
 # Windows installer
 
-`windows-installer.iss` builds the NanoWarp installer with Inno Setup 6.7 or
-newer. It installs `nanowarp.exe` under NanoWarp's own directory, registry and
+`windows-installer.iss` builds the NeoWarp installer with Inno Setup 6.7 or
+newer. It installs `neowarp.exe` under NeoWarp's own directory, registry and
 shortcut identity. Cargo's development target remains `warp-oss`.
 
 ## Build
@@ -34,7 +34,7 @@ Use `-SKIP_BUILD_BINARY` only with an existing package-named executable and
 also require a runnable schema source; see the script's existing guards.
 `-CHECK_ONLY` checks the Cargo target without building an installer.
 
-Windows packages include `nanowarp-wsl-watch`, a small static Linux executable
+Windows packages include `neowarp-wsl-watch`, a small static Linux executable
 used only for Git invalidations in WSL repositories. The bundler cross-compiles
 it using Rust's bundled linker; it does not start or install anything in WSL.
 For ARM64 packages install `aarch64-unknown-linux-musl` instead. For a plain
@@ -51,13 +51,13 @@ background Git queries; terminal input and ordinary SSH are independent.
 The bundler supplies `TargetProfileDir`, `MyAppName`, `MyAppExeName`,
 `MyAppVersion`, `ReleaseChannel`, `Arch` and `OutputName` to ISCC. It writes to
 `.work/target/<target>/<profile>/installer/` (or the selected CARGO_TARGET_DIR).
-The x64 output is `NanoWarpSetup.exe`; arm64 uses `NanoWarpSetup-arm64.exe`.
+The x64 output is `NeoWarpSetup.exe`; arm64 uses `NeoWarpSetup-arm64.exe`.
 
 ## Verification
 
 Compile the installer and inspect its inputs before installing it. Compilation
 does not verify registry writes, uninstall behavior or a running GUI.
-The installer uses the NanoWarp mutex for ordinary running-app checks; it has
+The installer uses the NeoWarp mutex for ordinary running-app checks; it has
 no background-update parameter, wait loop or image-name process kill.
 
 Icons come from `app/channels/oss/icon/no-padding/icon.ico`; shared ConPTY,

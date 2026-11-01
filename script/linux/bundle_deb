@@ -8,13 +8,13 @@
 #   - OUT_DIR: The directory into which we should place the final package.
 #   - CARGO_TARGET_OUTPUT_DIR: The cargo target directory containing build output.
 #   - RELEASE_CHANNEL: The release channel we're bundling (e.g.: "oss").
-#   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.nanowarp.NanoWarp").
+#   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.neowarp.NeoWarp").
 #   - EXECUTABLE_PATH: The path to the compiled executable we want to install.
 #   - BINARY_NAME: The name that the compiled executable should have on the target machine.
 
 set -e
 
-PACKAGE_NAME="nanowarp"
+PACKAGE_NAME="neowarp"
 
 TEMPLATE_DIR="$WORKSPACE_ROOT_DIR/resources/linux/debian/app"
 

@@ -6,9 +6,9 @@ body:
     attributes:
       label: "Pre-submit Checks"
       options:
-        - label: "I have [searched NanoWarp SSH issues](https://github.com/Rycen7822/NanoWarp/issues?q=is%3Aissue+label%3Aarea%3Assh) and there are no duplicates"
+        - label: "I have [searched NeoWarp SSH issues](https://github.com/Rycen7822/NeoWarp/issues?q=is%3Aissue+label%3Aarea%3Assh) and there are no duplicates"
           required: true
-        - label: "I have [read the NanoWarp README](https://github.com/Rycen7822/NanoWarp/blob/main/README.md) and my issue is not covered there"
+        - label: "I have [read the NeoWarp README](https://github.com/Rycen7822/NeoWarp/blob/main/README.md) and my issue is not covered there"
           required: true
         - label: "I have included relevant logs, with sensitive details redacted (optional)."
           required: false    
@@ -49,7 +49,7 @@ body:
   - type: input
     id: "warp-version"
     attributes:
-      label: "NanoWarp Version"
-      description: "Copy the version from the bottom of NanoWarp Essentials, or run `nanowarp --version` with an installed package."
+      label: "NeoWarp Version"
+      description: "Copy the version from the bottom of NeoWarp Essentials, or run `neowarp --version` with an installed package."
     validations:
       required: false

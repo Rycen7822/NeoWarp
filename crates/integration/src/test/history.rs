@@ -17,7 +17,7 @@ use super::{TEST_ONLY_ASSETS, new_builder};
 use crate::Builder;
 use crate::util::{get_local_user, write_histfiles_for_test};
 
-/// `history_with_metadata.sqlite` uses the current NanoWarp storage baseline.
+/// `history_with_metadata.sqlite` uses the current NeoWarp storage baseline.
 /// It contains four commands for each of bash, fish, pwsh, and zsh, preserving
 /// their exit status, timestamps, directory, shell, user/host, session, and Git metadata.
 /// No saved window state is needed: these tests start a fresh terminal.

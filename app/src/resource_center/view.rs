@@ -263,7 +263,7 @@ impl ResourceCenterView {
 
         let header_text = match current_page {
             Some(ResourceCenterPage::Keybindings) => "Keyboard Shortcuts".to_string(),
-            _ => "NanoWarp Essentials".to_string(),
+            _ => "NeoWarp Essentials".to_string(),
         };
         let title = Shrinkable::new(
             1.0,

@@ -1,9 +1,9 @@
 ---
 name: rust-unit-tests
-description: Run and maintain focused Rust unit tests for accepted NanoWarp behavior, using existing helpers and the repository build environment.
+description: Run and maintain focused Rust unit tests for accepted NeoWarp behavior, using existing helpers and the repository build environment.
 ---
 
-# Rust unit tests in NanoWarp
+# Rust unit tests in NeoWarp
 
 ## Scope
 - This skill focuses on crate-level unit tests.

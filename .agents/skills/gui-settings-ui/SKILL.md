@@ -1,9 +1,9 @@
 ---
 name: gui-settings-ui
-description: Build or edit NanoWarp SettingsWidget and PageType pages with correct headings, per-widget search, runtime visibility and stable widget links.
+description: Build or edit NeoWarp SettingsWidget and PageType pages with correct headings, per-widget search, runtime visibility and stable widget links.
 ---
 
-# NanoWarp settings UI
+# NeoWarp settings UI
 
 Read the affected page and `app/src/settings_view/settings_page.rs` before
 editing. Current pages are represented by `SettingsPageViewHandle`; historical

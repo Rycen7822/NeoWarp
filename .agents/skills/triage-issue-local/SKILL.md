@@ -1,9 +1,9 @@
 ---
 name: triage-issue-local
-description: Triage NanoWarp issue reports against current supported behavior and repository labels, using evidence and focused follow-up questions.
+description: Triage NeoWarp issue reports against current supported behavior and repository labels, using evidence and focused follow-up questions.
 ---
 
-# Repo-specific triage guidance for NanoWarp
+# Repo-specific triage guidance for NeoWarp
 
 ## Apply this guide
 
@@ -15,9 +15,9 @@ Posting, labeling and closing follow the current task's authorization.
 
 ## Heuristics
 
-- NanoWarp is a local desktop terminal with basic file editing and external document opening. Treat public issue reports as potentially incomplete and avoid asking for secrets, tokens, private workspace names, private repository names, or account identifiers in the public issue thread.
+- NeoWarp is a local desktop terminal with basic file editing and external document opening. Treat public issue reports as potentially incomplete and avoid asking for secrets, tokens, private workspace names, private repository names, or account identifiers in the public issue thread.
 - Distinguish the user's observed behavior from their guesses about Rust modules, UI components, server behavior, feature flags, or product intent.
-- For issue reports that mention another terminal, editor, shell, or CLI tool, identify whether the problem is NanoWarp-specific or generally reproducible outside NanoWarp before assigning ownership.
+- For issue reports that mention another terminal, editor, shell, or CLI tool, identify whether the problem is NeoWarp-specific or generally reproducible outside NeoWarp before assigning ownership.
 - When the issue includes screenshots, videos, logs, stack traces, or command output, use them as primary evidence and ask follow-up questions only for missing details that cannot be inferred from that evidence.
 - Before asking any follow-up questions, check README.md, CONTRIBUTING.md, and the current source to determine whether the reported behavior is supported. Historical specs may describe removed upstream features.
 - AI, accounts, billing, cloud services, internal Notebook previews, LSP, and the browser product have been removed. Explain the current scope for reports about those features; do not request account details or route reports to Warp's commercial support.
@@ -60,10 +60,10 @@ Use area labels based on the user's reported surface:
 
 Before asking the reporter for more information, check the issue body, comments, attachments, logs, labels, and repository context for:
 
-- NanoWarp version/build number and whether it was built from source or installed from a package.
+- NeoWarp version/build number and whether it was built from source or installed from a package.
 - OS and version, architecture, display setup, window manager or desktop environment on Linux, and whether the issue is platform-specific.
 - Shell and terminal context: shell name/version, prompt framework, shell integration status, command being run, terminal mode, local vs SSH/remote/tmux, and whether the behavior reproduces in a fresh session.
-- Clear reproduction steps, expected behavior, actual behavior, frequency, regression timing, and whether the user can reproduce outside NanoWarp.
+- Clear reproduction steps, expected behavior, actual behavior, frequency, regression timing, and whether the user can reproduce outside NeoWarp.
 - Visual evidence for UI, rendering, layout, font, cursor, focus, window, pane, tab, and accessibility issues. Prefer a screenshot or short recording when the symptom is visual.
 - Logs and diagnostics for crashes, hangs, startup failures, shell integration, SSH, and external document opening. Ask for redacted logs only when the report lacks actionable evidence.
 - For performance reports: approximate project/session size, command output size, CPU/memory/GPU observations, profile or diagnostics if provided, and whether the issue appears after long-running sessions.
@@ -72,9 +72,9 @@ Before asking the reporter for more information, check the issue body, comments,
 ## Recurring follow-up patterns
 
 - Visual UI/rendering issue with no media: ask for a screenshot or short screen recording first.
-- Environment-sensitive terminal issue: ask for NanoWarp version, OS/version, shell, and whether it reproduces in a fresh local session.
+- Environment-sensitive terminal issue: ask for NeoWarp version, OS/version, shell, and whether it reproduces in a fresh local session.
 - SSH/tmux/remote issue: ask for local OS, remote OS, shell, whether tmux is involved, and the minimal command or workflow that reproduces it.
-- Performance issue: ask for approximate scale, how long NanoWarp has been running, what action triggers the spike or hang, and whether logs or a profile are available.
+- Performance issue: ask for approximate scale, how long NeoWarp has been running, what action triggers the spike or hang, and whether logs or a profile are available.
 
 ## Owner-inference hints
 

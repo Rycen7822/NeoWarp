@@ -1,6 +1,6 @@
 # Optional Linux Development Container
 
-This Dockerfile provides an optional Linux development environment for NanoWarp. It is separate from CI; use [CONTRIBUTING.md](../../CONTRIBUTING.md) for current prerequisites, environment variables, and build commands.
+This Dockerfile provides an optional Linux development environment for NeoWarp. It is separate from CI; use [CONTRIBUTING.md](../../CONTRIBUTING.md) for current prerequisites, environment variables, and build commands.
 
 This container is based on Debian Sid, Debian's unstable branch.  It ensures that you are running the latest versions of things like `mesa` (an open-source 3D graphics library, providing implementations of OpenGL and Vulkan).
 
@@ -20,14 +20,14 @@ You'll run all of these commands from the repository's root directory.
 First, build the image with the repository root as its build context. The Dockerfile copies files from `script/` and `rust-toolchain.toml`:
 
 ```
-IMAGE_NAME="nanowarp-linux-dev"
+IMAGE_NAME="neowarp-linux-dev"
 docker build -f docker/linux-dev/Dockerfile -t "$IMAGE_NAME" .
 ```
 
 Next, run the container:
 
 ```
-# Run from the NanoWarp repository root.
+# Run from the NeoWarp repository root.
 LOCAL_PATH="$PWD"
 
 # Expose SSH on localhost:2222 and mount this checkout as /src.

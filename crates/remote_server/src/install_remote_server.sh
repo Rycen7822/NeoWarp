@@ -33,9 +33,9 @@ if [ ! -f "$staging_binary_path" ] || [ ! -s "$staging_binary_path" ]; then
   echo "error: staged remote server binary is missing or empty" >&2
   exit 1
 fi
-mv "$staging_binary_path" "$tmpdir/nanowarp-server"
-chmod +x "$tmpdir/nanowarp-server"
+mv "$staging_binary_path" "$tmpdir/neowarp-server"
+chmod +x "$tmpdir/neowarp-server"
 # Validate before replacing the current binary. Both paths below are on the
 # install filesystem, so the final rename is atomic.
-"$tmpdir/nanowarp-server" --version >/dev/null
-mv "$tmpdir/nanowarp-server" "$binary_path"
+"$tmpdir/neowarp-server" --version >/dev/null
+mv "$tmpdir/neowarp-server" "$binary_path"

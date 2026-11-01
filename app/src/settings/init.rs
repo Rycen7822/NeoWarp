@@ -258,7 +258,7 @@ fn init_platform_native_preferences() -> user_preferences::Model {
             user_preferences::file_backed::FileBackedUserPreferences::new(
                 super::user_preferences_file_path(),
             )
-            .expect("Could not open NanoWarp runtime preferences"),
+            .expect("Could not open NeoWarp runtime preferences"),
         );
     }
     cfg_if::cfg_if! {

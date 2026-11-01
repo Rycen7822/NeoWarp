@@ -25,8 +25,8 @@ use crate::channel::{Channel, ChannelState};
 /// The name of the directory in which to put non-global Warp-specific files.
 ///
 /// This should be used, for example, as the base directory under which
-/// repository configuration would be stored (in "./.nanowarp").
-pub const WARP_CONFIG_DIR: &str = ".nanowarp";
+/// repository configuration would be stored (in "./.neowarp").
+pub const WARP_CONFIG_DIR: &str = ".neowarp";
 
 /// The name of the folder that stores Warp execution logs and network logs.
 /// This is currently only used on Windows to maintain backwards compatibility.
@@ -34,10 +34,10 @@ pub const WARP_LOGS_DIR: &str = "logs";
 
 /// Overrides application-owned runtime directories without changing the user's shell home.
 pub fn runtime_root() -> Option<PathBuf> {
-    let root = PathBuf::from(std::env::var_os("NANOWARP_DATA_DIR")?);
+    let root = PathBuf::from(std::env::var_os("NEOWARP_DATA_DIR")?);
     assert!(
         root.is_absolute(),
-        "NANOWARP_DATA_DIR must be an absolute path"
+        "NEOWARP_DATA_DIR must be an absolute path"
     );
     Some(root)
 }
@@ -51,7 +51,7 @@ fn base_warp_config_dir_name() -> String {
 
 /// Returns the home-relative Warp config directory name for the current channel and data profile.
 ///
-/// Channels and development profiles use separate `.nanowarp*` directories.
+/// Channels and development profiles use separate `.neowarp*` directories.
 pub fn warp_home_config_dir_name() -> String {
     let base_dir_name = base_warp_config_dir_name();
 
@@ -65,7 +65,7 @@ pub fn warp_home_config_dir_name() -> String {
 /// Returns the home-relative Warp config directory for the current channel and data profile.
 ///
 /// Unlike [`data_dir`] and [`config_local_dir`] on non-macOS platforms, this intentionally keeps
-/// user-facing config under a `.nanowarp*` directory in the home directory instead of
+/// user-facing config under a `.neowarp*` directory in the home directory instead of
 /// using the platform XDG/AppData project directories.
 pub fn warp_home_config_dir() -> Option<PathBuf> {
     if let Some(root) = runtime_root() {

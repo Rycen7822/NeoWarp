@@ -1,8 +1,8 @@
-# NanoWarp Code of Conduct
+# NeoWarp Code of Conduct
 
 ## Participation
 
-Everyone is welcome to participate in NanoWarp, regardless of background, identity, or experience.
+Everyone is welcome to participate in NeoWarp, regardless of background, identity, or experience.
 Treat people respectfully, accept constructive feedback, and discuss technical disagreements on their merits.
 
 Harassment, discrimination, threats, sexualized attention, personal attacks, and disclosure of another person's
@@ -10,7 +10,7 @@ private information without permission are unacceptable.
 
 ## Scope and Moderation
 
-These standards apply to NanoWarp issues, pull requests, discussions, and other project spaces,
+These standards apply to NeoWarp issues, pull requests, discussions, and other project spaces,
 as well as anyone officially representing the project.
 
 Repository maintainers may remove inappropriate content, restrict participation, or temporarily or permanently
@@ -19,7 +19,7 @@ decisions when appropriate while protecting the people involved.
 
 ## Reporting
 
-Report incidents privately to NanoWarp maintainers. If no private contact is listed, ask a maintainer to arrange
+Report incidents privately to NeoWarp maintainers. If no private contact is listed, ask a maintainer to arrange
 one without publishing incident details or personal information. Maintainers should respect reporter privacy
 and assess reports fairly. For software vulnerabilities, follow [SECURITY.md](SECURITY.md).
 

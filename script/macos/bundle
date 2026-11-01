@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Build NanoWarp.app and a local DMG. Signing is ad-hoc by default;
+# Build NeoWarp.app and a local DMG. Signing is ad-hoc by default;
 # --selfsign uses an existing Apple Development identity when available,
 # and --nosign skips signing. No credentials are imported or notarization run.
 # See the parameter parsing section below for other available options.
@@ -174,8 +174,8 @@ if [[ "$CARGO_PROFILE" == "dev" ]]; then
 fi
 
 WARP_BIN="warp-oss"
-WARP_APP_NAME="NanoWarp"
-WARP_SCHEME_NAME="nanowarp"
+WARP_APP_NAME="NeoWarp"
+WARP_SCHEME_NAME="neowarp"
 
 OUT_DIR="$CARGO_TARGET_DIR/$TARGET_PROFILE_DIR/bundle/osx"
 

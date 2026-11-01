@@ -74,9 +74,9 @@ impl SshRemoteServerChoiceView {
         let buttons = ctx.add_typed_action_view(|_| {
             KeyboardNavigableButtons::new(vec![
                 rich_navigation_button(
-                    "Install NanoWarp's SSH extension".to_string(),
+                    "Install NeoWarp's SSH extension".to_string(),
                     Some(
-                        "Use NanoWarp's remote helper for file operations and command execution."
+                        "Use NeoWarp's remote helper for file operations and command execution."
                             .to_string(),
                     ),
                     /* recommended */ true,

@@ -1675,7 +1675,7 @@ pub mod testing {
                 // Tests provide their own history; never load the user's shell history by default.
                 histfile: Some(
                     std::env::temp_dir()
-                        .join("nanowarp-empty-shell-history")
+                        .join("neowarp-empty-shell-history")
                         .display()
                         .to_string(),
                 ),

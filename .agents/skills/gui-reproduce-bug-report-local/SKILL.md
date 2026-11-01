@@ -1,19 +1,19 @@
 ---
 name: gui-reproduce-bug-report-local
-description: Reproduce NanoWarp desktop GUI, terminal, basic-editor or settings defects with the intended build and isolated state. Use when investigating a reported runtime or visual issue.
+description: Reproduce NeoWarp desktop GUI, terminal, basic-editor or settings defects with the intended build and isolated state. Use when investigating a reported runtime or visual issue.
 ---
 
-# NanoWarp bug reproduction
+# NeoWarp bug reproduction
 
 This is a self-contained repository guide. Read the issue's steps and evidence,
 then inspect the relevant source before choosing a reproduction method.
 
 ## Match the reported behavior
 
-- Establish the NanoWarp build/revision, OS, shell and affected surface from
+- Establish the NeoWarp build/revision, OS, shell and affected surface from
   available evidence. Test the reporter's OS when the suspected cause is
   OS-specific; a Linux result cannot verify a Windows IME or ConPTY defect.
-- Use the corresponding NanoWarp artifact or a justified local source build.
+- Use the corresponding NeoWarp artifact or a justified local source build.
   Record any version/platform substitution. Do not install upstream Warp or
   copy missing upstream skills as a prerequisite.
 - Accounts, AI, cloud sync, built-in Notebook preview and LSP are outside the
@@ -24,9 +24,9 @@ then inspect the relevant source before choosing a reproduction method.
 
 1. Prefer an existing focused test or script. Add a temporary probe only when
    it resolves a specific evidence gap; keep it in `.work/`.
-2. For a GUI instance, use a new absolute `NANOWARP_DATA_DIR` under `.work/`.
+2. For a GUI instance, use a new absolute `NEOWARP_DATA_DIR` under `.work/`.
    This isolates app data, not shell history or HOME. Preserve original Warp
-   data, existing NanoWarp sessions and the user's WSL environment.
+   data, existing NeoWarp sessions and the user's WSL environment.
 3. Follow the exact reported steps, then only variations supported by a
    concrete hypothesis. Verify actual output, state or inspected images.
 4. If desktop control is necessary, follow root instructions for pausing the

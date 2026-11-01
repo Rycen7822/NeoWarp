@@ -153,7 +153,7 @@ fn embed_resource_file(target_dir: &Path) {
     use std::io::Write;
 
     let version = env::var("GIT_RELEASE_TAG").unwrap_or("v0".to_owned());
-    let app_name = env::var("WARP_APP_NAME").unwrap_or("NanoWarp".to_owned());
+    let app_name = env::var("WARP_APP_NAME").unwrap_or("NeoWarp".to_owned());
     let bin_name = env::var("CARGO_BIN_NAME").unwrap_or("oss".to_owned());
 
     let icon_path = Path::new("channels")
@@ -189,13 +189,13 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",      "NanoWarp contributors\0"
+            VALUE "CompanyName",      "NeoWarp contributors\0"
             VALUE "FileDescription",  "{app_name}\0"
             VALUE "FileVersion",      "{version}\0"
             VALUE "LegalCopyright",   "© 2025, Denver Technologies, Inc\0"
             VALUE "InternalName",     "\0"
             VALUE "OriginalFilename", "\0"
-            VALUE "ProductName",      "NanoWarp\0"
+            VALUE "ProductName",      "NeoWarp\0"
             VALUE "ProductVersion",   "{version}\0"
         END
     END

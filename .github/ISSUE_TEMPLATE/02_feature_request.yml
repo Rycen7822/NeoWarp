@@ -6,9 +6,9 @@ body:
     attributes:
       label: "Pre-submit Checks"
       options:
-        - label: "I have [searched NanoWarp feature requests](https://github.com/Rycen7822/NanoWarp/issues?q=is%3Aissue+label%3Aenhancement) and there are no duplicates"
+        - label: "I have [searched NeoWarp feature requests](https://github.com/Rycen7822/NeoWarp/issues?q=is%3Aissue+label%3Aenhancement) and there are no duplicates"
           required: true
-        - label: "I have [read the NanoWarp README](https://github.com/Rycen7822/NanoWarp/blob/main/README.md) and my feature is not covered there"
+        - label: "I have [read the NeoWarp README](https://github.com/Rycen7822/NeoWarp/blob/main/README.md) and my feature is not covered there"
           required: true
   - type: textarea
     id: "describe-solution"

@@ -6,9 +6,9 @@ body:
     attributes:
       label: "Pre-submit Checks"
       options:
-        - label: "I have [searched NanoWarp SSH issues](https://github.com/Rycen7822/NanoWarp/issues?q=is%3Aissue+label%3Aarea%3Assh) and there are no duplicates"
+        - label: "I have [searched NeoWarp SSH issues](https://github.com/Rycen7822/NeoWarp/issues?q=is%3Aissue+label%3Aarea%3Assh) and there are no duplicates"
           required: true
-        - label: "I have [read the NanoWarp README](https://github.com/Rycen7822/NanoWarp/blob/main/README.md) and my issue is not covered there"
+        - label: "I have [read the NeoWarp README](https://github.com/Rycen7822/NeoWarp/blob/main/README.md) and my issue is not covered there"
           required: true
         - label: "I have included relevant logs, with sensitive details redacted (optional)."
           required: false   
@@ -48,8 +48,8 @@ body:
   - type: input
     id: "warp-version"
     attributes:
-      label: "NanoWarp Version"
-      description: "Copy the version from the bottom of NanoWarp Essentials, or run `nanowarp --version` with an installed package."
+      label: "NeoWarp Version"
+      description: "Copy the version from the bottom of NeoWarp Essentials, or run `neowarp --version` with an installed package."
     validations:
       required: true
   - type: checkboxes
@@ -76,22 +76,22 @@ body:
   - type: dropdown
     id: "blocker"
     attributes:
-      label: "Does this block you from using NanoWarp daily?"
+      label: "Does this block you from using NeoWarp daily?"
       description: "All feedback will be reviewed, even if you select 'No'."
       multiple: false
       options:
         - "No"
-        - "Yes, this issue prevents me from using NanoWarp daily."
+        - "Yes, this issue prevents me from using NeoWarp daily."
     validations:
       required: true
   - type: dropdown
     id: "terminals"
     attributes:
-      label: "Is this an issue only in NanoWarp?"
+      label: "Is this an issue only in NeoWarp?"
       description: "Verifying this issue doesn't happen in other terminals helps us to prioritize the fix"
       multiple: false
       options:
-        - "Yes, I confirmed that this only happens in NanoWarp, not other terminals."
-        - "No, this issue happens in NanoWarp and other terminals."
+        - "Yes, I confirmed that this only happens in NeoWarp, not other terminals."
+        - "No, this issue happens in NeoWarp and other terminals."
     validations:
       required: true

@@ -11,11 +11,11 @@ Requires the repository's Rust 1.92.0 toolchain, Cargo and Python3.
 No SSH, deployment, bundled resources or Warp downloads are performed.
 
 The artifact is prepared only for this development runtime:
-  .work/runtime/cache/remote-server/binaries/warp-oss/<version>/<os>-<arch>/nanowarp-server
+  .work/runtime/cache/remote-server/binaries/warp-oss/<version>/<os>-<arch>/neowarp-server
 Version is the existing GIT_RELEASE_TAG when set, otherwise remote_server's
 Cargo package version. An explicitly empty tag is an error.
 
-Use a GUI built for the same OSS channel and version, with NANOWARP_DATA_DIR
+Use a GUI built for the same OSS channel and version, with NEOWARP_DATA_DIR
 set to this repository's .work/runtime (the existing app-env runtime root).
 The GUI handles remote installation through its normal SSH connection.
 USAGE
@@ -41,10 +41,10 @@ export TEMP="$workspace_root/.work/tmp"
 export TMP="$TEMP"
 export TMPDIR="$TEMP"
 export SCCACHE_DIR="$workspace_root/.work/sccache"
-export NANOWARP_DATA_DIR="$workspace_root/.work/runtime"
+export NEOWARP_DATA_DIR="$workspace_root/.work/runtime"
 export CARGO_BUILD_JOBS=2
 export CARGO_INCREMENTAL=0
-mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TEMP" "$SCCACHE_DIR" "$NANOWARP_DATA_DIR" "$workspace_root/.work/archived"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TEMP" "$SCCACHE_DIR" "$NEOWARP_DATA_DIR" "$workspace_root/.work/archived"
 
 host="$(rustc +1.92.0 -vV | sed -n 's/^host: //p')"
 case "$native_os:$host" in
@@ -69,8 +69,8 @@ cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features standalone -
 built_binary="$CARGO_TARGET_DIR/$host/dev-remote/warp-oss"
 "$built_binary" --version
 
-artifact_dir="$NANOWARP_DATA_DIR/cache/remote-server/binaries/warp-oss/$version/$platform"
-artifact="$artifact_dir/nanowarp-server"
+artifact_dir="$NEOWARP_DATA_DIR/cache/remote-server/binaries/warp-oss/$version/$platform"
+artifact="$artifact_dir/neowarp-server"
 mkdir -p "$artifact_dir"
 if [[ -d "$artifact" ]]; then
   printf 'Error: artifact destination is a directory: %s\n' "$artifact" >&2
@@ -80,14 +80,15 @@ fi
 staged_binary=''
 trap 'prepare_status=$?
 if [[ -n "$staged_binary" && -e "$staged_binary" ]]; then
-  if unfinished_dir="$(mktemp -d "$workspace_root/.work/archived/a78-unfinished-XXXXXX")" && mv "$staged_binary" "$unfinished_dir/nanowarp-server"; then
-    printf "Unfinished artifact retained at %s\n" "$unfinished_dir/nanowarp-server" >&2
+  if unfinished_dir="$(mktemp -d "$workspace_root/.work/archived/a78-unfinished-XXXXXX")" &&
+    mv "$staged_binary" "$unfinished_dir/neowarp-server"; then
+    printf "Unfinished artifact retained at %s\n" "$unfinished_dir/neowarp-server" >&2
   else
     printf "Warning: unfinished artifact remains at %s\n" "$staged_binary" >&2
   fi
 fi
 exit "$prepare_status"' EXIT
-staged_binary="$(mktemp "$artifact_dir/.nanowarp-server.XXXXXX")"
+staged_binary="$(mktemp "$artifact_dir/.neowarp-server.XXXXXX")"
 cp "$built_binary" "$staged_binary"
 chmod 755 "$staged_binary"
 mv -f "$staged_binary" "$artifact"

@@ -1,12 +1,12 @@
-# Contributing to NanoWarp
+# Contributing to NeoWarp
 
 Keep contributions within the [product scope](README.md#product-scope). Search
-[existing issues](https://github.com/Rycen7822/NanoWarp/issues) before proposing work, and discuss substantial
+[existing issues](https://github.com/Rycen7822/NeoWarp/issues) before proposing work, and discuss substantial
 behavior or architecture changes before implementing them.
 
 ## Issues and Pull Requests
 
-Bug reports should include the NanoWarp version, OS, reproduction steps, expected and actual behavior, and relevant diagnostics with secrets removed. Feature requests should explain the user problem and constraints.
+Bug reports should include the NeoWarp version, OS, reproduction steps, expected and actual behavior, and relevant diagnostics with secrets removed. Feature requests should explain the user problem and constraints.
 
 Branch from `main` and keep each PR to one logical change. Use the [PR template](.github/pull_request_template.md): explain the problem and resulting behavior, link an issue when applicable, and record actual validation and anything unverified. Screenshots or a short recording are useful when they demonstrate a visible change.
 
@@ -36,28 +36,28 @@ $env:CARGO_TARGET_DIR = Join-Path $work 'target'
 $env:TEMP = Join-Path $work 'tmp'
 $env:TMP = $env:TEMP
 $env:SCCACHE_DIR = Join-Path $work 'sccache'
-$env:NANOWARP_DATA_DIR = Join-Path $work 'runtime/dev'
+$env:NEOWARP_DATA_DIR = Join-Path $work 'runtime/dev'
 $env:CARGO_BUILD_JOBS = '2'
 $env:RUST_TEST_THREADS = '1'
 $env:RAYON_NUM_THREADS = '2'
 $directories = $env:CARGO_HOME, $env:RUSTUP_HOME, $env:CARGO_TARGET_DIR,
-    $env:TEMP, $env:SCCACHE_DIR, $env:NANOWARP_DATA_DIR
+    $env:TEMP, $env:SCCACHE_DIR, $env:NEOWARP_DATA_DIR
 New-Item -ItemType Directory -Force -Path $directories | Out-Null
 ```
 
 Keep the Rust launchers on `PATH` and install the pinned toolchain into the configured Rust home.
 A fresh local cache needs dependencies downloaded before offline builds can work.
-Use fresh NanoWarp application data; do not import an existing Warp profile during development or testing.
+Use fresh NeoWarp application data; do not import an existing Warp profile during development or testing.
 
 In a macOS/Linux shell, set the equivalent environment before setup or builds:
 
 ```bash
 export CARGO_HOME="$PWD/.work/cargo-home" RUSTUP_HOME="$PWD/.work/rustup"
 export CARGO_TARGET_DIR="$PWD/.work/target" TMPDIR="$PWD/.work/tmp"
-export SCCACHE_DIR="$PWD/.work/sccache" NANOWARP_DATA_DIR="$PWD/.work/runtime/dev"
+export SCCACHE_DIR="$PWD/.work/sccache" NEOWARP_DATA_DIR="$PWD/.work/runtime/dev"
 export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1 RAYON_NUM_THREADS=2
 export GIT_RELEASE_TAG=v0.1.0
-mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TMPDIR" "$SCCACHE_DIR" "$NANOWARP_DATA_DIR"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TMPDIR" "$SCCACHE_DIR" "$NEOWARP_DATA_DIR"
 ```
 
 ### Build and Run
@@ -102,10 +102,10 @@ describe development workflows. [`specs/`](specs/) contains historical designs t
 upstream behavior; verify instructions against current source and [product scope](README.md#product-scope).
 
 Contributors remain responsible for reviewing generated changes and reporting actual validation results.
-Use NanoWarp issues and pull requests to coordinate review with this repository's maintainers.
+Use NeoWarp issues and pull requests to coordinate review with this repository's maintainers.
 
 ## Conduct, Security, and Help
 
 Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Read [SECURITY.md](SECURITY.md) before reporting a vulnerability; do not publish sensitive details in an issue or PR.
 
-Use [NanoWarp issues](https://github.com/Rycen7822/NanoWarp/issues) for ordinary bugs, feature discussions, and development questions.
+Use [NeoWarp issues](https://github.com/Rycen7822/NeoWarp/issues) for ordinary bugs, feature discussions, and development questions.

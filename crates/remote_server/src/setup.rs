@@ -334,14 +334,14 @@ pub fn parse_uname_output(
 
 /// Returns the remote directory where the binary is installed, keyed by channel.
 ///
-/// - integration: `~/.nanowarp-dev/remote-server`
-/// - oss:         `~/.nanowarp-oss/remote-server`
+/// - integration: `~/.neowarp-dev/remote-server`
+/// - oss:         `~/.neowarp-oss/remote-server`
 pub fn remote_server_dir() -> String {
-    let nanowarp_dir = match ChannelState::channel() {
-        Channel::Integration => ".nanowarp-dev",
-        Channel::Oss => ".nanowarp-oss",
+    let neowarp_dir = match ChannelState::channel() {
+        Channel::Integration => ".neowarp-dev",
+        Channel::Oss => ".neowarp-oss",
     };
-    format!("~/{nanowarp_dir}/remote-server")
+    format!("~/{neowarp_dir}/remote-server")
 }
 
 /// Returns a short, deterministic directory name for a remote-server
@@ -449,9 +449,9 @@ pub fn daemon_pid_name() -> String {
     }
 }
 
-/// Returns the NanoWarp remote server executable name.
+/// Returns the NeoWarp remote server executable name.
 pub fn binary_name() -> &'static str {
-    "nanowarp-server"
+    "neowarp-server"
 }
 
 /// Returns the remote binary path for the current channel and client version.

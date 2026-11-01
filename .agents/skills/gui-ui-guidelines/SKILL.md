@@ -5,7 +5,7 @@ description: GUI desktop app only. Catalog of guidelines for writing UI code in 
 
 # gui-ui-guidelines
 
-**Scope — NanoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
+**Scope — NeoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
 
 This skill is a growing catalog of guidelines for working on Warp's UI code. Each guideline captures a lesson that would otherwise be re-learned through review — typically because an agent or contributor reinvented a component, drifted from the design system, or bypassed a shared abstraction.
 

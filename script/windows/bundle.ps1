@@ -13,9 +13,9 @@ Param (
     [String]$RELEASE_TAG = '',
     [String]$FEATURES = 'release_bundle,gui',
 
-    # Builds only the NanoWarp binary, skips the installer.
+    # Builds only the NeoWarp binary, skips the installer.
     [Switch]$SKIP_BUILD_INSTALLER = $False,
-    # Builds only the installer, skips the NanoWarp binary. Use this if the NanoWarp
+    # Builds only the installer, skips the NeoWarp binary. Use this if the NeoWarp
     # binary has already been built.
     [Switch]$SKIP_BUILD_BINARY = $False,
 
@@ -49,7 +49,7 @@ if ($ARCH -eq 'arm64') {
     $FILE_ENDING = 'Setup-arm64'
     $PLATFORM_TARGET = 'aarch64-pc-windows-msvc'
 } else {
-    # If x64, then we just use the filename "NanoWarpSetup.exe" for example
+    # If x64, then we just use the filename "NeoWarpSetup.exe" for example
     $FILE_ENDING = 'Setup'
     $PLATFORM_TARGET = 'x86_64-pc-windows-msvc'
 }
@@ -114,11 +114,11 @@ if ($CARGO_PROFILE -eq 'dev') {
 # WARP_BIN is the name of the binary produced by cargo;
 # BINARY_NAME is the desired name of the binary in the final package.
 $WARP_BIN = 'warp-oss'
-$BINARY_NAME = 'nanowarp.exe'
-$APP_NAME = 'NanoWarp'
+$BINARY_NAME = 'neowarp.exe'
+$APP_NAME = 'NeoWarp'
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
-$BUNDLE_ID = "dev.nanowarp.$APP_NAME"
+$BUNDLE_ID = "dev.neowarp.$APP_NAME"
 $INSTALLER_OUTPUT_DIR = Join-Path $CARGO_TARGET_OUTPUT_DIR 'installer'
 $INSTALLER_NAME = "$($APP_NAME)$($FILE_ENDING)"
 $INSTALLER_PATH = "$($INSTALLER_OUTPUT_DIR)\$($INSTALLER_NAME).exe"
@@ -201,7 +201,7 @@ if (-Not $?) {
     Write-Error 'Failed to prepare bundled resources'
     exit 1
 }
-Write-Output 'Building NanoWarp installer'
+Write-Output 'Building NeoWarp installer'
 $ISCC_ARGS = @(
     "$INSTALLER_SCRIPT",
     "/O$INSTALLER_OUTPUT_DIR",

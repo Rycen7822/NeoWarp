@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
   workflow_call:
 
-name: NanoWarp CI
+name: NeoWarp CI
 
 permissions:
   contents: read
@@ -135,7 +135,7 @@ jobs:
           fish_version="4.9.3"
           fish_dir="$GITHUB_WORKSPACE/.work/tools/fish-$fish_version"
           fish_bin="$fish_dir/fish-$fish_version.app/Contents/Resources/base/usr/local/bin"
-          archive="$RUNNER_TEMP/.work/nanowarp/fish-$fish_version.app.zip"
+          archive="$RUNNER_TEMP/.work/neowarp/fish-$fish_version.app.zip"
           mkdir -p "$fish_dir" "$(dirname "$archive")"
           if [[ ! -x "$fish_bin/fish" ]]; then
             curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \

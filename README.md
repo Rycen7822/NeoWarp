@@ -1,6 +1,6 @@
-# NanoWarp
+# NeoWarp
 
-NanoWarp is an independent fork of [Warp](https://github.com/warpdotdev/warp), focused on native desktop
+NeoWarp is an independent fork of [Warp](https://github.com/warpdotdev/warp), focused on native desktop
 terminal sessions and local data.
 
 ## Product Scope
@@ -12,10 +12,16 @@ terminal sessions and local data.
   When no application is selected, use the system file association.
 
 The built-in AI agent, commercial workflows, cloud collaboration, full IDE/LSP, embedded document preview,
-and Web/WASM product are outside NanoWarp's scope. External CLI tools run as ordinary terminal programs.
+and Web/WASM product are outside NeoWarp's scope. External CLI tools run as ordinary terminal programs.
 
 Development is ongoing. Cross-platform runtime and packaging acceptance is still in progress;
 check validation results for the platform and scenario you intend to use.
+
+## Local Data
+
+NeoWarp uses its own application IDs, settings, history, caches, and `.neowarp*` configuration directories.
+Existing NanoWarp and upstream Warp data are left in place and are not imported automatically.
+For isolated development runs, set `NEOWARP_DATA_DIR` to a new absolute directory.
 
 ## Build from Source
 
@@ -33,16 +39,16 @@ For macOS and Linux, see the platform runner in the contribution guide.
 ## Contributing and Support
 
 Report bugs, propose features, and ask development questions through
-[NanoWarp issues](https://github.com/Rycen7822/NanoWarp/issues). Include reproduction steps, version, OS,
+[NeoWarp issues](https://github.com/Rycen7822/NeoWarp/issues). Include reproduction steps, version, OS,
 expected behavior, and diagnostics with secrets removed.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a
-[pull request](https://github.com/Rycen7822/NanoWarp/pulls). Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+[pull request](https://github.com/Rycen7822/NeoWarp/pulls). Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 when participating, and use [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Licensing and Attribution
 
-NanoWarp derives from Warp. Preserve applicable upstream copyrights and third-party notices.
+NeoWarp derives from Warp. Preserve applicable upstream copyrights and third-party notices.
 
 The `warpui_core` and `warpui` UI framework crates are licensed under the [MIT license](LICENSE-MIT).
 The rest of this repository is licensed under the [AGPL v3](LICENSE-AGPL).

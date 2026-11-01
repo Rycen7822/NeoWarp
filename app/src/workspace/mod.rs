@@ -913,7 +913,7 @@ fn add_log_directory_binding(app: &mut AppContext) {
 
     app.register_editable_bindings([EditableBinding::new(
         "workspace:view_logs",
-        "View NanoWarp logs",
+        "View NeoWarp logs",
         WorkspaceAction::ViewLogs,
     )
     .with_context_predicate(id!("Workspace"))]);

@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_data_dir_path() {
-    if let Some(root) = std::env::var_os("NANOWARP_DATA_DIR") {
+    if let Some(root) = std::env::var_os("NEOWARP_DATA_DIR") {
         let root = PathBuf::from(root);
         assert_eq!(data_dir(), root.join("data"));
         assert_eq!(state_dir(), root.join("state"));
@@ -17,11 +17,11 @@ fn test_data_dir_path() {
     // ChannelState, by default, is configured for Channel::Oss.
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(data_dir(), home_dir.join(".nanowarp-oss"));
+            assert_eq!(data_dir(), home_dir.join(".neowarp-oss"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(data_dir(), home_dir.join(".local/share/nanowarp"));
+            assert_eq!(data_dir(), home_dir.join(".local/share/neowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(data_dir(), home_dir.join("AppData\\Roaming\\nanowarp\\NanoWarp\\data"));
+            assert_eq!(data_dir(), home_dir.join("AppData\\Roaming\\neowarp\\NeoWarp\\data"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -34,11 +34,11 @@ fn test_config_local_dir_path() {
     // ChannelState, by default, is configured for Channel::Oss.
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(config_local_dir(), home_dir.join(".nanowarp-oss"));
+            assert_eq!(config_local_dir(), home_dir.join(".neowarp-oss"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(config_local_dir(), home_dir.join(".config/nanowarp"));
+            assert_eq!(config_local_dir(), home_dir.join(".config/neowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(config_local_dir(), home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\config"));
+            assert_eq!(config_local_dir(), home_dir.join("AppData\\Local\\neowarp\\NeoWarp\\config"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -50,22 +50,22 @@ fn test_config_local_dir_path() {
 fn test_macos_config_dir_name_scopes_to_data_profile() {
     assert_eq!(
         macos_config_dir_name_for(Channel::Oss, None),
-        ".nanowarp-oss"
+        ".neowarp-oss"
     );
     assert_eq!(
         macos_config_dir_name_for(Channel::Integration, None),
-        ".nanowarp-integration"
+        ".neowarp-integration"
     );
 
     // Each development profile must get its own directory so shared config
     // (notably settings.toml) cannot leak between profiles.
     assert_eq!(
         macos_config_dir_name_for(Channel::Integration, Some("myprofile")),
-        ".nanowarp-integration-myprofile"
+        ".neowarp-integration-myprofile"
     );
     assert_eq!(
         macos_config_dir_name_for(Channel::Oss, Some("myprofile")),
-        ".nanowarp-oss-myprofile"
+        ".neowarp-oss-myprofile"
     );
 }
 
@@ -73,8 +73,8 @@ fn test_macos_config_dir_name_scopes_to_data_profile() {
 fn test_warp_home_config_dir_path() {
     let home_dir = home_dir().expect("Should be able to compute home directory");
     let expected_dir_name = match ChannelState::data_profile() {
-        Some(data_profile) => format!(".nanowarp-oss-{data_profile}"),
-        None => ".nanowarp-oss".to_string(),
+        Some(data_profile) => format!(".neowarp-oss-{data_profile}"),
+        None => ".neowarp-oss".to_string(),
     };
 
     assert_eq!(
@@ -89,11 +89,11 @@ fn test_cache_dir_path() {
     // ChannelState, by default, is configured for Channel::Oss.
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(cache_dir(), home_dir.join("Library/Application Support/dev.nanowarp.NanoWarp"));
+            assert_eq!(cache_dir(), home_dir.join("Library/Application Support/dev.neowarp.NeoWarp"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(cache_dir(), home_dir.join(".cache/nanowarp"));
+            assert_eq!(cache_dir(), home_dir.join(".cache/neowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(cache_dir(), home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\cache"));
+            assert_eq!(cache_dir(), home_dir.join("AppData\\Local\\neowarp\\NeoWarp\\cache"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -106,11 +106,11 @@ fn test_state_dir_path() {
     cfg_if::cfg_if! {
         // ChannelState, by default, is configured for Channel::Oss.
         if #[cfg(target_os = "macos")] {
-            assert_eq!(state_dir(), home_dir.join("Library/Application Support/dev.nanowarp.NanoWarp"));
+            assert_eq!(state_dir(), home_dir.join("Library/Application Support/dev.neowarp.NeoWarp"));
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(state_dir(), home_dir.join(".local/state/nanowarp"));
+            assert_eq!(state_dir(), home_dir.join(".local/state/neowarp"));
         } else if #[cfg(windows)] {
-            assert_eq!(state_dir(), home_dir.join("AppData\\Local\\nanowarp\\NanoWarp\\data"));
+            assert_eq!(state_dir(), home_dir.join("AppData\\Local\\neowarp\\NeoWarp\\data"));
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -118,16 +118,16 @@ fn test_state_dir_path() {
 }
 
 #[test]
-fn test_project_path_for_nanowarp_app_id() {
-    let project_dirs = project_dirs_for_app_id(AppId::new("dev", "nanowarp", "NanoWarp"), None)
+fn test_project_path_for_neowarp_app_id() {
+    let project_dirs = project_dirs_for_app_id(AppId::new("dev", "neowarp", "NeoWarp"), None)
         .expect("should be able to compute project dirs");
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(project_dirs.project_path(), "dev.nanowarp.NanoWarp");
+            assert_eq!(project_dirs.project_path(), "dev.neowarp.NeoWarp");
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(project_dirs.project_path(), "nanowarp");
+            assert_eq!(project_dirs.project_path(), "neowarp");
         } else if #[cfg(windows)] {
-            assert_eq!(project_dirs.project_path(), "nanowarp\\NanoWarp");
+            assert_eq!(project_dirs.project_path(), "neowarp\\NeoWarp");
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -135,17 +135,17 @@ fn test_project_path_for_nanowarp_app_id() {
 }
 
 #[test]
-fn test_project_path_for_nanowarp_data_profile() {
+fn test_project_path_for_neowarp_data_profile() {
     let project_dirs =
-        project_dirs_for_app_id(AppId::new("dev", "nanowarp", "NanoWarp"), Some("myprofile"))
+        project_dirs_for_app_id(AppId::new("dev", "neowarp", "NeoWarp"), Some("myprofile"))
             .expect("should be able to compute project dirs");
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(project_dirs.project_path(), "dev.nanowarp.NanoWarp-myprofile");
+            assert_eq!(project_dirs.project_path(), "dev.neowarp.NeoWarp-myprofile");
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(project_dirs.project_path(), "nanowarp-myprofile");
+            assert_eq!(project_dirs.project_path(), "neowarp-myprofile");
         } else if #[cfg(windows)] {
-            assert_eq!(project_dirs.project_path(), "nanowarp\\NanoWarp-myprofile");
+            assert_eq!(project_dirs.project_path(), "neowarp\\NeoWarp-myprofile");
         } else {
             unimplemented!("Need to update tests for current platform!");
         }
@@ -155,15 +155,15 @@ fn test_project_path_for_nanowarp_data_profile() {
 #[test]
 fn test_project_path_for_integration_app_id() {
     let project_dirs =
-        project_dirs_for_app_id(AppId::new("dev", "nanowarp", "NanoWarpIntegration"), None)
+        project_dirs_for_app_id(AppId::new("dev", "neowarp", "NeoWarpIntegration"), None)
             .expect("should be able to compute project dirs");
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
-            assert_eq!(project_dirs.project_path(), "dev.nanowarp.NanoWarpIntegration");
+            assert_eq!(project_dirs.project_path(), "dev.neowarp.NeoWarpIntegration");
         } else if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            assert_eq!(project_dirs.project_path(), "nanowarpintegration");
+            assert_eq!(project_dirs.project_path(), "neowarpintegration");
         } else if #[cfg(windows)] {
-            assert_eq!(project_dirs.project_path(), "nanowarp\\NanoWarpIntegration");
+            assert_eq!(project_dirs.project_path(), "neowarp\\NeoWarpIntegration");
         } else {
             unimplemented!("Need to update tests for current platform!");
         }

@@ -1,18 +1,18 @@
 ---
 name: dedupe-issue-local
-description: Compare NanoWarp issue reports for an evidence-backed duplicate, using terminal, input, rendering, basic-editor and SSH context.
+description: Compare NeoWarp issue reports for an evidence-backed duplicate, using terminal, input, rendering, basic-editor and SSH context.
 ---
 
-# NanoWarp issue deduplication
+# NeoWarp issue deduplication
 
-Use the current NanoWarp issue and candidate issue bodies, comments and
+Use the current NeoWarp issue and candidate issue bodies, comments and
 attachments. This guide is self-contained and requires no upstream parent
 skill installation or scheduled maintenance loop.
 
 ## Compare the failing behavior
 
 - Normalize low-signal prefixes such as `Bug:`, `[Feature]`, `Warp:` or
-  `NanoWarp:` and platform tags for title comparison. Titles only nominate
+  `NeoWarp:` and platform tags for title comparison. Titles only nominate
   candidates; they do not prove a duplicate.
 - Require the same observable symptom and compatible reproduction path.
   Compare expected behavior, trigger, regression timing and relevant source.
@@ -23,7 +23,7 @@ skill installation or scheduled maintenance loop.
   platform causes just because screenshots or titles look similar.
 - Reports about retired AI, account, cloud, LSP or Notebook-preview features
   concern removed scope; matching an upstream commercial issue does not
-  establish an active NanoWarp defect. External CLI use is still supported.
+  establish an active NeoWarp defect. External CLI use is still supported.
 
 Return the candidate issue link, shared evidence, any material differences and
 a duplicate/related/insufficient-evidence conclusion. Use labels from

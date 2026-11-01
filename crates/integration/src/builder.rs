@@ -171,7 +171,7 @@ impl Builder {
 
         let inner = inner.with_setup(move |utils| {
             let dir = utils.test_dir();
-            utils.set_env("NANOWARP_DATA_DIR", Some(dir.join("nanowarp-runtime")));
+            utils.set_env("NEOWARP_DATA_DIR", Some(dir.join("neowarp-runtime")));
             write_rc_files_for_test(
                 &dir,
                 "",

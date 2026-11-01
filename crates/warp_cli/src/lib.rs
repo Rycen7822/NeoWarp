@@ -49,13 +49,9 @@ pub struct RemoteServerIdentityArgs {
     pub identity_key: String,
 }
 
-/// Arguments for the NanoWarp desktop application and its workers.
+/// Arguments for the NeoWarp desktop application and its workers.
 #[derive(Debug, Default, Parser, Clone)]
-#[command(
-    name = "nanowarp",
-    display_name = "NanoWarp",
-    about = "Desktop terminal"
-)]
+#[command(name = "neowarp", display_name = "NeoWarp", about = "Desktop terminal")]
 #[clap(subcommand_precedence_over_arg = true)]
 pub struct Args {
     #[command(subcommand)]

@@ -15,7 +15,7 @@ use crate::Appearance;
 use crate::terminal::model::session::SessionId;
 use crate::ui_components::icons::Icon;
 
-const BANNER_TITLE: &str = "Couldn't connect to the NanoWarp SSH extension";
+const BANNER_TITLE: &str = "Couldn't connect to the NeoWarp SSH extension";
 
 const BANNER_BODY: &str =
     "Advanced SSH features are unavailable. You can continue using the SSH terminal.";

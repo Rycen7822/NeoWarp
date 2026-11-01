@@ -2,7 +2,7 @@ use std::path::Path;
 
 use remote_server::transport::Error;
 
-/// Installs a matching local NanoWarp binary through the existing SSH connection.
+/// Installs a matching local NeoWarp binary through the existing SSH connection.
 pub(super) async fn install_binary(socket_path: &Path) -> Result<(), Error> {
     let platform = super::detect_remote_platform(socket_path).await?;
     let artifact = remote_server::setup::local_artifact_path(&platform);
@@ -37,7 +37,7 @@ pub(super) async fn install_binary(socket_path: &Path) -> Result<(), Error> {
         });
     }
 
-    let staging_name = format!(".nanowarp-server-upload-{}", uuid::Uuid::new_v4());
+    let staging_name = format!(".neowarp-server-upload-{}", uuid::Uuid::new_v4());
     let staging_path = format!("{install_dir}/{staging_name}");
     let timeout = remote_server::setup::SCP_INSTALL_TIMEOUT;
     let result = async {

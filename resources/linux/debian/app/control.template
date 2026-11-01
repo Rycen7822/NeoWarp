@@ -1,11 +1,11 @@
-Package: nanowarp
+Package: neowarp
 Version: @@VERSION@@
 Section: devel
 Depends: fontconfig, libegl1, libwayland-client0, libwayland-egl1, libx11-6, libxcb1, libxcursor1, libxi6, libxkbcommon-x11-0, zlib1g
 Recommends: libgl1-mesa-dri, yaru-icon-theme | adwaita-icon-theme-full
 Priority: optional
 Architecture: @@ARCH@@
-Maintainer: NanoWarp contributors <61359108+Rycen7822@users.noreply.github.com>
-Homepage: https://github.com/Rycen7822/NanoWarp
-Description: NanoWarp, a local terminal emulator
- NanoWarp is a local terminal emulator based on Warp.
+Maintainer: NeoWarp contributors <61359108+Rycen7822@users.noreply.github.com>
+Homepage: https://github.com/Rycen7822/NeoWarp
+Description: NeoWarp, a local terminal emulator
+ NeoWarp is a local terminal emulator based on Warp.

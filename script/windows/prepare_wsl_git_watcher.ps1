@@ -17,11 +17,11 @@ try {
     $sysroot = rustc +1.92.0 --print sysroot
     $hostTriple = (rustc +1.92.0 -vV | Select-String '^host: ').ToString().Substring(6)
     [Environment]::SetEnvironmentVariable($linkerVariable, "$sysroot\lib\rustlib\$hostTriple\bin\rust-lld.exe")
-    cargo +1.92.0 build --locked -p wsl_git_watcher --bin nanowarp-wsl-watch --target $target --profile wsl-helper
+    cargo +1.92.0 build --locked -p wsl_git_watcher --bin neowarp-wsl-watch --target $target --profile wsl-helper
     if ($LASTEXITCODE -ne 0) { throw 'WSL Git watcher build failed. Install the matching Rust musl target first.' }
     $targetDirectory = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "$workspaceRoot\.work\target" }
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-    Copy-Item -LiteralPath "$targetDirectory\$target\wsl-helper\nanowarp-wsl-watch" -Destination $OutputDirectory -Force
+    Copy-Item -LiteralPath "$targetDirectory\$target\wsl-helper\neowarp-wsl-watch" -Destination $OutputDirectory -Force
 } finally {
     [Environment]::SetEnvironmentVariable($linkerVariable, $previousLinker)
 }

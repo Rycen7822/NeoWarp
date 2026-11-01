@@ -31,7 +31,7 @@ pub fn sections(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<FeatureSec
             ),
             FeatureItem::new(
                 "Open command palette",
-                "Access NanoWarp via the keyboard.",
+                "Access NeoWarp via the keyboard.",
                 Tip::Action(TipAction::CommandPalette),
                 ctx,
             ),

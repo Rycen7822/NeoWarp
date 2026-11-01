@@ -6,9 +6,9 @@ body:
     attributes:
       label: "Pre-submit Checks"
       options:
-        - label: "I have [searched NanoWarp bugs](https://github.com/Rycen7822/NanoWarp/issues?q=is%3Aissue+label%3Abug) and there are no duplicates"
+        - label: "I have [searched NeoWarp bugs](https://github.com/Rycen7822/NeoWarp/issues?q=is%3Aissue+label%3Abug) and there are no duplicates"
           required: true
-        - label: "I have [read the NanoWarp README](https://github.com/Rycen7822/NanoWarp/blob/main/README.md) and my issue is not covered there"
+        - label: "I have [read the NeoWarp README](https://github.com/Rycen7822/NeoWarp/blob/main/README.md) and my issue is not covered there"
           required: true
         - label: "I have included relevant logs, with sensitive details redacted (optional)."
           required: false
@@ -72,54 +72,54 @@ body:
   - type: input
     id: "warp-version"
     attributes:
-      label: "Current NanoWarp version"
-      description: "Copy the version from the bottom of NanoWarp Essentials, or run `nanowarp --version` with an installed package."
+      label: "Current NeoWarp version"
+      description: "Copy the version from the bottom of NeoWarp Essentials, or run `neowarp --version` with an installed package."
     validations:
       required: false
   - type: dropdown
     id: "regression"
     attributes:
       label: "Regression"
-      description: "Is this a regression (used to work in a previous NanoWarp version)?"
+      description: "Is this a regression (used to work in a previous NeoWarp version)?"
       multiple: false
       options:
-        - "No, this bug or issue has existed throughout my experience using NanoWarp"
-        - "Yes, this bug started recently or with an X NanoWarp version"
+        - "No, this bug or issue has existed throughout my experience using NeoWarp"
+        - "Yes, this bug started recently or with an X NeoWarp version"
     validations:
       required: true
   - type: input
     id: "warp-version-regression-date"
     attributes:
-      label: "Recent working NanoWarp date"
-      description: "Most recent date that NanoWarp worked as expected"
+      label: "Recent working NeoWarp date"
+      description: "Most recent date that NeoWarp worked as expected"
     validations:
       required: false
   - type: textarea
     id: "additional-context"
     attributes:
       label: "Additional context"
-      description: "Add any other context about the problem here. If using NanoWarp on Linux, tell us if you're using X11 or Wayland. If the issue is graphical, run NanoWarp with the following command `RUST_LOG=wgpu_core=info,wgpu_hal=info MESA_DEBUG=1 EGL_LOG_LEVEL=debug nanowarp` attach relevant logs with sensitive details redacted. If `eglinfo` is already available, include its output."
+      description: "Add any other context about the problem here. If using NeoWarp on Linux, tell us if you're using X11 or Wayland. If the issue is graphical, run NeoWarp with the following command `RUST_LOG=wgpu_core=info,wgpu_hal=info MESA_DEBUG=1 EGL_LOG_LEVEL=debug neowarp` attach relevant logs with sensitive details redacted. If `eglinfo` is already available, include its output."
     validations:
       required: false
   - type: dropdown
     id: "blocker"
     attributes:
-      label: "Does this block you from using NanoWarp daily?"
+      label: "Does this block you from using NeoWarp daily?"
       description: "All feedback will be reviewed, even if you select 'No'."
       multiple: false
       options:
         - "No"
-        - "Yes, this issue prevents me from using NanoWarp daily."
+        - "Yes, this issue prevents me from using NeoWarp daily."
     validations:
       required: true
   - type: dropdown
     id: "terminals"
     attributes:
-      label: "Is this an issue only in NanoWarp?"
+      label: "Is this an issue only in NeoWarp?"
       description: "Verifying this issue doesn't happen in other terminals helps us to prioritize the fix"
       multiple: false
       options:
-        - "Yes, I confirmed that this only happens in NanoWarp, not other terminals."
-        - "No, this issue happens in NanoWarp and other terminals."
+        - "Yes, I confirmed that this only happens in NeoWarp, not other terminals."
+        - "No, this issue happens in NeoWarp and other terminals."
     validations:
       required: true

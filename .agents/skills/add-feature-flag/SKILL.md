@@ -1,6 +1,6 @@
 ---
 name: add-feature-flag
-description: Add an opt-in flag for an accepted local NanoWarp feature.
+description: Add an opt-in flag for an accepted local NeoWarp feature.
 ---
 
 # Add a Feature Flag

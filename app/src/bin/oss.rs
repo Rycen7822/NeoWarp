@@ -11,8 +11,8 @@ fn main() -> Result<()> {
     let mut state = ChannelState::new(
         Channel::Oss,
         ChannelConfig {
-            app_id: AppId::new("dev", "nanowarp", "NanoWarp"),
-            logfile_name: "nanowarp.log".into(),
+            app_id: AppId::new("dev", "neowarp", "NeoWarp"),
+            logfile_name: "neowarp.log".into(),
         },
     );
     if cfg!(debug_assertions) {
@@ -33,15 +33,15 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleDevelopmentRegion</key>
     <string>English</string>
     <key>CFBundleDisplayName</key>
-    <string>NanoWarp</string>
+    <string>NeoWarp</string>
     <key>CFBundleExecutable</key>
     <string>warp-oss</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.nanowarp.NanoWarp</string>
+    <string>dev.neowarp.NeoWarp</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>NanoWarp</string>
+    <string>NeoWarp</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -53,7 +53,14 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>UIDesignRequiresCompatibility</key>
     <true/>
     <key>CFBundleURLTypes</key>
-    <array><dict><key>CFBundleURLName</key><string>Custom App</string><key>CFBundleURLSchemes</key><array><string>nanowarp</string></array></dict></array>
+    <array>
+      <dict>
+        <key>CFBundleURLName</key>
+        <string>Custom App</string>
+        <key>CFBundleURLSchemes</key>
+        <array><string>neowarp</string></array>
+      </dict>
+    </array>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026, Denver Technologies, Inc</string>
     </dict>

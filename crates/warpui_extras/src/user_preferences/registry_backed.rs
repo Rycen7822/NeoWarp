@@ -12,7 +12,7 @@ pub struct RegistryBackedPreferences {
     app_key_path: String,
 }
 
-static WARP_REGISTRY_BASE_PATH: &str = "Software\\NanoWarp\\";
+static WARP_REGISTRY_BASE_PATH: &str = "Software\\NeoWarp\\";
 pub const KEY_NOT_FOUND_ERR: HRESULT = HRESULT::from_win32(0x80070002);
 
 impl RegistryBackedPreferences {

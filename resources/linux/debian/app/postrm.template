@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-rm -f /usr/bin/nanowarp
+rm -f /usr/bin/neowarp
 
 # Make sure the system forgets the newly-uninstalled desktop file.
 if hash update-desktop-database 2>/dev/null; then

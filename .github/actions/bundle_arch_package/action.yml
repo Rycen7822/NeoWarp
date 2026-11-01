@@ -2,7 +2,7 @@
 # packages up an already-built binary.
 
 name: Bundle Arch Linux package
-description: Bundles an Arch Linux package for NanoWarp.
+description: Bundles an Arch Linux package for NeoWarp.
 inputs:
   release-tag:
     description: The git release tag.

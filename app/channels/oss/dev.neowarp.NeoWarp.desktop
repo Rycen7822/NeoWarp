@@ -4,20 +4,20 @@ Version=1.0
 
 Type=Application
 
-Name=NanoWarp
+Name=NeoWarp
 GenericName=TerminalEmulator
 
-Exec=nanowarp %U
-StartupWMClass=dev.nanowarp.NanoWarp
+Exec=neowarp %U
+StartupWMClass=dev.neowarp.NeoWarp
 
 Keywords=shell;prompt;command;commandline;cmd;
 
-Icon=dev.nanowarp.NanoWarp
+Icon=dev.neowarp.NeoWarp
 
 Categories=System;TerminalEmulator;
 
 # Don't run this application within a terminal.
 Terminal=false
 
-# Register ourselves as the handler for nanowarp:// URLs.
-MimeType=x-scheme-handler/nanowarp;
+# Register ourselves as the handler for neowarp:// URLs.
+MimeType=x-scheme-handler/neowarp;

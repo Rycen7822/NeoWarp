@@ -119,12 +119,12 @@ pub(super) fn subscribe(
 }
 
 async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
-    let helper = std::env::current_exe()?.with_file_name("nanowarp-wsl-watch");
+    let helper = std::env::current_exe()?.with_file_name("neowarp-wsl-watch");
     // Validate before starting wsl.exe, so ordinary development builds without
     // the sidecar immediately fall back rather than launching a failing child.
     async_fs::metadata(&helper)
         .await
-        .context("missing nanowarp-wsl-watch beside executable")?;
+        .context("missing neowarp-wsl-watch beside executable")?;
     let helper = dunce::simplified(&helper)
         .to_str()
         .context("WSL helper path is not UTF-8")?;

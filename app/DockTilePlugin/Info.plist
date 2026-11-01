@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>dev.nanowarp.NanoWarp.DockTilePlugin</string>
+    <string>dev.neowarp.NeoWarp.DockTilePlugin</string>
     <key>CFBundleExecutable</key>
     <string>WarpDockTilePlugin</string>
     <key>CFBundleName</key>

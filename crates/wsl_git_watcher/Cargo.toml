@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "nanowarp-wsl-watch"
+name = "neowarp-wsl-watch"
 path = "src/main.rs"
 
 [target.'cfg(target_os = "linux")'.dependencies]

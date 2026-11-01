@@ -1,13 +1,13 @@
 ---
 name: gui-integration-test
-description: Run, debug or maintain NanoWarp GUI/terminal integration tests in the existing Builder/TestStep harness when the accepted behavior needs a real app or PTY.
+description: Run, debug or maintain NeoWarp GUI/terminal integration tests in the existing Builder/TestStep harness when the accepted behavior needs a real app or PTY.
 ---
 
-# NanoWarp integration tests
+# NeoWarp integration tests
 
-**Scope — NanoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
+**Scope — NeoWarp desktop GUI.** This guide covers the `app/` crate and its WarpUI pixel/GPU framework.
 
-Use this skill for Rust integration tests in NanoWarp's existing framework under `crates/integration/`. Prefer related existing tests. Temporary diagnosis and acceptance probes stay in `.work/`; add permanent cases only for an accepted behavior gap under root limits. The harness does not restore retired product features.
+Use this skill for Rust integration tests in NeoWarp's existing framework under `crates/integration/`. Prefer related existing tests. Temporary diagnosis and acceptance probes stay in `.work/`; add permanent cases only for an accepted behavior gap under root limits. The harness does not restore retired product features.
 
 These are not ordinary unit tests. They boot a real Warp app instance, give it an isolated test home directory, drive it with synthetic UI and terminal events, and poll assertions until success or timeout.
 

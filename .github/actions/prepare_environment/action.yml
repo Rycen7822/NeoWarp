@@ -48,7 +48,7 @@ runs:
       run: |
         REPO_ROOT="${{ steps.repo-root.outputs.path }}"
         # Non-repository fixtures must not inherit the checkout's .git directory.
-        temp_root="$RUNNER_TEMP/.work/nanowarp"
+        temp_root="$RUNNER_TEMP/.work/neowarp"
         cargo_root="$REPO_ROOT/.work/cargo-home"
         # rust-cache excludes dependencies stored inside the workspace on Unix.
         if [[ "$RUNNER_OS" != "Windows" ]]; then
@@ -166,7 +166,7 @@ runs:
         # Match script/linux/install_build_deps without upgrading Homebrew dependencies.
         version="25.1"
         protoc_dir="${{ steps.repo-root.outputs.path }}/.work/tools/protoc-$version"
-        archive="$RUNNER_TEMP/.work/nanowarp/protoc-$version.zip"
+        archive="$RUNNER_TEMP/.work/neowarp/protoc-$version.zip"
         mkdir -p "$protoc_dir" "$(dirname "$archive")"
         if [[ ! -x "$protoc_dir/bin/protoc" ]]; then
           curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \

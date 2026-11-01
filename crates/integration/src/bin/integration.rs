@@ -27,7 +27,7 @@ pub fn main() -> Result<()> {
     ChannelState::set(ChannelState::new(
         Channel::Integration,
         ChannelConfig {
-            app_id: AppId::new("dev", "nanowarp", "NanoWarpIntegration"),
+            app_id: AppId::new("dev", "neowarp", "NeoWarpIntegration"),
             logfile_name: "warp_integration.log".into(),
         },
     ));

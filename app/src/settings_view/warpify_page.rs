@@ -447,7 +447,7 @@ struct TitleWidget {}
 impl TitleWidget {
     fn render_top_of_page(&self, appearance: &Appearance, _app: &AppContext) -> Box<dyn Element> {
         let warpify_description = FormattedTextElement::from_str(
-            "Configure whether NanoWarp adds support for blocks and input modes to shells.",
+            "Configure whether NeoWarp adds support for blocks and input modes to shells.",
             appearance.ui_font_family(),
             CONTENT_FONT_SIZE,
         )

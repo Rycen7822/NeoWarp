@@ -1,11 +1,11 @@
 ---
 name: logging-and-error-reporting
-description: Choose local log levels and typed error diagnostics in NanoWarp while keeping secrets out of logs.
+description: Choose local log levels and typed error diagnostics in NeoWarp while keeping secrets out of logs.
 ---
 
 # Local logging and error diagnostics
 
-NanoWarp writes local diagnostics through `warp_logging`. `report_error!` and
+NeoWarp writes local diagnostics through `warp_logging`. `report_error!` and
 `report_if_error!` in `crates/warp_errors/src/lib.rs` also write local logs;
 there is no crash-upload or telemetry reporting path.
 

@@ -1,5 +1,5 @@
 {
-  description = "NanoWarp is a local terminal emulator (Experimental Nix Support, Linux-only).";
+  description = "NeoWarp is a local terminal emulator (Experimental Nix Support, Linux-only).";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -75,7 +75,7 @@
             in
             # crane writes a root config.toml; buildRustPackage expects the
             # cargoDeps layout to include .cargo/config.toml and Cargo.lock.
-            pkgs.runCommand "nanowarp-${version}-cargo-vendor" { } ''
+            pkgs.runCommand "neowarp-${version}-cargo-vendor" { } ''
               cp -R ${craneVendorDir}/. "$out"
               chmod u+w "$out"
               mkdir -p "$out/.cargo"
@@ -117,8 +117,8 @@
             "gui"
           ];
 
-          nanowarp = rustPlatform.buildRustPackage {
-            pname = "nanowarp";
+          neowarp = rustPlatform.buildRustPackage {
+            pname = "neowarp";
             inherit version;
 
             inherit src;
@@ -152,7 +152,7 @@
             doCheck = false;
 
             env = {
-              APPIMAGE_NAME = "NanoWarp-${pkgs.stdenv.hostPlatform.parsed.cpu.name}.AppImage";
+              APPIMAGE_NAME = "NeoWarp-${pkgs.stdenv.hostPlatform.parsed.cpu.name}.AppImage";
               LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               PROTOC = "${pkgs.protobuf}/bin/protoc";
               PROTOC_INCLUDE = "${pkgs.protobuf}/include";
@@ -160,65 +160,65 @@
             };
             postInstall =
               let
-                installDir = "$out/opt/nanowarp";
+                installDir = "$out/opt/neowarp";
                 resourcesDir = "${installDir}/resources";
                 libraryPath = lib.makeLibraryPath linuxRuntimeLibraries;
                 executablePath = lib.makeBinPath (with pkgs; [ xdg-utils ]);
               in
               ''
-                install -Dm755 "$out/bin/warp-oss" "${installDir}/nanowarp"
+                install -Dm755 "$out/bin/warp-oss" "${installDir}/neowarp"
                 rm -f "$out/bin/warp-oss"
 
                 patchShebangs ./script/prepare_bundled_resources
 
-                SETTINGS_SCHEMA_EXECUTABLE="${installDir}/nanowarp" ./script/prepare_bundled_resources \
+                SETTINGS_SCHEMA_EXECUTABLE="${installDir}/neowarp" ./script/prepare_bundled_resources \
                   "${resourcesDir}"
 
                 install -Dm644 \
                   "${resourcesDir}/THIRD_PARTY_LICENSES.txt" \
-                  "$out/share/licenses/nanowarp/THIRD_PARTY_LICENSES.txt"
+                  "$out/share/licenses/neowarp/THIRD_PARTY_LICENSES.txt"
 
-                install -Dm644 LICENSE-AGPL "$out/share/licenses/nanowarp/LICENSE-AGPL"
-                install -Dm644 LICENSE-MIT "$out/share/licenses/nanowarp/LICENSE-MIT"
+                install -Dm644 LICENSE-AGPL "$out/share/licenses/neowarp/LICENSE-AGPL"
+                install -Dm644 LICENSE-MIT "$out/share/licenses/neowarp/LICENSE-MIT"
 
-                install -Dm644 app/channels/oss/dev.nanowarp.NanoWarp.desktop \
-                  "$out/share/applications/dev.nanowarp.NanoWarp.desktop"
+                install -Dm644 app/channels/oss/dev.neowarp.NeoWarp.desktop \
+                  "$out/share/applications/dev.neowarp.NeoWarp.desktop"
 
                 for size in 16x16 32x32 64x64 128x128 256x256 512x512; do
                   icon="app/channels/oss/icon/no-padding/$size.png"
                   if [ -f "$icon" ]; then
                     install -Dm644 "$icon" \
-                      "$out/share/icons/hicolor/$size/apps/dev.nanowarp.NanoWarp.png"
+                      "$out/share/icons/hicolor/$size/apps/dev.neowarp.NeoWarp.png"
                   fi
                 done
 
-                wrapProgram "${installDir}/nanowarp" \
+                wrapProgram "${installDir}/neowarp" \
                   --prefix LD_LIBRARY_PATH : "${libraryPath}" \
                   --prefix PATH : "${executablePath}"
 
                 mkdir -p "$out/bin"
-                ln -s "${installDir}/nanowarp" "$out/bin/nanowarp"
+                ln -s "${installDir}/neowarp" "$out/bin/neowarp"
               '';
 
             postFixup = lib.optionalString pkgs.stdenv.isLinux ''
-              wrapped="/opt/nanowarp/.nanowarp-wrapped"
+              wrapped="/opt/neowarp/.neowarp-wrapped"
               if [ -e "$out$wrapped" ] && ! patchelf --print-needed "$out$wrapped" | grep -q '^libfontconfig\.so\.1$'; then
                 patchelf --add-needed libfontconfig.so.1 "$out$wrapped"
               fi
             '';
 
             meta = {
-              description = "NanoWarp is a local terminal emulator (Experimental Nix Support, Linux-only).";
-              homepage = "https://github.com/Rycen7822/NanoWarp";
+              description = "NeoWarp is a local terminal emulator (Experimental Nix Support, Linux-only).";
+              homepage = "https://github.com/Rycen7822/NeoWarp";
               license = lib.licenses.agpl3Only;
-              mainProgram = "nanowarp";
+              mainProgram = "neowarp";
               platforms = systems;
               sourceProvenance = with lib.sourceTypes; [ fromSource ];
             };
           };
         in
         {
-          inherit nanowarp;
+          inherit neowarp;
         }
       );
 
@@ -277,7 +277,7 @@
         {
           default = pkgs.mkShell {
             inherit nativeBuildInputs buildInputs;
-            APPIMAGE_NAME = "NanoWarp-${pkgs.stdenv.hostPlatform.parsed.cpu.name}.AppImage";
+            APPIMAGE_NAME = "NeoWarp-${pkgs.stdenv.hostPlatform.parsed.cpu.name}.AppImage";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             PROTOC = "${pkgs.protobuf}/bin/protoc";
             PROTOC_INCLUDE = "${pkgs.protobuf}/include";

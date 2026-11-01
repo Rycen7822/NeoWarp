@@ -1,9 +1,9 @@
 ---
 name: review-pr-local
-description: Review NanoWarp changes against local Rust, GUI, logging and validation conventions.
+description: Review NeoWarp changes against local Rust, GUI, logging and validation conventions.
 ---
 
-# NanoWarp review guidance
+# NeoWarp review guidance
 
 ## Repo-specific style and recurring review patterns
 
@@ -33,7 +33,7 @@ These macros write local logs; review them without assuming an upload service.
   - Unit tests, integration tests, `git diff --check`, code-path descriptions, and other textual explanations may supplement visual evidence but do not replace it when visual proof is required.
 - If the change is behavioral or UI-impacting and no screenshots or videos are attached in the description or comments, you may add an inline or summary-level comment requesting them. Use wording such as: "For this user-facing change, please include screenshots or a screen recording demonstrating it working end to end."
 - Missing visual evidence is blocking only when the request, brief, or spec explicitly required visual proof. In that case, when the change can be manually tested, state that the explicitly requested evidence is still missing, even if no code defect was found. Otherwise, missing visual evidence is not a finding — ordinary tests and checks are sufficient.
-- If visual proof was explicitly required, an unavailable desktop remains an evidence gap. Record the exact limitation and obtain evidence from the current NanoWarp build; an upstream Warp recording does not verify this fork.
+- If visual proof was explicitly required, an unavailable desktop remains an evidence gap. Record the exact limitation and obtain evidence from the current NeoWarp build; an upstream Warp recording does not verify this fork.
 - Exempt visual evidence only when the user-visible behavior truly cannot be meaningfully shown visually (for example, changes affecting only screen readers or non-visual side effects). If so, briefly state why screenshots or recordings would not be meaningful. When visual proof is required, never exempt based on limitations of the author's environment.
 - If the PR is not user-visible at all (e.g. pure refactor, internal tools, build scripts, backend-only code, tests, or documentation), do not request screenshots or videos.
 

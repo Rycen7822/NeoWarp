@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Builds a NanoWarp binary and bundles it up for distribution.
+# Builds a NeoWarp binary and bundles it up for distribution.
 
 set -e
 
@@ -136,15 +136,15 @@ mkdir -p "$OUT_DIR"
 # WARP_BIN is the name of the binary produced by cargo;
 # BINARY_NAME is the desired name of the binary in the final package.
 WARP_BIN="warp-oss"
-BINARY_NAME="nanowarp"
-APP_NAME="NanoWarp"
+BINARY_NAME="neowarp"
+APP_NAME="NeoWarp"
 
 FEATURES="$FEATURES,gui"
 if [[ -n "$EXTRA_FEATURES" ]]; then
   FEATURES="$FEATURES,$EXTRA_FEATURES"
 fi
 
-BUNDLE_ID="dev.nanowarp.NanoWarp"
+BUNDLE_ID="dev.neowarp.NeoWarp"
 EXECUTABLE_PATH="$CARGO_TARGET_OUTPUT_DIR/$WARP_BIN"
 DEBUG_EXECUTABLE_PATH="$EXECUTABLE_PATH.debug"
 
@@ -161,7 +161,7 @@ fi
 
 # Build the binary.
 if [[ "$BUILD" == "true" ]]; then
-  echo "Building and bundling NanoWarp for channel $RELEASE_CHANNEL and bundle id $BUNDLE_ID"
+  echo "Building and bundling NeoWarp for channel $RELEASE_CHANNEL and bundle id $BUNDLE_ID"
   cargo build --locked -p warp --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES" ${TARGET_TRIPLE:+--target $TARGET_TRIPLE}
 
   echo "Making debug copy of '$EXECUTABLE_PATH' at '$DEBUG_EXECUTABLE_PATH'"

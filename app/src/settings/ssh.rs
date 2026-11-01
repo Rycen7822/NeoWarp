@@ -20,7 +20,7 @@ define_settings_group!(SshSettings,
 pub(crate) fn remote_server_instance_id(ctx: &warpui::AppContext) -> anyhow::Result<String> {
     use warp_core::user_preferences::GetUserPreferences;
 
-    const REMOTE_SERVER_INSTANCE_ID_KEY: &str = "NanoWarpRemoteServerInstanceId";
+    const REMOTE_SERVER_INSTANCE_ID_KEY: &str = "NeoWarpRemoteServerInstanceId";
     let preferences = ctx.private_user_preferences();
     if let Some(value) = preferences.read_value(REMOTE_SERVER_INSTANCE_ID_KEY)? {
         return Ok(uuid::Uuid::parse_str(&value)?.to_string());
