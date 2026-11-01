@@ -252,6 +252,7 @@ impl BlockGrid {
         self.finished = true;
 
         self.grid_handler_mut().finish();
+        self.grid_handler_mut().compact_finished_row();
     }
 
     /// Returns a freshly-computed value of rightmost_nonempty_cell if this grid isn't

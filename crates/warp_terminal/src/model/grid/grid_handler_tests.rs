@@ -2443,6 +2443,15 @@ fn test_hyperlink_at_point_spans_contiguous_cells() {
         Some("https://example.com")
     );
     assert_eq!(grid.hyperlink_uri_at_point(Point::new(0, 0)), None);
+
+    grid.finish();
+    grid.compact_finished_row();
+    grid.resize(SizeInfo::new_without_font_metrics(5, 8));
+    grid.resize(SizeInfo::new_without_font_metrics(5, 20));
+    assert_eq!(
+        grid.hyperlink_uri_at_point(Point::new(0, 3)),
+        Some("https://example.com")
+    );
 }
 
 #[test]

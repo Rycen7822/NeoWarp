@@ -258,6 +258,13 @@ fn test_secret_redaction_secret_remains_after_resize() {
         secret_ranges(grid_handler),
         vec![Point::new(0, 0)..=Point::new(1, 1)]
     );
+
+    blockgrid.finish();
+    blockgrid.resize(SizeInfo::new_without_font_metrics(2, 5));
+    assert_eq!(
+        secret_ranges(blockgrid.grid_handler()),
+        vec![Point::new(0, 0)..=Point::new(0, 3)]
+    );
 }
 
 #[test]

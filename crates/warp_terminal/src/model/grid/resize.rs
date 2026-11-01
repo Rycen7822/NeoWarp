@@ -13,6 +13,7 @@ use crate::model::{Point, VisiblePoint, VisibleRow};
 impl GridHandler {
     /// Resize terminal to new dimensions.
     pub fn resize(&mut self, size: SizeInfo) {
+        let compact_tail = self.has_compact_tail();
         self.ansi_handler_state.cell_width = size.cell_width_px.as_f32() as usize;
         self.ansi_handler_state.cell_height = size.cell_height_px.as_f32() as usize;
 
@@ -53,10 +54,15 @@ impl GridHandler {
 
         // Re-apply the grid filter, if one exists.
         self.refilter_lines();
+        if compact_tail {
+            self.compact_finished_row();
+        }
     }
 
     pub(super) fn resize_storage(&mut self, num_rows: usize, num_cols: usize) {
         use std::cmp::min;
+
+        self.materialize_finished_row();
 
         // If this is the alt screen, we can skip reflowing the grid and simply
         // adjust the size of rows.

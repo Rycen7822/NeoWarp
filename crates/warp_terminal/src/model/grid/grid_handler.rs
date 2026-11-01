@@ -530,6 +530,7 @@ impl GridHandler {
     }
 
     pub fn ansi_handler(&mut self) -> &mut (impl ansi::Handler + use<>) {
+        self.materialize_finished_row();
         self
     }
 
@@ -633,6 +634,7 @@ impl GridHandler {
     }
 
     pub fn grid_storage_mut(&mut self) -> &mut GridStorage {
+        self.materialize_finished_row();
         &mut self.grid
     }
 
@@ -1622,6 +1624,7 @@ impl GridHandler {
 
     /// Updates the active [`Cursor`] using the provided `update_cursor_fn`.
     pub fn update_cursor<T: FnOnce(&mut Cursor)>(&mut self, update_cursor_fn: T) {
+        self.materialize_finished_row();
         // Update state before updating the cursor, in case the cursor
         // moves backwards.
         self.grid.update_max_cursor();
@@ -1789,6 +1792,7 @@ impl GridHandler {
     /// After this is called, the grid contents should be considered immutable.
     /// Note that the "layout" of the grid's content can change due to resizes.
     pub fn finish(&mut self) {
+        self.materialize_finished_row();
         self.finished = true;
 
         // Clear out all content in the grid following the cursor.
@@ -1813,6 +1817,27 @@ impl GridHandler {
                 .set_max_rows(Some(max_rows.saturating_add(extra_rows)));
         }
         self.resize_storage(1, self.columns());
+    }
+
+    /// Keep the logical tail row and its cursor metadata, but store its cells only in FlatStorage.
+    pub(crate) fn compact_finished_row(&mut self) {
+        if self.finished && self.grid.visible_rows() == 1 {
+            // The tail row is outside the scrollback budget, just as it was in GridStorage.
+            self.flat_storage
+                .push_rows_without_truncation([&self.grid[VisibleRow(0)]]);
+            self.grid.set_stored_rows(Vec::new(), 0, self.columns());
+        }
+    }
+
+    fn has_compact_tail(&self) -> bool {
+        self.finished && self.grid.visible_rows() == 0 && self.flat_storage.total_rows() > 0
+    }
+
+    fn materialize_finished_row(&mut self) {
+        if self.has_compact_tail() {
+            let rows = self.flat_storage.pop_rows(1);
+            self.grid.set_stored_rows(rows, 1, self.columns());
+        }
     }
 
     /// Returns the total number of rows that _precede_ the row containing the
@@ -2429,6 +2454,7 @@ impl GridHandler {
 
     /// Append the contents of another grid to this one, cell-by-cell.
     pub fn append_cells_from_grid(&mut self, other: &GridHandler) {
+        self.materialize_finished_row();
         let max_point = other.grid.max_cursor_point.convert_to_absolute(other);
 
         // We ensure that we don't copy "extra" empty cells over - only copy till the end of the "real content".
@@ -2489,6 +2515,8 @@ impl GridHandler {
         prompt_end_point: Point,
         has_extra_trailing_newline: bool,
     ) {
+        let compact_tail = self.has_compact_tail();
+        self.materialize_finished_row();
         match self.storage_row(prompt_end_point.row) {
             Some(StorageRow::GridStorage(row_idx)) => self.grid[row_idx][prompt_end_point.col]
                 .mark_end_of_prompt(has_extra_trailing_newline),
@@ -2503,6 +2531,9 @@ impl GridHandler {
                 self.resize_storage(visible_rows, self.columns());
             }
             None => {}
+        }
+        if compact_tail {
+            self.compact_finished_row();
         }
     }
 
@@ -2747,12 +2778,13 @@ impl Dimensions for GridHandler {
 
     #[inline]
     fn visible_rows(&self) -> usize {
-        self.grid.visible_rows()
+        self.grid.visible_rows() + usize::from(self.has_compact_tail())
     }
 
     #[inline]
     fn history_size(&self) -> usize {
-        self.flat_storage.total_rows()
+        // A compact tail still occupies one logical visible row, preserving cursor coordinates.
+        self.flat_storage.total_rows() - usize::from(self.has_compact_tail())
     }
 
     #[inline]
