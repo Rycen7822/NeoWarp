@@ -85,6 +85,8 @@ pub mod integration_testing;
 pub mod keyboard;
 pub mod launch_configs;
 pub mod pane_group;
+#[cfg(feature = "local_fs")]
+mod project_sessions;
 pub mod resource_center;
 pub mod root_view;
 pub mod search;
@@ -699,6 +701,8 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(WarpManagedPathsWatcher::new);
 
     ctx.add_singleton_model(WarpConfig::new);
+    #[cfg(feature = "local_fs")]
+    ctx.add_singleton_model(project_sessions::ProjectSessions::new);
     ctx.add_singleton_model(|_ctx| SettingsManager::default());
 
     let user_defaults_on_startup = settings::init(startup_toml_parse_error, ctx);

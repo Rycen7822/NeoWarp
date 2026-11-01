@@ -212,6 +212,17 @@ impl PaneContent for TerminalPane {
         let pane_stack = self.view.as_ref(ctx).pane_stack().clone();
         let contents = pane_stack.as_ref(ctx).entries().to_vec();
         for (manager, view) in contents {
+            #[cfg(feature = "local_fs")]
+            if matches!(detach_type, DetachType::Closed)
+                && ctx.has_singleton_model::<crate::project_sessions::ProjectSessions>()
+            {
+                crate::project_sessions::ProjectSessions::handle(ctx).update(
+                    ctx,
+                    |sessions, ctx| {
+                        sessions.end(view.id(), None, ctx);
+                    },
+                );
+            }
             // Notify the terminal manager before unsubscribing from the view.
             manager.update(ctx, |terminal_manager, ctx| {
                 terminal_manager.on_view_detached(detach_type, ctx);

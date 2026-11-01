@@ -211,6 +211,8 @@ use crate::terminal::input::{
 };
 use crate::terminal::ligature_settings::{LigatureSettings, should_use_ligature_rendering};
 use crate::terminal::links::should_directly_open_link;
+#[cfg(feature = "local_fs")]
+use crate::terminal::model::BlockId;
 use crate::terminal::model::ansi::{ClearMode, Handler};
 use crate::terminal::model::block::{Block, BlockMetadata, LONG_RUNNING_BOTTOM_PADDING_LINES};
 use crate::terminal::model::blockgrid::BlockGrid;
@@ -2739,6 +2741,96 @@ impl TerminalView {
             .and_then(BlockMetadata::session_id)
     }
 
+    #[cfg(feature = "local_fs")]
+    pub(crate) fn project_session_is_running(&self, block: &BlockId) -> bool {
+        let model = self.model.lock();
+        model.active_block_id() == block && model.block_list().active_block().is_executing()
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn observe_project_session(
+        &self,
+        block: &BlockId,
+        command: &str,
+        environment: &HashMap<String, String>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        use crate::project_sessions::config::{Host, SavedShell};
+        use crate::project_sessions::{Observation, ProjectSessions};
+
+        if !ctx.has_singleton_model::<ProjectSessions>() {
+            return;
+        }
+        let Some(session) = self
+            .active_block_session_id()
+            .and_then(|id| self.sessions.as_ref(ctx).get(id))
+        else {
+            return;
+        };
+        let Some(parsed) =
+            crate::project_sessions::command::parse(command, session.shell().shell_type())
+        else {
+            return;
+        };
+        let Some(directory) = self
+            .active_block_metadata
+            .as_ref()
+            .and_then(BlockMetadata::current_working_directory)
+        else {
+            return;
+        };
+        let Some(home) = session.home_dir() else {
+            return;
+        };
+        let Some(program) = session.shell().shell_path().clone() else {
+            return;
+        };
+        let host = match self.active_session_wsl_distro(ctx) {
+            Some(distro) => Host::Wsl(distro),
+            None if self.active_session_is_local(ctx) == Some(true) => Host::Local,
+            None => return,
+        };
+        let convert = |path: &str| {
+            if host == Host::Local {
+                session
+                    .launch_data()
+                    .and_then(|data| data.maybe_convert_absolute_path(path))
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_owned())
+            } else {
+                path.to_owned()
+            }
+        };
+        let observation = Observation {
+            terminal: ctx.handle(),
+            terminal_id: ctx.view_id(),
+            block: block.clone(),
+            directory: convert(directory),
+            home: convert(home),
+            host,
+            shell: SavedShell {
+                program,
+                kind: session.shell().shell_type(),
+            },
+            command: command.to_owned(),
+            environment: environment.clone().into_iter().collect(),
+            parsed,
+            started_at: chrono::Utc::now().timestamp_millis(),
+        };
+        ProjectSessions::handle(ctx)
+            .update(ctx, |sessions, ctx| sessions.observe(observation, ctx));
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn end_project_session(&self, block: Option<&BlockId>, ctx: &mut ViewContext<Self>) {
+        use crate::project_sessions::ProjectSessions;
+        if ctx.has_singleton_model::<ProjectSessions>() {
+            let terminal = ctx.view_id();
+            ProjectSessions::handle(ctx)
+                .update(ctx, |sessions, ctx| sessions.end(terminal, block, ctx));
+        }
+    }
+
     pub fn active_session_shell_type<C: ModelAsRef>(&self, ctx: &C) -> Option<ShellType> {
         self.active_block_session_id()
             .and_then(|id| self.sessions.as_ref(ctx).get(id))
@@ -4650,6 +4742,8 @@ impl TerminalView {
                 }
             }
             ModelEvent::Exit { .. } => {
+                #[cfg(feature = "local_fs")]
+                self.end_project_session(None, ctx);
                 // If the pty spawn has failed, we've already inserted a banner.
                 if !self.pty_spawn_failed {
                     let shell_detail = self.shell_detail.take().unwrap_or("shell".to_owned());
@@ -4678,6 +4772,8 @@ impl TerminalView {
                 }
             }
             ModelEvent::BlockCompleted(block_completed_event) => {
+                #[cfg(feature = "local_fs")]
+                self.end_project_session(Some(&block_completed_event.block_id), ctx);
                 record_trace_event!("command_execution:block_completed");
                 end_trace_after_next!("window:redraw:end");
                 let block_completed_event_clone = block_completed_event.clone();
@@ -4767,8 +4863,10 @@ impl TerminalView {
                 }
             }
             ModelEvent::AfterBlockStarted {
+                block_id,
                 command,
                 is_for_in_band_command,
+                launch_env,
                 ..
             } => {
                 if *is_for_in_band_command {
@@ -4799,6 +4897,9 @@ impl TerminalView {
                         Some(format!("{alias_value}{rest}"))
                     });
                 let warpify_command = expanded_command.as_deref().unwrap_or(command.as_str());
+
+                #[cfg(feature = "local_fs")]
+                self.observe_project_session(block_id, warpify_command, launch_env, ctx);
 
                 // Check if the current running command spawns a subshell eligible for Warpification.
                 let shell_family = self.shell_family(ctx);
