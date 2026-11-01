@@ -5,6 +5,11 @@ use warp_errors::report_error;
 use windows_registry::{CURRENT_USER, HSTRING};
 
 pub(super) fn register_uri_handler() {
+    // Isolated data profiles must not replace the user's global URI handler.
+    if warp_core::paths::runtime_root().is_some() {
+        return;
+    }
+
     // To change the settings for the user, changes must be made under
     // HKEY_CURRENT_USER\Software\Classes instead of under HKEY_CLASSES_ROOT since only an
     // administrator can modify it. It gets merged into HKEY_CLASSES_ROOT later.
