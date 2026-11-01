@@ -401,6 +401,23 @@ if [ -z "$WARP_BOOTSTRAPPED" ]; then
 
     # Note that this is very performance sensitive code, so try not to
     # invoke any external commands in here.
+    # Only known CLI-related paths are sent; ordinary commands avoid extra JSON escaping.
+    warp_agent_launch_environment () {
+        case "$1" in *codex*|*claude*|*pi*|*hermes*) ;; *) return ;; esac
+        local key value
+        for key in CODEX_HOME CLAUDE_CONFIG_DIR PI_CODING_AGENT_DIR HERMES_HOME \
+                   VIRTUAL_ENV CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_EXE; do
+            value="${!key-}"
+            [ -n "$value" ] || continue
+            if [ "$WARP_IN_MSYS2" = true ]; then
+                warp_send_hook_kv_pair "$key" "$value"
+            else
+                value="$(warp_escape_json "$value")"
+                printf ',"%s":"%s"' "$key" "$value"
+            fi
+        done
+    }
+
     warp_preexec () {
         # Use the $BASH_COMMAND environment variable instead of $1, which is passed in by bash_preeexec.
         #
@@ -412,10 +429,13 @@ if [ -z "$WARP_BOOTSTRAPPED" ]; then
           warp_send_hook_via_kv_pairs_start "Preexec"
           warp_send_hook_kv_pair "command" "$BASH_COMMAND"
           warp_send_hook_kv_pair "session_id" "$WARP_SESSION_ID"
+          warp_agent_launch_environment "$BASH_COMMAND"
           warp_send_hook_via_kv_pairs_end
         else
           local truncated_command=$(warp_escape_json "$BASH_COMMAND")
-          warp_send_json_message "{\"hook\": \"Preexec\", \"value\": {\"command\": \"$truncated_command\", \"session_id\": $WARP_SESSION_ID}}"
+          local launch_env="$(warp_agent_launch_environment "$BASH_COMMAND")"
+          warp_send_json_message "{\"hook\":\"Preexec\",\"value\":{\"command\":\"$truncated_command\","\
+"\"session_id\":$WARP_SESSION_ID$launch_env}}"
         fi
         warp_maybe_send_reset_grid_osc
 

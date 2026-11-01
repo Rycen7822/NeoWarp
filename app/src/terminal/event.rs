@@ -40,6 +40,7 @@ pub enum Event {
         block_id: BlockId,
         command: String,
         is_for_in_band_command: bool,
+        launch_env: std::collections::HashMap<String, String>,
     },
     /// Sent when a new block is created.
     BlockMetadataReceived(BlockMetadataReceivedEvent),

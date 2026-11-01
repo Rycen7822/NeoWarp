@@ -259,6 +259,13 @@ $null = New-Module -Name Warp-Module -ScriptBlock {
                 command = $command
             }
         }
+        if ($command -match 'codex|claude|pi|hermes') {
+            foreach ($name in @('CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'HERMES_HOME',
+                                'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV', 'CONDA_EXE')) {
+                $value = [Environment]::GetEnvironmentVariable($name, 'Process')
+                if ($value) { $preexecMsg.value[$name] = $value }
+            }
+        }
         Warp-Send-JsonMessage $preexecMsg
         Warp-Send-ResetGridOSC
 

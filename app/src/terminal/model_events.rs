@@ -182,10 +182,12 @@ impl ModelEventDispatcher {
                 block_id,
                 command,
                 is_for_in_band_command,
+                launch_env,
             } => ModelEvent::AfterBlockStarted {
                 block_id,
                 command,
                 is_for_in_band_command,
+                launch_env,
             },
             Event::BlockMetadataReceived(block_metadata_received_event) => {
                 ModelEvent::BlockMetadataReceived(block_metadata_received_event)
@@ -344,6 +346,7 @@ pub enum ModelEvent {
         block_id: BlockId,
         command: String,
         is_for_in_band_command: bool,
+        launch_env: std::collections::HashMap<String, String>,
     },
     /// Sent when a new block is created.
     BlockMetadataReceived(BlockMetadataReceivedEvent),

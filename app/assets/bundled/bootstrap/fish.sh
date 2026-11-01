@@ -200,7 +200,18 @@ end
 # Run before a command is executed.
 function warp_preexec --on-event fish_preexec
     set -l command (warp_escape_json "$argv")
-    warp_send_json_message "{\"hook\": \"Preexec\", \"value\": {\"command\": \"$command\", \"session_id\": $WARP_SESSION_ID}}"
+    set -l launch_env ''
+    if string match -rq 'codex|claude|pi|hermes' -- "$argv"
+        for key in CODEX_HOME CLAUDE_CONFIG_DIR PI_CODING_AGENT_DIR HERMES_HOME \
+                   VIRTUAL_ENV CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_EXE
+            if set -q $key; and test -n "$$key"
+                set -l value (warp_escape_json "$$key")
+                set launch_env "$launch_env,\"$key\":\"$value\""
+            end
+        end
+    end
+    set -l message "{\"hook\":\"Preexec\",\"value\":{\"command\":\"$command\","
+    warp_send_json_message "$message\"session_id\":$WARP_SESSION_ID$launch_env}}"
     warp_maybe_send_reset_grid_osc
 
     # If this preexec is called for user command, kill ongoing generator command jobs.

@@ -2434,6 +2434,21 @@ impl Block {
                 block_id: self.id.clone(),
                 command: self.command_to_string(),
                 is_for_in_band_command,
+                launch_env: data
+                    .launch_env
+                    .into_iter()
+                    .filter_map(|(key, value)| match key.as_str() {
+                        "CODEX_HOME"
+                        | "CLAUDE_CONFIG_DIR"
+                        | "PI_CODING_AGENT_DIR"
+                        | "HERMES_HOME"
+                        | "VIRTUAL_ENV"
+                        | "CONDA_PREFIX"
+                        | "CONDA_DEFAULT_ENV"
+                        | "CONDA_EXE" => value.as_str().map(|value| (key, value.to_owned())),
+                        _ => None,
+                    })
+                    .collect(),
             });
         }
 

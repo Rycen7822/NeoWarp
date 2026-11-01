@@ -1,6 +1,6 @@
 //! This module defines the schema for DCS hooks sent from the shell to the Rust
 //! app -- for example, the payloads sent from shell precmd and preexec.
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde::de::DeserializeOwned;
@@ -392,6 +392,16 @@ impl DProtoHook {
                     value.command = v;
                 }
                 "session_id" => value.session_id = v.parse::<u64>().ok(),
+                "CODEX_HOME"
+                | "CLAUDE_CONFIG_DIR"
+                | "PI_CODING_AGENT_DIR"
+                | "HERMES_HOME"
+                | "VIRTUAL_ENV"
+                | "CONDA_PREFIX"
+                | "CONDA_DEFAULT_ENV"
+                | "CONDA_EXE" => {
+                    value.launch_env.insert(key.to_string(), v.into());
+                }
                 _ => {
                     log::warn!("Tried to add unknown field {key} to Preexec hook");
                 }
@@ -669,6 +679,9 @@ pub struct PreexecValue {
     pub command: String,
     #[serde(default)]
     pub session_id: HookSessionId,
+    /// Selected CLI environment keys; flattened so the MSYS2 key/value transport also carries them.
+    #[serde(flatten)]
+    pub launch_env: HashMap<String, serde_json::Value>,
 }
 
 /// Received from the pty after the shell has finished executing Warp's

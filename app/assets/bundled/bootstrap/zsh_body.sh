@@ -251,9 +251,24 @@ if [[ -z $WARP_BOOTSTRAPPED ]]; then
 
   # Note that this is very performance sensitive code, so try not to
   # invoke any external commands in here.
+  # Keep the snapshot to the CLI's data directories and Python activation state.
+  warp_agent_launch_environment () {
+      case "$1" in *codex*|*claude*|*pi*|*hermes*) ;; *) return ;; esac
+      local key value
+      for key in CODEX_HOME CLAUDE_CONFIG_DIR PI_CODING_AGENT_DIR HERMES_HOME \
+                 VIRTUAL_ENV CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_EXE; do
+          value="${${(P)key}:-}"
+          [[ -n "$value" ]] || continue
+          value="$(warp_escape_json "$value")"
+          printf ',"%s":"%s"' "$key" "$value"
+      done
+  }
+
   warp_preexec () {
       local warp_escaped_command="$(warp_escape_json $1)"
-      warp_send_json_message "{\"hook\": \"Preexec\", \"value\": {\"command\": \"$warp_escaped_command\", \"session_id\": $WARP_SESSION_ID}}"
+      local launch_env="$(warp_agent_launch_environment "$1 $2")"
+      warp_send_json_message "{\"hook\":\"Preexec\",\"value\":{\"command\":\"$warp_escaped_command\","\
+"\"session_id\":$WARP_SESSION_ID$launch_env}}"
       warp_maybe_send_reset_grid_osc
 
       # If this preexec is called for user command, kill ongoing generator command jobs and clean

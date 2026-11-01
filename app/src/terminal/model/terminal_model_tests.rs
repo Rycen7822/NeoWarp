@@ -141,6 +141,7 @@ fn normal_command_finished_and_precmd(
     terminal.preexec(PreexecValue {
         command: "completed".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     let completion_metadata = CompletionMetadata {
         exit_code: ExitCode::from(0),
@@ -886,6 +887,7 @@ fn test_exit_alt_screen_on_command_finished() {
     terminal.preexec(PreexecValue {
         command: "accepted".to_owned(),
         session_id: None,
+        ..Default::default()
     });
 
     terminal.enter_alt_screen(true);
@@ -909,6 +911,7 @@ fn accepted_precmd_and_preexec_target_the_block_list_while_the_alt_screen_is_act
     terminal.preexec(PreexecValue {
         command: "accepted".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     assert_eq!(
         terminal.block_list().active_block().state(),
@@ -953,6 +956,7 @@ fn test_unset_bracketed_paste_mode_on_command_finished() {
     terminal.preexec(PreexecValue {
         command: "accepted".to_owned(),
         session_id: None,
+        ..Default::default()
     });
 
     terminal.set_mode(Mode::BracketedPaste);
@@ -987,6 +991,7 @@ fn normal_lifecycle_pipeline_emits_completion_and_prompt_side_effects_once() {
     terminal.preexec(PreexecValue {
         command: "false".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     terminal.command_finished(CommandFinishedValue {
         completion_metadata: completion_metadata.clone(),
@@ -1156,6 +1161,7 @@ fn precmd_with_completion_metadata_preserves_completed_block_without_duplicate_e
     terminal.preexec(PreexecValue {
         command: "false".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     terminal.command_finished(CommandFinishedValue {
         completion_metadata: CompletionMetadata {
@@ -1289,6 +1295,7 @@ fn precmd_with_completion_metadata_recovery_cleans_up_alt_screen_and_bracketed_p
     terminal.preexec(PreexecValue {
         command: "vim".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     let completed_block_id = terminal.active_block_id().clone();
     terminal.set_mode(Mode::BracketedPaste);
@@ -1707,6 +1714,7 @@ fn repeated_and_executing_command_starts_are_safely_gated() {
     terminal.preexec(PreexecValue {
         command: "running".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     assert_eq!(
         terminal.start_command_execution(),
@@ -1726,6 +1734,7 @@ fn duplicate_and_colliding_completion_evidence_is_ignored() {
     terminal.preexec(PreexecValue {
         command: "first".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     let first_block_id = terminal.active_block_id().clone();
     terminal.command_finished(CommandFinishedValue {
@@ -1760,6 +1769,7 @@ fn duplicate_and_colliding_completion_evidence_is_ignored() {
     terminal.preexec(PreexecValue {
         command: "second".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     terminal.command_finished(CommandFinishedValue {
         completion_metadata: CompletionMetadata {
@@ -1790,6 +1800,7 @@ fn terminal_exit_absorbs_later_lifecycle_inputs() {
     terminal.preexec(PreexecValue {
         command: "ignored".to_owned(),
         session_id: None,
+        ..Default::default()
     });
     terminal.command_finished(CommandFinishedValue {
         completion_metadata: CompletionMetadata {
