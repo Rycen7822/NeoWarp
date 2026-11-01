@@ -40,7 +40,6 @@ struct Directory {
     loading: Option<SpawnedFutureHandle>,
     dirty: bool,
     error: Option<String>,
-    native: bool,
     poll: bool,
     #[cfg(windows)]
     subscription: Option<wsl::Subscription>,
@@ -58,6 +57,7 @@ pub(crate) struct FileBrowserView {
     directories: HashMap<PathBuf, Directory>,
     rows: Vec<Row>,
     selected: Option<PathBuf>,
+    // Native roots share one watcher; changing the root resets it.
     watcher: Option<ModelHandle<BulkFilesystemWatcher>>,
     poll: Option<SpawnedFutureHandle>,
     list: ListState<()>,
@@ -186,10 +186,6 @@ impl FileBrowserView {
             ctx.subscribe_to_model(&watcher, |me, _, event, ctx| me.native_changes(event, ctx));
             self.watcher = Some(watcher);
         }
-        self.directories
-            .get_mut(&path)
-            .expect("directory just inserted")
-            .native = true;
         let registration =
             self.watcher
                 .as_ref()
@@ -335,9 +331,7 @@ impl FileBrowserView {
                 if let Some(loading) = directory.loading.take() {
                     loading.abort();
                 }
-                if directory.native
-                    && let Some(watcher) = &self.watcher
-                {
+                if let Some(watcher) = &self.watcher {
                     std::mem::drop(
                         watcher.update(ctx, |watcher, _| watcher.unregister_path(&path)),
                     );
@@ -377,9 +371,7 @@ impl FileBrowserView {
         for index in (self.rows.len()..old_count).rev() {
             self.list.remove(index);
         }
-        for index in 0..self.rows.len() {
-            self.list.invalidate_height_for_index(index);
-        }
+        // Heights stay fixed; List rebuilds visible elements on every layout.
         ctx.notify();
     }
 
@@ -483,22 +475,19 @@ impl Entity for FileBrowserView {
 impl TypedActionView for FileBrowserView {
     type Action = FileBrowserAction;
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
-        match action {
-            FileBrowserAction::Select(path) => {
-                let is_dir = self.rows.iter().any(|row| row.path == *path && row.is_dir);
-                if is_dir {
-                    if self.directories.contains_key(path) {
-                        self.collapse(path, ctx);
-                    } else {
-                        self.expand(path.clone(), ctx);
-                    }
-                    self.update_rows(ctx);
-                } else {
-                    self.selected = Some(path.clone());
-                    ctx.emit(path.clone());
-                    ctx.notify();
-                }
+        let FileBrowserAction::Select(path) = action;
+        let is_dir = self.rows.iter().any(|row| row.path == *path && row.is_dir);
+        if is_dir {
+            if self.directories.contains_key(path) {
+                self.collapse(path, ctx);
+            } else {
+                self.expand(path.clone(), ctx);
             }
+            self.update_rows(ctx);
+        } else {
+            self.selected = Some(path.clone());
+            ctx.emit(path.clone());
+            ctx.notify();
         }
     }
 }
