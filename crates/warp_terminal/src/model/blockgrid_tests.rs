@@ -33,6 +33,7 @@ pub fn test_finish_truncates_grid_basic() {
     assert_eq!(block_grid.len(), 2);
     assert_eq!(block_grid.grid_handler().total_rows(), 2);
     assert_eq!(block_grid.grid_handler().columns(), size.columns);
+    assert_eq!(block_grid.grid_storage().estimated_heap_usage_bytes(), 0);
 }
 
 #[test]

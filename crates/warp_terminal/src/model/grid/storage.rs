@@ -406,7 +406,9 @@ impl Storage {
     pub fn estimated_heap_usage_bytes(&self) -> usize {
         // We expect all rows to have the same internal capacity, so we can
         // avoid summing up the heap usage from every row.
-        self.inner.capacity() * self.inner[0].estimated_memory_usage_bytes()
+        self.inner.first().map_or(0, |row| {
+            self.inner.capacity() * row.estimated_memory_usage_bytes()
+        })
     }
 }
 
