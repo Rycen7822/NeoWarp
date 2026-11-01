@@ -63,6 +63,10 @@ no background-update parameter, wait loop or image-name process kill.
 Icons come from `app/channels/oss/icon/no-padding/icon.ico`; shared ConPTY,
 OpenConsole, VC runtime and graphics DLL filenames remain unchanged.
 
+The Welcome and Setup Completed pages share `installer-images/neowarp-banner.png`.
+Other wizard pages reuse the channel's `icon/no-padding/512x512.png` header icon.
+Keep the approved portrait artwork at its full resolution for high-DPI displays.
+
 The checked-in `vcruntime140.dll`, `vcruntime140_1.dll` and `msvcp140.dll`
 retain Microsoft's copyright. Redistribution is subject to the applicable
 Visual Studio license terms; see Microsoft's [redistribution guidance](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)

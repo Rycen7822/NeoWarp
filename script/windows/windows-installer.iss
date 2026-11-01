@@ -51,8 +51,8 @@ OutputBaseFilename={#OutputName}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-WizardSmallImageFile="installer-images\warp-logo.bmp"
-WizardImageFile="installer-images\warp-banner.bmp"
+WizardSmallImageFile="..\..\app\channels\{#ReleaseChannel}\icon\no-padding\512x512.png"
+WizardImageFile="installer-images\neowarp-banner.png"
 SetupIconFile="..\..\app\channels\{#ReleaseChannel}\icon\no-padding\icon.ico"
 UninstallDisplayIcon="{app}\icon.ico"
 ; Ask before replacing files used by a running NeoWarp instance.
