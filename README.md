@@ -1,35 +1,48 @@
 # NanoWarp
 
-NanoWarp is a terminal-focused fork of [Warp](https://github.com/warpdotdev/warp), built around native desktop terminal sessions and local data.
+NanoWarp is an independent fork of [Warp](https://github.com/warpdotdev/warp), focused on native desktop
+terminal sessions and local data.
 
 ## Product Scope
 
-- Keep terminal blocks, history, completion, tabs, splits, ordinary SSH/WSL, and basic text editing.
-- Keep advanced SSH daemon support while removing its Warp account and cloud-service coupling.
-- Open Markdown and Notebook files in external applications: VS Code or Zed, plus Typora for Markdown. When no application is selected, use the system file association.
-- Remove the built-in AI agent, commercial workflows, cloud collaboration, full IDE/LSP, internal Notebook/Markdown preview, and Web/WASM product.
+- Terminal blocks, history, completion, tabs, splits, and basic text editing.
+- Ordinary SSH/WSL and advanced SSH daemon support without Warp account or cloud-service dependencies.
+- Git change statistics and a dedicated review panel with file lists and inline diffs.
+- External Markdown and Notebook editing through VS Code or Zed, plus Typora for Markdown.
+  When no application is selected, use the system file association.
 
-This fork is under active development. Cross-platform runtime and packaging acceptance is still in progress; source cleanup does not establish that every platform or SSH scenario has passed.
+The built-in AI agent, commercial workflows, cloud collaboration, full IDE/LSP, embedded document preview,
+and Web/WASM product are outside NanoWarp's scope. External CLI tools run as ordinary terminal programs.
+
+Development is ongoing. Cross-platform runtime and packaging acceptance is still in progress;
+check validation results for the platform and scenario you intend to use.
 
 ## Build from Source
 
-Start with [Development Setup](CONTRIBUTING.md#development-setup) for prerequisites, local cache/data directories, and resource limits. From the repository root, the Windows GUI build command is:
+Follow [Development Setup](CONTRIBUTING.md#development-setup) to configure prerequisites, local caches,
+isolated application data, and resource limits before building. From the repository root on Windows:
 
 ```powershell
 $env:GIT_RELEASE_TAG = 'v0.1.0'
 cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features release_bundle,gui
 ```
 
-The Windows executable is `.work/target/debug/warp-oss.exe`. For macOS and Linux, see the platform runner described in the contribution guide. An upstream Warp download does not contain NanoWarp changes.
+The executable is `.work/target/debug/warp-oss.exe`; some internal package and binary names retain `warp`.
+For macOS and Linux, see the platform runner in the contribution guide.
 
 ## Contributing and Support
 
-Search [NanoWarp issues](https://github.com/Rycen7822/NanoWarp/issues) before reporting a bug or proposing a feature. Include reproduction steps, version, OS, expected behavior, and relevant diagnostics with secrets removed.
+Report bugs, propose features, and ask development questions through
+[NanoWarp issues](https://github.com/Rycen7822/NanoWarp/issues). Include reproduction steps, version, OS,
+expected behavior, and diagnostics with secrets removed.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a [pull request](https://github.com/Rycen7822/NanoWarp/pulls). Security reporting is described in [SECURITY.md](SECURITY.md); community participation follows [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a
+[pull request](https://github.com/Rycen7822/NanoWarp/pulls). Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+when participating, and use [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Licensing and Attribution
 
 NanoWarp derives from Warp. Preserve applicable upstream copyrights and third-party notices.
 
-The `warpui_core` and `warpui` UI framework crates are licensed under the [MIT license](LICENSE-MIT). The rest of this repository is licensed under the [AGPL v3](LICENSE-AGPL).
+The `warpui_core` and `warpui` UI framework crates are licensed under the [MIT license](LICENSE-MIT).
+The rest of this repository is licensed under the [AGPL v3](LICENSE-AGPL).

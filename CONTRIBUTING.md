@@ -1,6 +1,8 @@
 # Contributing to NanoWarp
 
-Keep contributions focused on NanoWarp's local terminal scope. Search [existing issues](https://github.com/Rycen7822/NanoWarp/issues) before proposing work, and discuss substantial behavior or architecture changes before implementing them.
+Keep contributions within the [product scope](README.md#product-scope). Search
+[existing issues](https://github.com/Rycen7822/NanoWarp/issues) before proposing work, and discuss substantial
+behavior or architecture changes before implementing them.
 
 ## Issues and Pull Requests
 
@@ -38,10 +40,14 @@ $env:NANOWARP_DATA_DIR = Join-Path $work 'runtime/dev'
 $env:CARGO_BUILD_JOBS = '2'
 $env:RUST_TEST_THREADS = '1'
 $env:RAYON_NUM_THREADS = '2'
-New-Item -ItemType Directory -Force -Path $env:CARGO_HOME, $env:RUSTUP_HOME, $env:CARGO_TARGET_DIR, $env:TEMP, $env:SCCACHE_DIR, $env:NANOWARP_DATA_DIR | Out-Null
+$directories = $env:CARGO_HOME, $env:RUSTUP_HOME, $env:CARGO_TARGET_DIR,
+    $env:TEMP, $env:SCCACHE_DIR, $env:NANOWARP_DATA_DIR
+New-Item -ItemType Directory -Force -Path $directories | Out-Null
 ```
 
-Keep the Rust launchers on `PATH` and install the pinned toolchain into the configured Rust home. A fresh local cache needs its dependencies downloaded before offline builds can work. Do not copy another build cache or read/import an existing Warp profile.
+Keep the Rust launchers on `PATH` and install the pinned toolchain into the configured Rust home.
+A fresh local cache needs dependencies downloaded before offline builds can work.
+Use fresh NanoWarp application data; do not import an existing Warp profile during development or testing.
 
 In a macOS/Linux shell, set the equivalent environment before setup or builds:
 
@@ -68,7 +74,9 @@ cargo +1.92.0 build --locked -j 2 -p warp --bin warp-oss --features release_bund
 
 For macOS/Linux, [`./script/run`](script/run) selects the native runner: a macOS app bundle or a Linux `warp-oss` GUI process. Run it in the configured environment above. Platform build success and actual runtime acceptance must be reported separately.
 
-Use `--locked` for Cargo commands, and add `--offline` only when the required dependencies are already cached. Run one Cargo command at a time; keep compilation to two jobs and tests to one thread.
+Use `--locked` for Cargo commands, and add `--offline` only when the required dependencies are already cached.
+Run one Cargo command at a time. The examples use two build jobs and one test thread;
+do not exceed four build jobs or four test threads.
 
 ## Testing and Style
 
@@ -80,15 +88,21 @@ For an editor change, an example of an existing package test command is:
 cargo +1.92.0 test --locked -j 2 -p warp_editor --lib -- --test-threads=1
 ```
 
-Follow nearby Rust style and [.rustfmt.toml](.rustfmt.toml). Format only affected files while developing. [`script/format --check`](script/format) checks repository Rust formatting; [`script/presubmit`](script/presubmit) runs broader formatting, lint, and test checks. [CI](.github/workflows/ci.yml) defines platform checks and change filtering; do not weaken gates to make a change pass.
+Follow nearby Rust style and [.rustfmt.toml](.rustfmt.toml). Keep code readable and lines within 150 characters.
+Format only affected files while developing. [`script/format --check`](script/format) checks Rust formatting;
+[`script/presubmit`](script/presubmit) runs broader formatting, lint, and test checks.
+[CI](.github/workflows/ci.yml) defines platform checks and change filtering; do not weaken gates to pass a change.
 
 Prefer scripts and commands for verification. Use desktop interaction only when it resolves a remaining UI evidence gap. Document commands, results, and untested platforms accurately. Documentation-only changes do not need unrelated Rust builds or runtime tests.
 
 ## Development Assistants and Historical Specs
 
-External coding assistants are optional contributor tools. The checked-in [skills](.agents/skills/) describe development workflows; they are not NanoWarp runtime features. [`specs/`](specs/) contains historical designs and may describe removed upstream behavior, so verify proposals against current source and product scope.
+External coding assistants are optional contributor tools. The checked-in [skills](.agents/skills/)
+describe development workflows. [`specs/`](specs/) contains historical designs that may describe removed
+upstream behavior; verify instructions against current source and [product scope](README.md#product-scope).
 
-Contributors remain responsible for reviewing generated changes and reporting real validation results. This fork does not promise upstream Oz triage, cloud credits, automatic agent reviews, or Warp team review routing.
+Contributors remain responsible for reviewing generated changes and reporting actual validation results.
+Use NanoWarp issues and pull requests to coordinate review with this repository's maintainers.
 
 ## Conduct, Security, and Help
 
