@@ -9287,7 +9287,7 @@ impl Workspace {
     ) -> Box<dyn Element> {
         let mut tab_bar = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         #[cfg(feature = "local_fs")]
-        tab_bar.add_child(
+        tab_bar.add_child(warpui::accessibility::accessible(
             self.render_tab_bar_icon_button(
                 appearance,
                 if self.sidebar.is_open() {
@@ -9303,7 +9303,11 @@ impl Workspace {
                 false,
             )
             .finish(),
-        );
+            ctx,
+            warpui::accessibility::Semantics::new(self.mouse_states.sidebar_semantics, "Sidebar")
+                .selected(self.sidebar.is_open()),
+            WorkspaceAction::ToggleFileBrowser,
+        ));
 
         // Check if vertical tabs mode is active
         let vertical_tabs_active =

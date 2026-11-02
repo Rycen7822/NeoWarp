@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use uuid::Uuid;
+use warpui::accessibility::{SemanticId, Semantics, accessible};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
@@ -30,6 +31,8 @@ use crate::workspace::{ActiveSession, SidebarTab, WorkspaceAction};
 
 #[derive(Default)]
 struct RowState {
+    semantics: SemanticId,
+    pin_semantics: SemanticId,
     hover: MouseStateHandle,
     menu: MouseStateHandle,
     drag: DraggableState,
@@ -47,6 +50,8 @@ pub(crate) struct ProjectsView {
     header: crate::workspace::sidebar::HeaderState,
     new_button: MouseStateHandle,
     older_button: MouseStateHandle,
+    new_semantics: SemanticId,
+    older_semantics: SemanticId,
     expiry: Option<SpawnedFutureHandle>,
 }
 
@@ -82,6 +87,8 @@ impl ProjectsView {
             header: Default::default(),
             new_button: Default::default(),
             older_button: Default::default(),
+            new_semantics: Default::default(),
+            older_semantics: Default::default(),
             expiry: None,
         };
         view.sync(ctx);
@@ -234,6 +241,7 @@ impl ProjectsView {
                 |session| session.title.clone(),
             );
             let pinned = session.map_or(folder.pinned, |session| session.pinned);
+            let semantic_label = app.accessibility_plugin_enabled().then(|| title.clone());
             let title_text = Text::new_inline(title, appearance.ui_font_family(), 14.)
                 .with_clip(ClipConfig::ellipsis())
                 .with_color(theme.main_text_color(theme.background()).into())
@@ -328,6 +336,24 @@ impl ProjectsView {
                 DispatchEventResult::StopPropagation
             })
             .finish();
+            let semantics = Semantics::new(
+                state.semantics,
+                semantic_label.as_deref().unwrap_or_default(),
+            );
+            let semantics = if session.is_some() {
+                semantics.selected(selected)
+            } else {
+                semantics.expanded(!self.collapsed.contains(&project))
+            };
+            let clickable = accessible(
+                clickable,
+                app,
+                semantics,
+                match session_id {
+                    Some(session) => ProjectsAction::Open { project, session },
+                    None => ProjectsAction::Toggle(project),
+                },
+            );
             let grip = ConstrainedBox::new(if show_controls {
                 sized_icon(
                     Icon::DragIndicatorVertical,
@@ -349,7 +375,31 @@ impl ProjectsView {
                     });
                 })
                 .finish();
-            let menu = if show_controls {
+            let menu = if app.accessibility_plugin_enabled() {
+                let action = match session_id {
+                    Some(id) => WorkspaceAction::ToggleProjectSessionPin(id),
+                    None => WorkspaceAction::ToggleProjectPin(project),
+                };
+                let click_action = action.clone();
+                accessible(
+                    icon_button(
+                        appearance,
+                        Icon::PinFilledDiagonal,
+                        pinned,
+                        state.menu.clone(),
+                    )
+                    .build()
+                    .on_click(move |ctx, _, _| ctx.dispatch_typed_action(click_action.clone()))
+                    .finish(),
+                    app,
+                    Semantics::new(
+                        state.pin_semantics,
+                        &format!("Pin {}", semantic_label.as_deref().unwrap_or_default()),
+                    )
+                    .checked(pinned),
+                    action,
+                )
+            } else if show_controls {
                 icon_button(appearance, Icon::DotsHorizontal, false, state.menu.clone())
                     .build()
                     .on_click(move |ctx, _, position| {
@@ -505,7 +555,7 @@ impl View for ProjectsView {
                 )
                 .finish(),
             );
-        for (action, icon, mouse, label, active) in [
+        for (action, icon, mouse, label, active, id) in [
             (
                 ProjectsAction::Older,
                 Icon::History,
@@ -516,6 +566,7 @@ impl View for ProjectsView {
                     "Show sessions older than 3 days"
                 },
                 self.show_older,
+                self.older_semantics,
             ),
             (
                 ProjectsAction::New,
@@ -523,6 +574,7 @@ impl View for ProjectsView {
                 &self.new_button,
                 "New CLI session",
                 false,
+                self.new_semantics,
             ),
         ] {
             let tooltip = appearance
@@ -530,7 +582,8 @@ impl View for ProjectsView {
                 .tool_tip(label.to_owned())
                 .build()
                 .finish();
-            toolbar.add_child(
+            let semantic_action = action.clone();
+            toolbar.add_child(accessible(
                 icon_button(appearance, icon, active, mouse.clone())
                     .with_tooltip(move || tooltip)
                     .build()
@@ -538,7 +591,10 @@ impl View for ProjectsView {
                         ctx.dispatch_typed_action(action.clone());
                     })
                     .finish(),
-            );
+                app,
+                Semantics::new(id, label),
+                semantic_action,
+            ));
         }
         column.add_child(
             Container::new(toolbar.finish())

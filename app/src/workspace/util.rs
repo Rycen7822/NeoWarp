@@ -27,6 +27,7 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) resource_center_icon: MouseStateHandle,
     pub(super) vertical_tabs_icon: MouseStateHandle,
     pub(super) file_browser_icon: MouseStateHandle,
+    pub(super) sidebar_semantics: warpui::accessibility::SemanticId,
     pub(super) settings_icon: MouseStateHandle,
     pub(super) dismiss_banner_button: MouseStateHandle,
     pub(super) offline_icon: MouseStateHandle,
