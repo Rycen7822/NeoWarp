@@ -19,6 +19,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c71b1793ee61086797f5c80b6efa2b8ffa6d5dd703f118545808a7f2e27f7046"
 
 [[package]]
+name = "accesskit"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e883d1d28c5fd5568c79ed2d2bd48d9f2fd3945c8974ed0f53690ceddb051be"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
+name = "accesskit_consumer"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3da8f27636015191b2264ee1df681503170a632cafd832fdc1edfdd4e3a2fd3"
+dependencies = [
+ "accesskit",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "accesskit_windows"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "498668b90da9995302a0055aaecad4756932333da2ddef6baee1c00844c430fc"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "static_assertions",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+]
+
+[[package]]
 name = "addr"
 version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5799,6 +5832,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "neowarp_accessibility"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "accesskit_windows",
+ "neowarp_plugin_api",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "neowarp_plugin_api"
+version = "0.1.0"
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11035,6 +11082,7 @@ dependencies = [
  "memmap2 0.9.7",
  "naga",
  "native-dialog",
+ "neowarp_plugin_api",
  "nix 0.26.4",
  "notify-rust",
  "num-traits",
@@ -11056,6 +11104,7 @@ dependencies = [
  "resvg",
  "rust-embed 8.7.2",
  "serde",
+ "serde_json",
  "sum_tree",
  "takecell",
  "tauri-winrt-notification",
@@ -11120,6 +11169,7 @@ dependencies = [
  "log",
  "markdown_parser",
  "minimp4",
+ "neowarp_plugin_api",
  "num-derive",
  "num-traits",
  "num_cpus",

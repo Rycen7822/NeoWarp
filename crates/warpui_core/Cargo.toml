@@ -19,6 +19,7 @@ settings_value = ["dep:settings_value"]
 test-util = []
 
 [dependencies]
+neowarp_plugin_api.workspace = true
 async-io.workspace = true
 ctrlc.workspace = true
 font-kit.workspace = true

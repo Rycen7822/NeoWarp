@@ -1,0 +1,15 @@
+[package]
+name = "neowarp_accessibility"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(windows)'.dependencies]
+neowarp_plugin_api.workspace = true
+accesskit = "0.25.2"
+accesskit_windows = "0.35.2"
+windows = { workspace = true, features = ["Win32_Foundation"] }

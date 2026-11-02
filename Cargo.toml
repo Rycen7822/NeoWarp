@@ -36,6 +36,7 @@ integration = { path = "crates/integration" }
 ipc = { path = "crates/ipc" }
 languages = { path = "crates/languages" }
 markdown_parser = { path = "crates/markdown_parser" }
+neowarp_plugin_api = { path = "crates/neowarp_plugin_api" }
 persistence = { path = "crates/persistence" }
 prevent_sleep = { path = "crates/prevent_sleep" }
 regex_dfas = { path = "crates/regex_dfas" }

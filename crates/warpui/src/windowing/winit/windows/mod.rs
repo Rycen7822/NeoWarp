@@ -1,5 +1,6 @@
 pub mod clipboard;
 mod network;
+pub(super) mod plugin;
 mod registry;
 mod system_caption_buttons;
 mod window_attribute;

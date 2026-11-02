@@ -97,6 +97,7 @@ pub struct LineStyle {
 }
 
 pub struct WindowOptions {
+    pub accessibility_plugin: bool,
     pub bounds: WindowBounds,
     pub fullscreen_state: FullscreenState,
     pub hide_title_bar: bool,
@@ -463,6 +464,10 @@ pub trait Window: 'static + WindowContext + std::any::Any {
 }
 
 pub trait WindowContext {
+    fn accessibility_active(&self) -> bool {
+        false
+    }
+    fn update_accessibility(&self, _controls: &[crate::accessibility::Control]) {}
     /// Returns the current inner (content) size of the window, in logical
     /// pixels.
     fn size(&self) -> Vector2F;

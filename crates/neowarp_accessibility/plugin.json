@@ -1,0 +1,5 @@
+{
+  "id": "accessibility.windows",
+  "abi_version": 1,
+  "library": "neowarp_accessibility.dll"
+}

@@ -611,6 +611,7 @@ pub struct AppContext {
     presenters: HashMap<WindowId, Rc<RefCell<Presenter>>>,
     /// Configuration options related to rendering of the application.
     rendering_config: rendering::Config,
+    accessibility_plugin_enabled: bool,
     global_actions: HashMap<String, Vec<Box<GlobalActionCallback>>>,
     keystroke_matcher: Matcher,
     next_task_id: usize,
@@ -749,6 +750,33 @@ impl AppContext {
         self.windows.contains_key(&window_id)
     }
 
+    pub fn set_accessibility_plugin_enabled(&mut self, enabled: bool) {
+        self.accessibility_plugin_enabled = enabled;
+    }
+
+    pub fn accessibility_plugin_enabled(&self) -> bool {
+        self.accessibility_plugin_enabled
+    }
+
+    pub fn invoke_accessibility(&mut self, window: WindowId, id: u64, action: u32) {
+        let control = self
+            .presenter(window)
+            .and_then(|presenter| presenter.borrow().semantic_control(id));
+        let Some(control) = control else {
+            return;
+        };
+        use neowarp_plugin_api::{CLICK, COLLAPSE, EXPAND, EXPANDABLE, EXPANDED};
+        let allowed = match action {
+            CLICK => true,
+            EXPAND => control.flags & EXPANDABLE != 0 && control.flags & EXPANDED == 0,
+            COLLAPSE => control.flags & EXPANDED != 0,
+            _ => false,
+        };
+        if allowed {
+            self.dispatch_typed_action_for_view(window, control.view, control.action.as_ref());
+        }
+    }
+
     /// Sets or clears the window for which focus changes should be suppressed.
     /// When set, all `ctx.focus()` calls targeting this window will be ignored.
     pub fn set_suppress_focus_for_window(&mut self, window_id: Option<WindowId>) {
@@ -778,6 +806,7 @@ impl AppContext {
             global_actions: Default::default(),
             presenters: Default::default(),
             rendering_config: Default::default(),
+            accessibility_plugin_enabled: false,
             keystroke_matcher: Default::default(),
             disabled_key_bindings_windows: Default::default(),
             next_task_id: 0,
@@ -2466,6 +2495,7 @@ impl AppContext {
             bounds: window_bounds,
             fullscreen_state,
             hide_title_bar: true,
+            accessibility_plugin: self.accessibility_plugin_enabled,
             title,
             style: window_style,
             background_blur_radius_pixels,

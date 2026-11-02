@@ -397,6 +397,13 @@ impl Scene {
         }
     }
 
+    pub(crate) fn active_clip_bounds(&self) -> Option<RectF> {
+        match *self.active_layer_index_stack.last() {
+            ZIndex::Normal(index) => self.layers[index].clip_bounds,
+            ZIndex::Overlay(index) => self.overlay_layers[index].clip_bounds,
+        }
+    }
+
     pub fn is_covered(&self, position: Point) -> bool {
         // Does any layer at a higher z-index contain this point?
         let point = [position.x().into(), position.y().into()];

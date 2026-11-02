@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub struct Presenter {
+    semantic_controls: Vec<crate::accessibility::Control>,
     // Number of frames rendered so far by this presenter
     frame_count: usize,
     window_id: WindowId,
@@ -48,6 +49,9 @@ pub struct AfterLayoutContext<'a> {
 }
 
 pub struct PaintContext<'a> {
+    pub(crate) semantic_controls: Vec<crate::accessibility::Control>,
+    pub(crate) current_view: Option<EntityId>,
+    pub(crate) collect_semantics: bool,
     rendered_views: &'a mut EntityIdMap<Box<dyn Element>>,
     pub font_cache: &'a FontCache,
     pub text_layout_cache: &'a LayoutCache,
@@ -295,6 +299,7 @@ pub enum DispatchedActionKind {
 impl Presenter {
     pub fn new(window_id: WindowId) -> Self {
         Self {
+            semantic_controls: Vec::new(),
             frame_count: 0,
             window_id,
             rendered_views: EntityIdMap::default(),
@@ -303,6 +308,13 @@ impl Presenter {
             position_cache: PositionCache::default(),
             highlighted_view: None,
         }
+    }
+
+    pub(crate) fn semantic_control(&self, id: u64) -> Option<crate::accessibility::Control> {
+        self.semantic_controls
+            .iter()
+            .find(|control| control.id == id)
+            .cloned()
     }
 
     pub fn invalidate(&mut self, invalidation: WindowInvalidation, app: &AppContext) {
@@ -415,6 +427,12 @@ impl Presenter {
 
         if let Some(root_view_id) = ctx.root_view_id(self.window_id) {
             let mut paint_ctx = PaintContext {
+                semantic_controls: Vec::new(),
+                current_view: None,
+                collect_semantics: ctx
+                    .windows()
+                    .platform_window(self.window_id)
+                    .is_some_and(|window| window.accessibility_active()),
                 font_cache: ctx.font_cache(),
                 text_layout_cache: &self.text_layout_cache,
                 rendered_views: &mut self.rendered_views,
@@ -429,6 +447,14 @@ impl Presenter {
                 views_painted: EntityIdSet::default(),
             };
             paint_ctx.paint(root_view_id, Vector2F::zero(), ctx);
+
+            paint_ctx
+                .semantic_controls
+                .retain(|control| !paint_ctx.scene.is_covered(control.hit_point));
+            self.semantic_controls = std::mem::take(&mut paint_ctx.semantic_controls);
+            if let Some(window) = ctx.windows().platform_window(self.window_id) {
+                window.update_accessibility(&self.semantic_controls);
+            }
 
             repaint_at = paint_ctx.repaint_at;
             pending_assets.extend(paint_ctx.pending_assets);
@@ -569,6 +595,7 @@ impl AfterLayoutContext<'_> {
 impl PaintContext<'_> {
     fn paint(&mut self, view_id: EntityId, origin: Vector2F, app: &AppContext) {
         if let Some(mut tree) = self.rendered_views.remove(&view_id) {
+            let previous_view = self.current_view.replace(view_id);
             // If this is the highlighted view, draw a debug rectangle with the
             // same bounds as the view.
             if self.highlighted_view == Some(view_id)
@@ -583,6 +610,7 @@ impl PaintContext<'_> {
             }
             self.views_painted.insert(view_id);
             tree.paint(origin, self, app);
+            self.current_view = previous_view;
             self.rendered_views.insert(view_id, tree);
         }
     }

@@ -706,6 +706,7 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_ctx| SettingsManager::default());
 
     let user_defaults_on_startup = settings::init(startup_toml_parse_error, ctx);
+    ctx.set_accessibility_plugin_enabled(*GeneralSettings::as_ref(ctx).accessibility_plugin);
     window_settings::migrate_legacy_background_backdrop(ctx);
     timer.mark_interval_end("READ_USER_DEFAULTS_AND_INITIALIZE_SETTINGS");
 

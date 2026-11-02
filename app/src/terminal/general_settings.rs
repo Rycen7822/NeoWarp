@@ -52,6 +52,14 @@ impl DefaultSessionMode {
 }
 
 define_settings_group!(GeneralSettings, settings: [
+    accessibility_plugin: AccessibilityPlugin {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::WINDOWS,
+        private: false,
+        toml_path: "plugins.accessibility_windows.enabled",
+        description: "Allow Windows accessibility tools to read and operate Projects. Restart NeoWarp to apply.",
+    },
     default_session_mode: DefaultSessionMode,
     // Tab config paths are local to this machine.
     default_tab_config_path: DefaultTabConfigPath {

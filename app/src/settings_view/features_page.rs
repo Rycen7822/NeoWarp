@@ -596,6 +596,7 @@ pub enum FeaturesPageAction {
     ToggleAsyncFind,
     ToggleNotifications,
     ToggleRestoreSession,
+    ToggleAccessibilityPlugin,
     ToggleAutocompleteSymbols,
     ToggleLinuxClipboardSelection,
     ToggleSshReuseControlMaster,
@@ -862,6 +863,12 @@ impl TypedActionView for FeaturesPageView {
             }
             ToggleNotifications => {
                 ctx.dispatch_typed_action(&WorkspaceAction::ToggleNotifications);
+            }
+            ToggleAccessibilityPlugin => {
+                GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.accessibility_plugin.toggle_and_save_value(ctx));
+                });
+                ctx.notify();
             }
             ToggleRestoreSession => {
                 GeneralSettings::handle(ctx).update(ctx, |general_settings, ctx| {
@@ -1936,6 +1943,12 @@ impl FeaturesPageView {
             vec![Box::new(DefaultSessionModeWidget::default())];
 
         let general_settings = &GeneralSettings::as_ref(ctx);
+        if general_settings
+            .accessibility_plugin
+            .is_supported_on_current_platform()
+        {
+            general_widgets.push(Box::new(AccessibilityPluginWidget::default()));
+        }
         if general_settings
             .restore_session
             .is_supported_on_current_platform()
@@ -3653,6 +3666,49 @@ fn init_display_count_dropdown(
 #[derive(Default)]
 struct SessionRestorationWidget {
     switch_state: SwitchStateHandle,
+}
+
+#[derive(Default)]
+struct AccessibilityPluginWidget {
+    switch_state: SwitchStateHandle,
+}
+
+impl SettingsWidget for AccessibilityPluginWidget {
+    type View = FeaturesPageView;
+
+    fn search_terms(&self) -> &str {
+        "accessibility windows projects plugin restart"
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let switch = appearance
+            .ui_builder()
+            .switch(self.switch_state.clone())
+            .check(*GeneralSettings::as_ref(app).accessibility_plugin)
+            .build()
+            .on_click(|ctx, _, _| {
+                ctx.dispatch_typed_action(FeaturesPageAction::ToggleAccessibilityPlugin)
+            })
+            .finish();
+        render_body_item::<FeaturesPageAction>(
+            "Windows accessibility".into(),
+            Some(AdditionalInfo {
+                mouse_state: Default::default(),
+                on_click_action: None,
+                secondary_text: Some("Allow accessibility tools to read and operate Projects. Restart NeoWarp to apply.".into()),
+                tooltip_override_text: None,
+            }),
+            ToggleState::Enabled,
+            appearance,
+            switch,
+            None,
+        )
+    }
 }
 
 impl SettingsWidget for SessionRestorationWidget {

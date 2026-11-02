@@ -175,8 +175,14 @@ impl platform::WindowManager for WindowManager {
             window_id,
             window_options,
         })?;
-        self.windows
-            .insert(window_id, Rc::new(super::window::Window::new(callbacks)));
+        self.windows.insert(
+            window_id,
+            Rc::new(super::window::Window::new(
+                window_id,
+                callbacks,
+                self.event_loop_proxy.clone(),
+            )),
+        );
         self.window_ordering
             .lock()
             .note_window_created(window_id, style);
@@ -794,6 +800,8 @@ impl RenderingResources {
 }
 
 struct Inner {
+    #[cfg(windows)]
+    accessibility: Option<super::windows::plugin::WindowPlugin>,
     window: Arc<winit::window::Window>,
     #[cfg(windows)]
     is_cloaked: bool,
@@ -827,6 +835,8 @@ pub(super) const DEFAULT_TITLEBAR_HEIGHT: f32 = 35.0;
 type FrameCaptureCallback = Box<dyn FnOnce(platform::CapturedFrame) + Send + 'static>;
 
 pub(super) struct Window {
+    #[cfg(windows)]
+    plugin_context: (WindowId, EventLoopProxy<CustomEvent>),
     pub(super) callbacks: WindowCallbacks,
     inner: RefCell<Option<Inner>>,
     scene: RefCell<Option<Rc<Scene>>>,
@@ -840,8 +850,14 @@ pub(super) struct Window {
 }
 
 impl Window {
-    pub fn new(callbacks: WindowCallbacks) -> Self {
+    pub fn new(
+        _id: WindowId,
+        callbacks: WindowCallbacks,
+        _proxy: EventLoopProxy<CustomEvent>,
+    ) -> Self {
         Self {
+            #[cfg(windows)]
+            plugin_context: (_id, _proxy),
             callbacks,
             inner: Default::default(),
             scene: Default::default(),
@@ -869,6 +885,22 @@ impl Window {
             tiling_window_manager,
         )?;
 
+        #[cfg(windows)]
+        let accessibility = if window_options.accessibility_plugin {
+            match super::windows::plugin::WindowPlugin::new(
+                &window,
+                self.plugin_context.0,
+                self.plugin_context.1.clone(),
+            ) {
+                Ok(plugin) => Some(plugin),
+                Err(error) => {
+                    log::error!("Windows accessibility plugin is unavailable: {error:#}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let window = Arc::new(window);
 
         // Use the window's size as the initial surface size, ensuring that the
@@ -886,7 +918,21 @@ impl Window {
         )?;
 
         let window_id = window.id();
+        #[cfg(windows)]
+        {
+            window.set_visible(true);
+            if !super::windows::background_launch()
+                && !matches!(
+                    window_options.style,
+                    WindowStyle::NotStealFocus | WindowStyle::PositionedNoFocus
+                )
+            {
+                window.focus_window();
+            }
+        }
         self.inner.replace(Some(Inner {
+            #[cfg(windows)]
+            accessibility,
             window,
             #[cfg(windows)]
             is_cloaked: true,
@@ -1513,19 +1559,7 @@ fn create_window(
                 );
             }
 
-            window.set_visible(true);
             window.set_ime_allowed(true);
-
-            // When launching a window from windows file explorer, it isn't given focus. We're considering
-            // this a winit quirk and forcing it to be focused.
-            if !super::windows::background_launch()
-                && !matches!(
-                    window_options.style,
-                    WindowStyle::NotStealFocus | WindowStyle::PositionedNoFocus
-                )
-            {
-                window.focus_window();
-            }
 
             let rounded_corner_result = set_window_attribute(
                 window,
@@ -1769,6 +1803,45 @@ impl platform::WindowContext for Window {
             .as_ref()
             .and_then(|inner| inner.rendering_resources.as_ref())
             .map(RenderingResources::max_texture_dimension_2d)
+    }
+
+    #[cfg(windows)]
+    fn accessibility_active(&self) -> bool {
+        self.inner
+            .borrow()
+            .as_ref()
+            .and_then(|inner| inner.accessibility.as_ref())
+            .is_some_and(|plugin| plugin.is_active())
+    }
+
+    #[cfg(windows)]
+    fn update_accessibility(&self, controls: &[crate::accessibility::Control]) {
+        let mut inner = self.inner.borrow_mut();
+        let Some(plugin) = inner
+            .as_mut()
+            .and_then(|inner| inner.accessibility.as_mut())
+        else {
+            return;
+        };
+        if !plugin.is_active() {
+            return;
+        }
+        let nodes: Vec<_> = controls
+            .iter()
+            .map(|control| neowarp_plugin_api::SemanticNode {
+                id: control.id,
+                label: control.label.as_ptr(),
+                label_len: control.label.len(),
+                flags: control.flags,
+                bounds: [
+                    control.bounds.min_x() as f64,
+                    control.bounds.min_y() as f64,
+                    control.bounds.max_x() as f64,
+                    control.bounds.max_y() as f64,
+                ],
+            })
+            .collect();
+        plugin.update(&nodes);
     }
 
     fn render_scene(&self, scene: Rc<Scene>) {
