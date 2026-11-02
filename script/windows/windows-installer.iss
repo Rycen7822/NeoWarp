@@ -80,10 +80,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+#define PluginDir "plugins\accessibility.windows"
 [Files]
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 Source: "{#TargetProfileDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#TargetProfileDir}\neowarp-wsl-watch"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#TargetProfileDir}\{#PluginDir}\neowarp_accessibility.dll"; DestDir: "{app}\{#PluginDir}"; Flags: ignoreversion
+Source: "{#TargetProfileDir}\{#PluginDir}\plugin.json"; DestDir: "{app}\{#PluginDir}"; Flags: ignoreversion
 Source: "{#AssetsDir}\{#Arch}\conpty.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AssetsDir}\{#Arch}\OpenConsole.exe"; DestDir: "{app}\{#Arch}"; Flags: ignoreversion
 Source: "..\..\app\channels\{#ReleaseChannel}\icon\no-padding\icon.ico"; DestDir: "{app}"; Flags: ignoreversion

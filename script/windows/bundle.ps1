@@ -143,6 +143,8 @@ if ($CHECK_ONLY) {
         Write-Error "Failed to verify Warp $WARP_BIN compilation with profile $CARGO_PROFILE"
         exit 1
     }
+    cargo +1.92.0 check -p neowarp_accessibility --lib --profile "$CARGO_PROFILE" --target $PLATFORM_TARGET --locked -j 2
+    if (-Not $?) { throw 'Failed to verify the Windows accessibility plugin' }
     exit 0
 }
 
@@ -155,6 +157,13 @@ if (-Not $SKIP_BUILD_BINARY) {
         Write-Error "Failed to build Warp $WARP_BIN binary with profile $CARGO_PROFILE"
         exit 1
     }
+
+    cargo +1.92.0 build -p neowarp_accessibility --lib --profile "$CARGO_PROFILE" --target $PLATFORM_TARGET --locked -j 2
+    if (-Not $?) { throw 'Failed to build the Windows accessibility plugin' }
+    $PluginDirectory = Join-Path $CARGO_TARGET_OUTPUT_DIR 'plugins\accessibility.windows'
+    New-Item -ItemType Directory -Path $PluginDirectory -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $CARGO_TARGET_OUTPUT_DIR 'neowarp_accessibility.dll') -Destination $PluginDirectory -Force
+    Copy-Item -LiteralPath "$WORKSPACE_ROOT_DIR\crates\neowarp_accessibility\plugin.json" -Destination $PluginDirectory -Force
 
     # Keep the Cargo artifact available for incremental builds while staging the package name.
     if ("$WARP_BIN.exe" -ne $BINARY_NAME) {
