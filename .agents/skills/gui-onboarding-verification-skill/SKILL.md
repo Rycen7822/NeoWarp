@@ -1,12 +1,12 @@
 ---
 name: gui-onboarding-verification-skill
-description: Verify NeoWarp GUI first startup and local onboarding using the intended NeoWarp build and isolated application data. Use for first-run terminal or Essentials verification.
+description: Verify NeoWarp GUI first startup using the intended build and isolated application data. Use for first-run terminal verification.
 ---
 
 # NeoWarp first-start verification
 
 Verify the actual NeoWarp artifact and its local first-run experience. The
-current product has no account, login, model selection or cloud onboarding.
+current product has no account, login, model selection, onboarding tips or teaching blocks. Keyboard-shortcut search and ordinary tooltips remain available.
 
 ## Prepare the intended build
 
@@ -27,9 +27,9 @@ current product has no account, login, model selection or cloud onboarding.
 
 1. Start the intended GUI and confirm that it reaches a usable terminal without
    credentials or a network-dependent onboarding step.
-2. For the requested first-run surface, inspect visible text, controls and
-   layout. NeoWarp Essentials should provide local terminal tips; account,
-   commercial setup and original Docs/Slack/Feedback links are retired.
+2. Confirm that the title bar has no Essentials lightbulb and that no welcome
+   popup or new-session teaching block appears. Preserve keyboard-shortcut
+   search and ordinary tooltips; do not restore retired first-run tips.
 3. When terminal interaction is in scope, execute a harmless marker command
    and check its actual output. A window or a successful build alone does not
    establish terminal usability.
@@ -38,4 +38,4 @@ current product has no account, login, model selection or cloud onboarding.
 
 Record the artifact, isolated directory, actions, observed results, evidence
 paths and any blocked checks in `.work/`. Do not report an unexecuted step as
-passed or turn one first-start check into an exhaustive onboarding matrix.
+passed or turn one first-start check into an exhaustive GUI matrix.
