@@ -24,6 +24,10 @@ pub const FISH_SHELL_PATH: &str = "/bin/fish";
 
 pub trait AvailableShell {
     fn get_valid_shell_path_and_type(&self) -> Option<ShellLaunchData>;
+
+    fn wsl_shell_override(&self) -> Option<(&str, ShellType)> {
+        None
+    }
 }
 
 /// Returns `true` if the given `path_or_command` is a valid, executable command or path to a
@@ -120,7 +124,7 @@ impl ShellStarter {
 
     /// Constructs a `ShellStarter` represent the shell binary (and corresponding arguments) to be
     /// used to spawn a shell process for a new top-level Warp session. If a WSL Distribution is
-    /// given, then it will always construct a `ShellStarter` starting the default shell for that
+    /// given, then it constructs a `ShellStarter` for the selected inner shell, or the default shell for that
     /// WSL Distribution.
     ///
     /// Returns an enum indicating the source from which the shell was determined. If the fallback
@@ -167,6 +171,14 @@ impl ShellStarter {
                     );
                 }
                 ShellLaunchData::WSL { distro } => {
+                    if let Some((path, kind)) = preferred_shell.wsl_shell_override() {
+                        if !path.starts_with('/') {
+                            return None;
+                        }
+                        return WslShellStarter::for_shell(&distro, path, kind).map(|starter| {
+                            ShellStarterSource::Override(ShellStarter::Wsl(starter)).into()
+                        });
+                    }
                     return Some(ShellStarterSourceOrWslName::WSLName {
                         distro_name: distro,
                     });
@@ -519,6 +531,26 @@ impl DirectShellStarter {
 }
 
 impl WslShellStarter {
+    fn for_shell(distribution: &str, shell_path: &str, shell_type: ShellType) -> Option<Self> {
+        if shell_path.is_empty() || shell_path.contains('\0') || shell_type == ShellType::PowerShell
+        {
+            return None;
+        }
+        let session_id = generate_session_id();
+        Some(Self {
+            shell_type,
+            shell_path: shell_path.to_owned(),
+            distribution: distribution.to_owned(),
+            session_id,
+            args: wsl_arguments_for_session_spawning_command(
+                distribution,
+                shell_path,
+                shell_type,
+                session_id,
+            ),
+        })
+    }
+
     async fn init_from_wsl_distribution(distribution: &str) -> Option<Self> {
         // We store the path as a String because we can't easily store a Unix path on Windows.
         // This command can have a lot of latency because it might spin up a VM.
@@ -549,21 +581,7 @@ impl WslShellStarter {
             return None;
         };
 
-        let session_id = generate_session_id();
-        let args = wsl_arguments_for_session_spawning_command(
-            distribution,
-            &shell_path,
-            shell_type,
-            session_id,
-        );
-
-        Some(Self {
-            shell_type,
-            shell_path,
-            args,
-            distribution: distribution.to_string(),
-            session_id,
-        })
+        Self::for_shell(distribution, &shell_path, shell_type)
     }
 
     pub fn args(&self) -> &Vec<OsString> {

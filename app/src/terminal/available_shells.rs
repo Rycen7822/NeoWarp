@@ -30,6 +30,16 @@ impl crate::terminal::local_tty::shell::AvailableShell for AvailableShell {
     fn get_valid_shell_path_and_type(&self) -> Option<ShellLaunchData> {
         AvailableShell::get_valid_shell_path_and_type(self)
     }
+
+    fn wsl_shell_override(&self) -> Option<(&str, ShellType)> {
+        match self.state.as_ref() {
+            Config::Wsl {
+                shell: Some((path, kind)),
+                ..
+            } => Some((path, *kind)),
+            _ => None,
+        }
+    }
 }
 
 impl TryFrom<StartupShell> for LocalConfig {
@@ -64,6 +74,7 @@ enum Config {
     #[cfg_attr(not(feature = "local_tty"), allow(dead_code))]
     Wsl {
         distro: String,
+        shell: Option<(String, ShellType)>,
     },
     #[cfg_attr(any(not(feature = "local_tty"), unix), allow(dead_code))]
     MSYS2(LocalConfig),
@@ -113,7 +124,7 @@ impl AvailableShell {
                 "powershell" | "powershell.exe" => Cow::from("Windows PowerShell"),
                 _ => Cow::from(command),
             },
-            Config::Wsl { distro } => Cow::from(distro),
+            Config::Wsl { distro, .. } => Cow::from(distro),
             Config::Custom(_) => Cow::from("Custom"),
         }
     }
@@ -136,13 +147,29 @@ impl AvailableShell {
 
     pub fn wsl_distro(&self) -> Option<String> {
         match self.state.as_ref() {
-            Config::Wsl { distro } => Some(distro.clone()),
+            Config::Wsl { distro, .. } => Some(distro.clone()),
             _ => None,
         }
     }
 
     pub fn is_wsl(&self) -> bool {
         matches!(self.state.as_ref(), Config::Wsl { .. })
+    }
+
+    pub(crate) fn with_wsl_shell(&self, program: String, kind: ShellType) -> Option<Self> {
+        let Config::Wsl { distro, .. } = self.state.as_ref() else {
+            return None;
+        };
+        if !program.starts_with('/') || program.contains('\0') || kind == ShellType::PowerShell {
+            return None;
+        }
+        Some(Self {
+            id: self.id.clone(),
+            state: Arc::new(Config::Wsl {
+                distro: distro.clone(),
+                shell: Some((program, kind)),
+            }),
+        })
     }
 }
 
@@ -156,7 +183,7 @@ impl AvailableShell {
             Config::KnownLocal(LocalConfig {
                 executable_path, ..
             }) => format!("{} ({})", self.short_name(), executable_path.display()),
-            Config::Wsl { distro } => distro.to_string(),
+            Config::Wsl { distro, .. } => distro.to_string(),
             Config::Custom(LocalConfig { command, .. }) => format!("Custom ({command})"),
             Config::MSYS2(LocalConfig {
                 executable_path, ..
@@ -181,7 +208,7 @@ impl AvailableShell {
                 matches!(self.state.as_ref(), Config::KnownLocal(LocalConfig { executable_path, .. }) if executable_path == Path::new(path))
             }
             NewSessionShell::WSL(distro) => {
-                matches!(self.state.as_ref(), Config::Wsl { distro: d } if d == distro)
+                matches!(self.state.as_ref(), Config::Wsl { distro: d, .. } if d == distro)
             }
             NewSessionShell::Custom(path) => {
                 matches!(self.state.as_ref(), Config::Custom(LocalConfig { executable_path, .. }) if executable_path == Path::new(path))
@@ -230,7 +257,7 @@ impl AvailableShell {
                     None
                 }
             }
-            Config::Wsl { distro } => Some(ShellLaunchData::WSL {
+            Config::Wsl { distro, .. } => Some(ShellLaunchData::WSL {
                 distro: distro.to_string(),
             }),
             Config::MSYS2(local_config) => Some(ShellLaunchData::MSYS2 {
@@ -271,7 +298,10 @@ impl AvailableShell {
     fn new_wsl(distro: String) -> Self {
         Self {
             id: Some(format!("wsl:{distro}")),
-            state: Arc::new(Config::Wsl { distro }),
+            state: Arc::new(Config::Wsl {
+                distro,
+                shell: None,
+            }),
         }
     }
 
@@ -298,7 +328,7 @@ impl From<AvailableShell> for NewSessionShell {
             Config::KnownLocal(LocalConfig {
                 executable_path, ..
             }) => NewSessionShell::Executable(executable_path.display().to_string()),
-            Config::Wsl { distro } => NewSessionShell::WSL(distro.clone()),
+            Config::Wsl { distro, .. } => NewSessionShell::WSL(distro.clone()),
             Config::Custom(LocalConfig {
                 executable_path, ..
             }) => NewSessionShell::Custom(executable_path.display().to_string()),
@@ -482,7 +512,7 @@ impl AvailableShells {
         self.shells
             .iter()
             .find(|shell| match (shell.state.as_ref(), config) {
-                (Config::Wsl { distro }, ShellLaunchData::WSL { distro: d }) => distro == d,
+                (Config::Wsl { distro, .. }, ShellLaunchData::WSL { distro: d }) => distro == d,
                 (
                     Config::MSYS2(LocalConfig {
                         executable_path, ..

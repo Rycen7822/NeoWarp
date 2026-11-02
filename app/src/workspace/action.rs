@@ -358,6 +358,10 @@ pub enum WorkspaceAction {
     ToggleDebugNetworkStatus,
     ToggleShowMemoryStats,
     RunCommand(String),
+    #[cfg(feature = "local_fs")]
+    OpenProjectSession(uuid::Uuid),
+    #[cfg(feature = "local_fs")]
+    StartNewProjectSession(uuid::Uuid),
     /// Acknowledges and dismisses the local Wayland crash recovery warning.
     #[cfg(target_os = "linux")]
     DismissWaylandCrashRecoveryBanner,
@@ -431,6 +435,8 @@ impl WorkspaceAction {
     pub fn should_save_app_state_on_action(&self) -> bool {
         use WorkspaceAction::*;
         match self {
+            #[cfg(feature = "local_fs")]
+            OpenProjectSession(_) | StartNewProjectSession(_) => true,
             ActivateTab(_)
             | ActivateTabByNumber(_)
             | SetTabShortcutModifierKey { .. }

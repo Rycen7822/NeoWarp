@@ -2767,11 +2767,12 @@ impl TerminalView {
         else {
             return;
         };
-        let Some(parsed) =
-            crate::project_sessions::command::parse(command, session.shell().shell_type())
-        else {
+        let launched = self.awaiting_pending_command_completion
+            && ProjectSessions::as_ref(ctx).starting(ctx.view_id());
+        let parsed = crate::project_sessions::command::parse(command, session.shell().shell_type());
+        if parsed.is_none() && !launched {
             return;
-        };
+        }
         let Some(directory) = self
             .active_block_metadata
             .as_ref()
@@ -2803,7 +2804,6 @@ impl TerminalView {
         };
         let observation = Observation {
             terminal: ctx.handle(),
-            terminal_id: ctx.view_id(),
             block: block.clone(),
             directory: convert(directory),
             home: convert(home),
@@ -2815,6 +2815,7 @@ impl TerminalView {
             command: command.to_owned(),
             environment: environment.clone().into_iter().collect(),
             parsed,
+            launched,
             started_at: chrono::Utc::now().timestamp_millis(),
         };
         ProjectSessions::handle(ctx)
@@ -5039,6 +5040,8 @@ impl TerminalView {
                             self.pending_command_queue.clear();
                         }
                         ctx.emit(Event::PendingCommandCompleted);
+                        #[cfg(feature = "local_fs")]
+                        self.end_project_session(None, ctx);
                     }
                 }
 
@@ -11920,6 +11923,8 @@ impl TerminalSurface for TerminalView {
 
     #[cfg(feature = "local_tty")]
     fn on_pty_spawn_failed(&mut self, error: anyhow::Error, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        self.end_project_session(None, ctx);
         self.pty_spawn_failed = true;
         // Emit before the banner so the terminal driver can cancel its
         // bootstrap wait immediately, without waiting for the 60 s timeout.

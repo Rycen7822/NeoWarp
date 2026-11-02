@@ -24,6 +24,12 @@ pub(crate) fn parse(command: &str, shell: ShellType) -> Option<ParsedCommand> {
     let (argv, environment) = words(command, shell)?;
     let index = agent_index(&argv)?;
     let provider = provider(&argv[index])?;
+    if argv[index + 1..]
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--help" | "-h" | "--version" | "-V"))
+    {
+        return None;
+    }
     let identity = explicit_identity(provider, &argv[index..]);
     Some(ParsedCommand {
         provider,
@@ -90,6 +96,7 @@ fn executable(command: &str) -> String {
         .to_ascii_lowercase()
         .trim_end_matches(".exe")
         .trim_end_matches(".cmd")
+        .trim_end_matches(".ps1")
         .to_owned()
 }
 

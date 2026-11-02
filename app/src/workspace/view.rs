@@ -2760,7 +2760,7 @@ impl Workspace {
         &self,
         terminal_view_id: EntityId,
         ctx: &mut ViewContext<Self>,
-    ) {
+    ) -> bool {
         let current_window = ctx.window_id();
         let result = WorkspaceRegistry::as_ref(ctx)
             .all_workspaces(ctx)
@@ -2790,8 +2790,10 @@ impl Workspace {
                     "root_view:handle_pane_navigation_event",
                     &locator,
                 );
+                return true;
             }
         }
+        false
     }
 
     /// Shows the notification error in the specific pane.
@@ -4390,6 +4392,50 @@ impl Workspace {
             self.file_browser = Some(browser);
         }
         ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn launch_project_session(
+        &mut self,
+        id: uuid::Uuid,
+        intent: crate::project_sessions::launch::Intent,
+        ctx: &mut ViewContext<Self>,
+    ) -> anyhow::Result<()> {
+        use crate::project_sessions::ProjectSessions;
+        let sessions = ProjectSessions::handle(ctx);
+        if let Some(terminal) = sessions.as_ref(ctx).active_terminal(id, ctx) {
+            anyhow::ensure!(
+                self.focus_terminal_view_locally(terminal, ctx)
+                    || self.focus_terminal_view_in_other_window(terminal, ctx),
+                "The terminal is still closing; try again after it exits"
+            );
+            sessions.update(ctx, |sessions, ctx| sessions.touch(id, ctx));
+            return Ok(());
+        }
+        let launch = sessions.as_ref(ctx).prepare_launch(id, intent, ctx)?;
+        self.add_tab_with_pane_layout(
+            PanesLayout::SingleTerminal(Box::new(NewTerminalOptions {
+                shell: Some(launch.shell),
+                initial_directory: Some(launch.directory),
+                hide_homepage: true,
+                ..Default::default()
+            })),
+            Arc::new(HashMap::new()),
+            Some(launch.title),
+            ctx,
+        );
+        let terminal = self
+            .active_tab_pane_group()
+            .as_ref(ctx)
+            .active_session_view(ctx)
+            .ok_or_else(|| anyhow::anyhow!("New terminal was not created"))?;
+        sessions.update(ctx, |sessions, ctx| {
+            sessions.begin_launch(id, terminal.downgrade(), ctx)
+        });
+        terminal.update(ctx, |terminal, ctx| {
+            terminal.set_pending_command_queue(vec![launch.command], ctx)
+        });
+        Ok(())
     }
 
     #[cfg(feature = "local_fs")]
@@ -11522,6 +11568,22 @@ impl TypedActionView for Workspace {
                 let command = code.trim().to_string();
                 self.insert_in_input(&command, true, true, ctx);
                 ctx.notify();
+            }
+            #[cfg(feature = "local_fs")]
+            OpenProjectSession(id) | StartNewProjectSession(id) => {
+                let intent = if matches!(action, OpenProjectSession(_)) {
+                    crate::project_sessions::launch::Intent::Resume
+                } else {
+                    crate::project_sessions::launch::Intent::New
+                };
+                if let Err(error) = self.launch_project_session(*id, intent, ctx) {
+                    self.toast_stack.update(ctx, |stack, ctx| {
+                        stack.add_ephemeral_toast(
+                            DismissibleToast::error(format!("Cannot open session: {error:#}")),
+                            ctx,
+                        );
+                    });
+                }
             }
             #[cfg(all(enable_crash_recovery, target_os = "linux"))]
             DismissWaylandCrashRecoveryBanner => {
