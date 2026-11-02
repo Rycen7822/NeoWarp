@@ -3,5 +3,4 @@
 /// we register unique identifiers to make it easier to identify them.
 pub enum RichContentType {
     WarpifySuccessBlock,
-    TerminalViewZeroState,
 }

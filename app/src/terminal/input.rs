@@ -104,9 +104,6 @@ use crate::pane_group::focus_state::PaneFocusHandle;
 #[cfg(feature = "local_fs")]
 use crate::persistence::{database_file_path_for_current_scope, establish_ro_connection};
 use crate::prefix::longest_common_prefix;
-use crate::resource_center::{
-    Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
-};
 use crate::search::QueryFilter;
 use crate::session_management::SessionNavigationPromptElements;
 use crate::settings::{
@@ -706,7 +703,6 @@ impl CanExecuteCommand {
 pub struct Input {
     model: Arc<FairMutex<TerminalModel>>,
     menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
-    tips_completed: ModelHandle<TipsCompleted>,
     editor: ViewHandle<EditorView>,
     input_suggestions: ViewHandle<InputSuggestions>,
     suggestions_mode_model: ModelHandle<InputSuggestionsModeModel>,
@@ -973,7 +969,6 @@ impl Input {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         model: Arc<FairMutex<TerminalModel>>,
-        tips_completed: ModelHandle<TipsCompleted>,
         sessions: ModelHandle<Sessions>,
         size_info: SizeInfo,
         menu_positioning_provider: Arc<dyn MenuPositioningProvider>,
@@ -1193,7 +1188,6 @@ impl Input {
             suggestions_mode_model,
             completions_menu_resizable_width: resizable_state_handle(completions_menu_width),
             completions_menu_resizable_height: resizable_state_handle(completions_menu_height),
-            tips_completed,
             editor,
             model,
             sessions,
@@ -1714,15 +1708,6 @@ impl Input {
             .active_block()
             .has_received_precmd()
         {
-            self.tips_completed.update(ctx, |tips, ctx| {
-                mark_feature_used_and_write_to_user_defaults(
-                    Tip::Hint(TipHint::CreateBlock),
-                    tips,
-                    ctx,
-                );
-                ctx.notify();
-            });
-
             if !command.is_empty() {
                 IgnoredSuggestionsModel::handle(ctx).update(ctx, |model, ctx| {
                     model.remove_ignored_suggestion(

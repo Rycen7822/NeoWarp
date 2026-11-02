@@ -2,22 +2,19 @@ use enum_iterator::{Sequence, all};
 use itertools::{Either, Itertools};
 use warpui::elements::{
     Align, Border, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
-    CornerRadius, CrossAxisAlignment, Element, Fill, Flex, MainAxisSize, MouseStateHandle,
-    ParentElement, Radius, Shrinkable,
+    CornerRadius, CrossAxisAlignment, Element, Expanded, Fill, Flex, MainAxisSize,
+    MouseStateHandle, ParentElement, Radius, Shrinkable,
 };
 use warpui::keymap::{DescriptionContext, Keystroke};
 use warpui::presenter::ChildView;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::units::Pixels;
+use warpui::windowing::{StateEvent, WindowManager};
 use warpui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
+    ViewContext, ViewHandle, WindowId,
 };
 
-use super::section_views::{
-    DESCRIPTION_FONT_SIZE, ITEM_PADDING_BOTTOM, SCROLLBAR_OFFSET, SCROLLBAR_WIDTH,
-    SECTION_HEADER_FONT_SIZE, SECTION_SPACING,
-};
 use super::utils::{
     BLOCKS_KEYBINDINGS, FUNDAMENTALS_KEYBINDINGS, INPUT_EDITOR_KEYBINDINGS, TERMINAL_KEYBINDINGS,
     get_additional_keybindings,
@@ -31,9 +28,19 @@ use crate::editor::{
 use crate::search_bar::SearchBar;
 use crate::settings_view;
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
+use crate::ui_components::buttons::icon_button;
+use crate::ui_components::icons::Icon;
+use crate::ui_components::window_focus_dimming::WindowFocusDimming;
 use crate::util::bindings::{CommandBinding, filter_bindings_including_keystroke};
-use crate::workspace::WorkspaceAction;
 use crate::workspace::tab_settings::TabSettings;
+use crate::workspace::{PANEL_HEADER_HEIGHT, WorkspaceAction};
+
+const DESCRIPTION_FONT_SIZE: f32 = 14.;
+const ITEM_PADDING_BOTTOM: f32 = 6.;
+const SCROLLBAR_OFFSET: f32 = 7.;
+const SCROLLBAR_WIDTH: warpui::elements::ScrollbarWidth = warpui::elements::ScrollbarWidth::Auto;
+const SECTION_HEADER_FONT_SIZE: f32 = 16.;
+const SECTION_SPACING: f32 = 12.;
 
 const KEYBINDINGS_PAGE_SHORTCUT: &str = "workspace:toggle_keybindings_page";
 const LINK_WIDTH: f32 = 30.;
@@ -41,6 +48,8 @@ const LINK_WIDTH: f32 = 30.;
 #[derive(Default)]
 struct MouseStateHandles {
     navigate_to_settings_link: MouseStateHandle,
+    close: MouseStateHandle,
+    header_dimming: MouseStateHandle,
 }
 
 pub struct KeybindingsView {
@@ -52,6 +61,7 @@ pub struct KeybindingsView {
     mouse_state_handles: MouseStateHandles,
     search_bar: ViewHandle<SearchBar>,
     search_editor: ViewHandle<EditorView>,
+    window_id: WindowId,
 }
 
 /// Keybindings are sorted into these sections,
@@ -123,6 +133,14 @@ impl KeybindingsView {
         let tab_settings_handle = TabSettings::handle(ctx);
         ctx.observe(&tab_settings_handle, Self::rebuild_bindings);
 
+        let window_state = WindowManager::handle(ctx);
+        ctx.subscribe_to_model(&window_state, |_, _, event, ctx| {
+            let StateEvent::ValueChanged { current, previous } = event;
+            if WindowManager::did_window_change_focus(ctx.window_id(), current, previous) {
+                ctx.notify();
+            }
+        });
+
         Self {
             bindings: bindings.clone(),
             binding_results: bindings,
@@ -130,6 +148,7 @@ impl KeybindingsView {
             mouse_state_handles: Default::default(),
             search_bar,
             search_editor,
+            window_id: ctx.window_id(),
         }
     }
 
@@ -480,6 +499,48 @@ impl KeybindingsView {
         Some(binding_list.finish())
     }
 
+    fn render_header(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
+        let title = appearance
+            .ui_builder()
+            .wrappable_text("Keyboard Shortcuts", false)
+            .with_style(UiComponentStyles {
+                font_size: Some(16.),
+                font_weight: Some(warpui::fonts::Weight::Semibold),
+                ..Default::default()
+            })
+            .build()
+            .finish();
+        let close = icon_button(
+            appearance,
+            Icon::X,
+            false,
+            self.mouse_state_handles.close.clone(),
+        )
+        .build()
+        .on_click(|ctx, _, _| ctx.dispatch_typed_action(WorkspaceAction::ToggleKeybindingsPage))
+        .finish();
+        let row = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(Expanded::new(1., title).finish())
+            .with_child(close)
+            .finish();
+        let header = ConstrainedBox::new(
+            Container::new(row)
+                .with_horizontal_padding(12.)
+                .with_vertical_padding(5.)
+                .finish(),
+        )
+        .with_height(PANEL_HEADER_HEIGHT)
+        .finish();
+        WindowFocusDimming::apply_panel_header_dimming(
+            header,
+            self.mouse_state_handles.header_dimming.clone(),
+            appearance.theme().surface_1().into(),
+            self.window_id,
+            app,
+        )
+    }
+
     fn render_body(&self, appearance: &Appearance) -> Box<dyn Element> {
         let keybinding_sections = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -526,7 +587,7 @@ impl TypedActionView for KeybindingsView {
 
 impl View for KeybindingsView {
     fn ui_name() -> &'static str {
-        "ResourceCenterKeybindings"
+        "Keybindings"
     }
 
     fn on_focus(&mut self, focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
@@ -543,6 +604,7 @@ impl View for KeybindingsView {
 
         Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_child(self.render_header(appearance, app))
             .with_child(search_bar)
             .with_child(subheader)
             .with_child(Shrinkable::new(1., body).finish())

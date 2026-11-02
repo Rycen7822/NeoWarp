@@ -128,11 +128,6 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
         ctx,
     )];
 
-    menu_items.push(updateable_custom_item_without_checkmark(
-        CustomAction::ToggleResourceCenter,
-        ctx,
-    ));
-
     menu_items.push(MenuItem::Separator);
 
     let preferences_menu_items = vec![
@@ -744,10 +739,10 @@ fn debug_menu_items() -> Vec<MenuItem> {
 fn make_new_help_menu(ctx: &AppContext) -> Menu {
     Menu::new(
         "Help",
-        vec![
-            updateable_custom_item_without_checkmark(CustomAction::ToggleResourceCenter, ctx),
-            updateable_custom_item_without_checkmark(CustomAction::ToggleKeybindingsPage, ctx),
-        ],
+        vec![updateable_custom_item_without_checkmark(
+            CustomAction::ToggleKeybindingsPage,
+            ctx,
+        )],
     )
 }
 

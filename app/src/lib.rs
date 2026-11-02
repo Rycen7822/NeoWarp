@@ -52,7 +52,6 @@ mod tab;
 #[cfg(test)]
 mod test_util;
 mod throttle;
-mod tips;
 mod ui_components;
 mod undo_close;
 mod uri;
@@ -736,15 +735,12 @@ pub(crate) fn initialize_app(
     let persistence_writer = PersistenceWriter::new(writer_handles);
 
     let model_event_sender = persistence_writer.sender();
-
-    let tips_handle = ctx.add_model(|_| user_defaults_on_startup.tips_data);
     let user_default_shell_unsupported_banner_model_handle =
         ctx.add_model(|_| user_defaults_on_startup.user_default_shell_unsupported_banner_state);
     let settings_file_error = user_defaults_on_startup.settings_file_error;
     ctx.add_singleton_model(move |_ctx| {
         GlobalResourceHandlesProvider::new(GlobalResourceHandles {
             model_event_sender,
-            tips_completed: tips_handle,
             user_default_shell_unsupported_banner_model_handle,
             settings_file_error,
         })
@@ -907,7 +903,6 @@ pub(crate) fn initialize_app(
     input::init(ctx);
     editor::init(ctx);
     menu::init(ctx);
-    tips::tip_view::init(ctx);
     launch_configs::init(ctx);
     themes::theme_chooser::init(ctx);
     themes::theme_creator_modal::init(ctx);

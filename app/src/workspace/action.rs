@@ -123,7 +123,6 @@ pub enum WorkspaceAction {
         width: f32,
     },
     TabHoverWidthEnd,
-    ToggleWelcomeTips,
     CloseTab(usize),
     CloseActiveTab,
     CloseOtherTabs(usize),
@@ -270,7 +269,6 @@ pub enum WorkspaceAction {
     OpenLaunchConfigSaveModal,
     SelectTabConfig(TabConfig),
     DispatchToSettingsTab(SettingsTabAction),
-    ToggleResourceCenter,
     ToggleKeybindingsPage,
     ShowCommandSearch(CommandSearchOptions),
     TriggerExternalCtrlTFileSearch,
@@ -568,7 +566,6 @@ impl WorkspaceAction {
             | SetA11yVerbosityLevel(_)
             | ToggleNotifications
             | DispatchToSettingsTab { .. }
-            | ToggleResourceCenter
             | ToggleFileBrowser
             | ToggleKeybindingsPage
             | ShowCommandSearch(_)
@@ -591,7 +588,6 @@ impl WorkspaceAction {
             | ToggleVerticalTabsShowPrLink
             | ToggleVerticalTabsShowDiffStats
             | ToggleVerticalTabsShowDetailsOnHover
-            | ToggleWelcomeTips
             | CopyTextToClipboard(_)
             | CopyCurrentPath
             | OpenTabConfigRepoPicker { .. }

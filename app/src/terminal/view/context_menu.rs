@@ -1,8 +1,7 @@
 use warpui::UpdateView;
 
 use super::{
-    CONTEXT_MENU_WIDTH, ContextMenuState, MenuItem, TerminalAction, TerminalView, Tip, TipHint,
-    ViewContext, mark_feature_used_and_write_to_user_defaults,
+    CONTEXT_MENU_WIDTH, ContextMenuState, MenuItem, TerminalAction, TerminalView, ViewContext,
 };
 
 impl TerminalView {
@@ -22,14 +21,5 @@ impl TerminalView {
         self.context_menu_state = Some(menu_state);
         ctx.focus(&self.context_menu);
         ctx.notify();
-
-        self.tips_completed.update(ctx, |tips, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Hint(TipHint::BlockAction),
-                tips,
-                ctx,
-            );
-            ctx.notify();
-        });
     }
 }

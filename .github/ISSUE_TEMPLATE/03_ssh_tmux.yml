@@ -50,6 +50,6 @@ body:
     id: "warp-version"
     attributes:
       label: "NeoWarp Version"
-      description: "Copy the version from the bottom of NeoWarp Essentials, or run `neowarp --version` with an installed package."
+      description: "Find the version in Settings > About, or run `neowarp --version` with an installed package."
     validations:
       required: false

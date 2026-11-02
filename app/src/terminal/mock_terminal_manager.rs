@@ -11,7 +11,6 @@ use super::model_events::ModelEventDispatcher;
 use super::terminal_manager::BlockSpacing;
 use super::{ShellLaunchState, TerminalManager, TerminalModel, TerminalView};
 use crate::context_chips::prompt_type::PromptType;
-use crate::pane_group::TerminalViewResources;
 use crate::terminal::model::block::SerializedBlock;
 
 pub struct MockTerminalManager {
@@ -26,7 +25,6 @@ pub struct MockTerminalManagerInit {
 impl MockTerminalManager {
     pub fn create_model(
         shell_state: ShellLaunchState,
-        resources: TerminalViewResources,
         restored_blocks: Option<&Vec<SerializedBlock>>,
         initial_size: Vector2F,
         window_id: WindowId,
@@ -63,7 +61,6 @@ impl MockTerminalManager {
         let view = ctx.add_typed_action_view(window_id, |ctx| {
             let size_info = cloned_model.lock().block_list().size().to_owned();
             TerminalView::new(
-                resources,
                 wakeups_rx,
                 model_events_dispatcher.clone(),
                 cloned_model,
@@ -151,20 +148,13 @@ mod testing {
             app: &mut App,
             restored_blocks: Option<&[SerializedBlock]>,
         ) -> ViewHandle<TerminalView> {
-            let tips_model = app.add_model(|_| Default::default());
-
             let (window_id, _) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-                let resources = TerminalViewResources {
-                    tips_completed: tips_model,
-                    model_event_sender: None,
-                };
                 let terminal_init = MockTerminalManager::create_model(
                     ShellLaunchState::ShellSpawned {
                         available_shell: None,
                         display_name: ShellName::blank(),
                         shell_type: ShellType::Zsh,
                     },
-                    resources,
                     restored_blocks.map(|blocks| blocks.to_vec()).as_ref(),
                     Vector2F::new(7., 10.5),
                     ctx.window_id(),

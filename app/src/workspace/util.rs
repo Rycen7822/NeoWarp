@@ -24,7 +24,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) banner_button: MouseStateHandle,
     pub(super) banner_secondary_button: MouseStateHandle,
     pub(super) more_info_banner_button: MouseStateHandle,
-    pub(super) resource_center_icon: MouseStateHandle,
     pub(super) vertical_tabs_icon: MouseStateHandle,
     pub(super) file_browser_icon: MouseStateHandle,
     pub(super) sidebar_semantics: warpui::accessibility::SemanticId,
@@ -33,36 +32,6 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) offline_icon: MouseStateHandle,
     pub(super) header_dimming: MouseStateHandle,
     pub(super) title_bar_search_bar: MouseStateHandle,
-}
-
-#[derive(Debug)]
-pub enum WelcomeTipsViewState {
-    Unavailable,
-    Available { is_popup_open: bool },
-}
-
-impl WelcomeTipsViewState {
-    pub fn is_popup_open(&self) -> bool {
-        matches!(
-            self,
-            WelcomeTipsViewState::Available {
-                is_popup_open: true,
-                ..
-            }
-        )
-    }
-
-    pub fn close_popup(&mut self) {
-        if let WelcomeTipsViewState::Available { is_popup_open, .. } = self {
-            *is_popup_open = false;
-        }
-    }
-
-    pub fn toggle_popup(&mut self) {
-        if let WelcomeTipsViewState::Available { is_popup_open, .. } = self {
-            *is_popup_open = !*is_popup_open;
-        }
-    }
 }
 
 // TODO change this struct to enum (as we can only have 1 of them set to true at a time)
@@ -75,7 +44,7 @@ pub struct WorkspaceState {
     pub is_theme_deletion_modal_open: bool,
     pub is_tab_being_dragged: bool,
     pub is_launch_config_save_modal_open: bool,
-    pub is_resource_center_open: bool,
+    pub is_keybindings_open: bool,
     pub is_command_search_open: bool,
     pub is_prompt_editor_open: bool,
     pub is_header_toolbar_editor_open: bool,
@@ -137,7 +106,7 @@ impl WorkspaceState {
     }
 
     pub fn is_right_panel_open(&self) -> bool {
-        self.is_resource_center_open
+        self.is_keybindings_open
     }
 
     pub fn is_left_panel_open(&self) -> bool {

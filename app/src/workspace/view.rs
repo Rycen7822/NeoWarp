@@ -50,10 +50,10 @@ use warpui::elements::{
     Align, Border, CacheOption, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Dismiss, DispatchEventResult, DragAxis, Draggable,
     DraggableState, DropTarget, Element, Empty, EventHandler, Expanded, Fill as ElementFill, Flex,
-    Highlight, Hoverable, Icon as WarpUiIcon, Image, MainAxisAlignment, MainAxisSize,
-    MouseInBehavior, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius, Rect,
-    SavePosition, Shrinkable, SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
+    Highlight, Hoverable, Image, MainAxisAlignment, MainAxisSize, MouseInBehavior,
+    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds,
+    PositionedElementAnchor, PositionedElementOffsetBounds, Radius, Rect, SavePosition, Shrinkable,
+    SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
 };
 use warpui::event::KeyState;
 use warpui::fonts::{Properties, Weight};
@@ -89,9 +89,7 @@ use super::tab_settings::{
     HeaderToolbarChipSelection, NewTabPlacement, TabSettings, TabSettingsChangedEvent,
     VerticalTabsDisplayGranularity, WorkspaceDecorationVisibility,
 };
-use super::util::{
-    PaneViewLocator, TabMovement, WelcomeTipsViewState, WorkspaceMouseStates, WorkspaceState,
-};
+use super::util::{PaneViewLocator, TabMovement, WorkspaceMouseStates, WorkspaceState};
 use super::{ActiveSession, TabBarDropTargetData, TabBarLocation, WorkspaceRegistry, util};
 use crate::GlobalResourceHandles;
 use crate::app_state::{
@@ -129,10 +127,7 @@ use crate::prompt::editor_modal::{
     EditorModal as PromptEditorModal, EditorModalEvent as PromptEditorModalEvent,
 };
 use crate::quit_warning::UnsavedStateSummary;
-use crate::resource_center::{
-    ResourceCenterEvent, ResourceCenterPage, ResourceCenterView, Tip, TipAction, TipsCompleted,
-    mark_feature_used_and_write_to_user_defaults, skip_tips_and_write_to_user_defaults,
-};
+use crate::resource_center::{KeybindingsEvent, KeybindingsView};
 use crate::root_view::{NewWorkspaceSource, OpenLaunchConfigArg};
 use crate::search::command_palette::view::{
     Event as CommandPaletteEvent, NavigationMode, View as CommandPalette,
@@ -195,7 +190,6 @@ use crate::themes::theme::{AnsiColorIdentifier, RespectSystemTheme, ThemeKind};
 use crate::themes::theme_chooser::{ThemeChooser, ThemeChooserEvent, ThemeChooserMode};
 use crate::themes::theme_creator_modal::{ThemeCreatorModal, ThemeCreatorModalEvent};
 use crate::themes::theme_deletion_modal::{ThemeDeletionModal, ThemeDeletionModalEvent};
-use crate::tips::{TipsEvent, TipsView};
 use crate::ui_components::buttons::{combo_inner_button, icon_button_with_color};
 use crate::ui_components::icons;
 use crate::ui_components::window_focus_dimming::WindowFocusDimming;
@@ -272,11 +266,6 @@ pub(crate) const VERTICAL_TABS_PANEL_POSITION_ID: &str = "workspace_view:vertica
 /// The main content area in a workspace. This is directly below the tab bar.
 const TAB_CONTENT_POSITION_ID: &str = "workspace_view:tab_content";
 
-const WELCOME_TIPS_POSITION_ID: &str = "welcome_tips_pill";
-const ELLIPSE_SVG_PATH: &str = "bundled/svg/ellipse.svg";
-
-const TOGGLE_RESOURCE_CENTER_KEYBINDING_NAME: &str = "workspace:toggle_resource_center";
-
 /// Shared position ID for the new-session sidecar overlay. Used for both the
 /// `SavePosition` wrapper and the safe-zone rect lookup.
 const NEW_SESSION_SIDECAR_POSITION_ID: &str = "new_session_sidecar";
@@ -305,8 +294,7 @@ pub(crate) const NEW_FILE_BINDING_NAME: &str = "workspace:new_file";
 pub(crate) const NEW_WINDOW_BINDING_NAME: &str = "workspace:new_window";
 pub(crate) const TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME: &str = "workspace:toggle_tab_configs_menu";
 
-const KEYBINDINGS_TO_CACHE: [&str; 3] = [
-    TOGGLE_RESOURCE_CENTER_KEYBINDING_NAME,
+const KEYBINDINGS_TO_CACHE: [&str; 2] = [
     SHOW_SETTINGS_KEYBINDING_NAME,
     TOGGLE_COMMAND_PALETTE_KEYBINDING_NAME,
 ];
@@ -484,7 +472,6 @@ pub struct Workspace {
     pane_rename_editor: ViewHandle<EditorView>,
     tab_group_rename_editor: ViewHandle<EditorView>,
     vertical_tabs_search_input: ViewHandle<EditorView>,
-    tips_completed: ModelHandle<TipsCompleted>,
     user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
     tab_right_click_menu: ViewHandle<Menu<WorkspaceAction>>,
     show_tab_right_click_menu: Option<(usize, TabContextMenuAnchor)>,
@@ -512,13 +499,11 @@ pub struct Workspace {
     background_image_animation_start_time: Instant,
     pub(crate) current_workspace_state: WorkspaceState,
     previous_workspace_state: Option<WorkspaceState>,
-    welcome_tips_view_state: WelcomeTipsViewState,
-    welcome_tips_view: ViewHandle<TipsView>,
     model_event_sender: Option<mpsc::SyncSender<ModelEvent>>,
     launch_config_save_modal: ModalViewState<LaunchConfigSaveModal>,
     tab_config_params_modal: ModalViewState<Modal<TabConfigParamsModal>>,
     session_config_modal: ModalViewState<Modal<SessionConfigModal>>,
-    resource_center_view: ViewHandle<ResourceCenterView>,
+    keybindings_view: ViewHandle<KeybindingsView>,
     #[cfg(feature = "local_fs")]
     git_review_view: Option<ViewHandle<crate::code_review::review::GitReviewView>>,
     #[cfg(feature = "local_fs")]
@@ -828,48 +813,20 @@ impl Workspace {
         modal
     }
 
-    fn build_welcome_tips(
-        tips_completed: ModelHandle<TipsCompleted>,
-        ctx: &mut ViewContext<Self>,
-    ) -> (ViewHandle<TipsView>, WelcomeTipsViewState) {
-        let welcome_tips_view = ctx.add_typed_action_view(|ctx| {
-            TipsView::new(tips_completed.clone(), WELCOME_TIPS_POSITION_ID.into(), ctx)
+    fn build_keybindings_view(ctx: &mut ViewContext<Self>) -> ViewHandle<KeybindingsView> {
+        let keybindings_view = ctx.add_typed_action_view(KeybindingsView::new);
+
+        ctx.subscribe_to_view(&keybindings_view, |me, _, event, ctx| {
+            me.handle_keybindings_event(event, ctx);
         });
 
-        ctx.subscribe_to_view(&welcome_tips_view, move |me, _, event, ctx| {
-            me.handle_welcome_tips_event(event, ctx);
-        });
-        let show_welcome_tips = !tips_completed.as_ref(ctx).skipped_or_completed;
-        let welcome_tips_view_state = if show_welcome_tips {
-            WelcomeTipsViewState::Available {
-                is_popup_open: false,
-            }
-        } else {
-            WelcomeTipsViewState::Unavailable
-        };
-        (welcome_tips_view, welcome_tips_view_state)
-    }
-
-    fn build_resource_center_view(
-        ctx: &mut ViewContext<Self>,
-        tips_completed: ModelHandle<TipsCompleted>,
-    ) -> ViewHandle<ResourceCenterView> {
-        let resource_center_view =
-            ctx.add_typed_action_view(|ctx| ResourceCenterView::new(ctx, tips_completed.clone()));
-
-        ctx.subscribe_to_view(&resource_center_view, |me, _, event, ctx| {
-            me.handle_resource_center_event(event, ctx);
-        });
-
-        resource_center_view
+        keybindings_view
     }
 
     fn build_settings_views(
-        tips_completed: ModelHandle<TipsCompleted>,
         ctx: &mut ViewContext<Self>,
     ) -> (ViewHandle<SettingsView>, ViewHandle<ThemeChooser>) {
-        let theme_chooser_view =
-            ctx.add_typed_action_view(|ctx| ThemeChooser::new(ctx, tips_completed));
+        let theme_chooser_view = ctx.add_typed_action_view(ThemeChooser::new);
 
         ctx.subscribe_to_view(&theme_chooser_view, |me, _, event, ctx| {
             me.handle_theme_chooser_event(event, ctx);
@@ -1334,14 +1291,6 @@ impl Workspace {
         });
     }
 
-    fn on_tips_model_changed(
-        &mut self,
-        _: ModelHandle<TipsCompleted>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        ctx.notify();
-    }
-
     pub fn new(
         global_resource_handles: GlobalResourceHandles,
         workspace_setting: NewWorkspaceSource,
@@ -1349,7 +1298,6 @@ impl Workspace {
     ) -> Self {
         let GlobalResourceHandles {
             model_event_sender,
-            tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             settings_file_error,
         } = global_resource_handles;
@@ -1414,12 +1362,9 @@ impl Workspace {
             ctx.notify();
         });
 
-        let (welcome_tips_view, welcome_tips_view_state) =
-            Self::build_welcome_tips(tips_completed.clone(), ctx);
-        let (settings_pane, theme_chooser_view) =
-            Self::build_settings_views(tips_completed.clone(), ctx);
+        let (settings_pane, theme_chooser_view) = Self::build_settings_views(ctx);
 
-        let resource_center_view = Self::build_resource_center_view(ctx, tips_completed.clone());
+        let keybindings_view = Self::build_keybindings_view(ctx);
 
         let theme_creator_modal = Self::build_theme_creator_modal(ctx);
 
@@ -1435,8 +1380,6 @@ impl Workspace {
         ctx.subscribe_to_view(&command_search_view, |me, _, event, ctx| {
             me.handle_command_search_event(event, ctx);
         });
-
-        ctx.observe(&tips_completed, Workspace::on_tips_model_changed);
 
         ctx.subscribe_to_model(
             &SessionSettings::handle(ctx),
@@ -1486,7 +1429,6 @@ impl Workspace {
             pane_rename_editor: Self::pane_rename_editor(ctx),
             tab_group_rename_editor: Self::tab_group_rename_editor(ctx),
             vertical_tabs_search_input: Self::vertical_tabs_search_input(ctx),
-            tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             tab_right_click_menu,
             show_tab_right_click_menu: None,
@@ -1494,8 +1436,6 @@ impl Workspace {
             show_tab_selection_right_click_menu: None,
             new_session_dropdown_menu,
             show_new_session_dropdown_menu: None,
-            welcome_tips_view_state,
-            welcome_tips_view,
             palette,
             ctrl_tab_palette,
             mouse_states: Default::default(),
@@ -1509,7 +1449,7 @@ impl Workspace {
             launch_config_save_modal,
             tab_config_params_modal,
             session_config_modal,
-            resource_center_view,
+            keybindings_view,
             #[cfg(feature = "local_fs")]
             git_review_view: None,
             #[cfg(feature = "local_fs")]
@@ -2020,7 +1960,7 @@ impl Workspace {
             return FocusRegion::PaneGroup;
         }
 
-        if self.resource_center_view.is_self_or_child_focused(app) {
+        if self.keybindings_view.is_self_or_child_focused(app) {
             return FocusRegion::RightPanel;
         }
 
@@ -2061,8 +2001,8 @@ impl Workspace {
             ctx.focus(review);
             return;
         }
-        if self.current_workspace_state.is_resource_center_open {
-            ctx.focus(&self.resource_center_view);
+        if self.current_workspace_state.is_keybindings_open {
+            ctx.focus(&self.keybindings_view);
         }
     }
 
@@ -2159,18 +2099,18 @@ impl Workspace {
         if self.active_tab_pane_group().is_self_or_child_focused(ctx) {
             if self.is_theme_chooser_open() {
                 ctx.focus(&self.theme_chooser_view);
-            } else if self.current_workspace_state.is_resource_center_open {
-                ctx.focus(&self.resource_center_view);
+            } else if self.current_workspace_state.is_keybindings_open {
+                ctx.focus(&self.keybindings_view);
             }
         }
         // Starts from a right panel: resource center (keyboard shortcuts page only)
-        else if self.resource_center_view.is_self_or_child_focused(ctx) {
+        else if self.keybindings_view.is_self_or_child_focused(ctx) {
             self.focus_active_tab(ctx);
         }
         // Starts from a left panel: theme chooser.
         else if self.theme_chooser_view.is_self_or_child_focused(ctx) {
             if self.current_workspace_state.is_right_panel_open() {
-                ctx.focus(&self.resource_center_view);
+                ctx.focus(&self.keybindings_view);
             } else {
                 self.focus_active_tab(ctx);
             }
@@ -2190,8 +2130,8 @@ impl Workspace {
         }
         // Starts from terminal
         if self.active_tab_pane_group().is_self_or_child_focused(ctx) {
-            if self.current_workspace_state.is_resource_center_open {
-                ctx.focus(&self.resource_center_view);
+            if self.current_workspace_state.is_keybindings_open {
+                ctx.focus(&self.keybindings_view);
             } else if self.is_theme_chooser_open() {
                 ctx.focus(&self.theme_chooser_view);
             }
@@ -2201,7 +2141,7 @@ impl Workspace {
             self.focus_active_tab(ctx);
         }
         // Starts from a right panel: resource center (keyboard shortcuts page only)
-        else if self.resource_center_view.is_self_or_child_focused(ctx) {
+        else if self.keybindings_view.is_self_or_child_focused(ctx) {
             if self.is_theme_chooser_open() {
                 ctx.focus(&self.theme_chooser_view);
             } else {
@@ -2216,10 +2156,6 @@ impl Workspace {
 
     pub fn active_tab_index(&self) -> usize {
         self.active_tab_index
-    }
-
-    pub fn is_resource_center_showing(&self) -> bool {
-        self.current_workspace_state.is_resource_center_open
     }
 
     #[cfg(feature = "integration_tests")]
@@ -4309,13 +4245,6 @@ impl Workspace {
         self.read_from_active_terminal_view(app, |terminal| terminal.id())
     }
 
-    /// Retrieves the entity id of the active current active input. This is needed
-    /// by the Welcome Tip View in order to know where to dispatch the actions
-    /// directly from the tip menu.
-    fn active_input_id(&self, app: &AppContext) -> Option<EntityId> {
-        self.read_from_active_terminal_view(app, |terminal| terminal.input().id())
-    }
-
     /// Gets the ID of the active terminal session, if any.
     pub fn active_session_id(&self, ctx: &ViewContext<Self>) -> Option<SessionId> {
         self.get_pane_group_view(self.active_tab_index)
@@ -4693,18 +4622,6 @@ impl Workspace {
             .read(ctx, |pane_group, ctx| pane_group.active_session_view(ctx))
     }
 
-    pub fn toggle_welcome_tips_visiblity(&mut self, ctx: &mut ViewContext<Self>) {
-        self.welcome_tips_view_state.toggle_popup();
-        if self.welcome_tips_view_state.is_popup_open() {
-            let input_id = self.active_input_id(ctx);
-            self.welcome_tips_view.update(ctx, |tips_view, ctx| {
-                tips_view.set_action_target(ctx.window_id(), input_id, ctx)
-            });
-        }
-        ctx.focus(&self.welcome_tips_view);
-        ctx.notify();
-    }
-
     /// Find an active session and pre-fill the input editor the Warp executable with the
     /// [`warp_cli::Command::DumpDebugInfo`] subcommand.
     fn dump_debug_info(&mut self, ctx: &mut ViewContext<Self>) {
@@ -4780,33 +4697,6 @@ impl Workspace {
         })
     }
 
-    fn open_resource_center_main_page(&mut self, ctx: &mut ViewContext<Self>) {
-        // Set current page to Main
-        self.resource_center_view
-            .update(ctx, |resource_center_view, ctx| {
-                resource_center_view.set_current_page(ResourceCenterPage::Main, ctx)
-            });
-
-        // Open side panel
-        self.current_workspace_state.is_resource_center_open = true;
-    }
-
-    pub fn toggle_resource_center(&mut self, ctx: &mut ViewContext<Self>) {
-        if !self.current_workspace_state.is_resource_center_open {
-            self.focus_active_tab(ctx);
-        }
-
-        if !self.current_workspace_state.is_resource_center_open {
-            self.open_resource_center_main_page(ctx);
-        } else {
-            // Close side panel
-            self.current_workspace_state.is_resource_center_open = false;
-        }
-
-        self.update_resource_center_action_target(ctx);
-        ctx.notify();
-    }
-
     fn toggle_vertical_tabs_panel(&mut self, ctx: &mut ViewContext<Self>) {
         self.vertical_tabs_panel_open = !self.vertical_tabs_panel_open;
         if !self.vertical_tabs_panel_open {
@@ -4822,46 +4712,14 @@ impl Workspace {
     }
 
     pub fn toggle_keybindings_page(&mut self, ctx: &mut ViewContext<Self>) {
-        let current_page = self
-            .resource_center_view
-            .read(ctx, |resource_center_view, _ctx| {
-                resource_center_view.get_current_page()
-            });
-
-        if !self.current_workspace_state.is_resource_center_open {
-            // Set current page to Keybindings
-            self.resource_center_view
-                .update(ctx, |resource_center_view, ctx| {
-                    resource_center_view.set_current_page(ResourceCenterPage::Keybindings, ctx)
-                });
-
-            // Open side panel
-            self.current_workspace_state.is_resource_center_open = true;
-        } else if current_page != ResourceCenterPage::Keybindings
-            && self.current_workspace_state.is_resource_center_open
-        {
-            // Navigate to keybindings page
-            self.resource_center_view
-                .update(ctx, |resource_center_view, ctx| {
-                    resource_center_view.set_current_page(ResourceCenterPage::Keybindings, ctx)
-                });
+        self.current_workspace_state.is_keybindings_open =
+            !self.current_workspace_state.is_keybindings_open;
+        if self.current_workspace_state.is_keybindings_open {
+            ctx.focus(&self.keybindings_view);
         } else {
-            // Close side panel
-            self.current_workspace_state.is_resource_center_open = false;
             self.focus_active_tab(ctx);
         }
-
         ctx.notify();
-    }
-
-    fn update_resource_center_action_target(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.current_workspace_state.is_resource_center_open {
-            let input_id = self.active_input_id(ctx);
-            self.resource_center_view
-                .update(ctx, |resource_center_view, ctx| {
-                    resource_center_view.set_action_target(ctx.window_id(), input_id, ctx)
-                });
-        }
     }
 
     fn handle_tab_right_click_menu_event(
@@ -5489,23 +5347,6 @@ impl Workspace {
         ))
     }
 
-    fn handle_welcome_tips_event(&mut self, event: &TipsEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            TipsEvent::Close => {
-                self.welcome_tips_view_state.close_popup();
-                ctx.notify();
-            }
-            TipsEvent::TipsDismissed => {
-                self.tips_completed.update(ctx, |tips_completed, ctx| {
-                    skip_tips_and_write_to_user_defaults(tips_completed, ctx);
-                    ctx.notify();
-                });
-                self.welcome_tips_view_state = WelcomeTipsViewState::Unavailable;
-                ctx.notify();
-            }
-        }
-    }
-
     fn handle_theme_creator_modal_event(
         &mut self,
         event: &ThemeCreatorModalEvent,
@@ -5751,15 +5592,6 @@ impl Workspace {
         self.launch_config_save_modal.view.update(ctx, |view, ctx| {
             view.set_snapshot_source(ctx);
             view.reset_editor(ctx); // placeholder and clear editor
-            ctx.notify();
-        });
-
-        self.tips_completed.update(ctx, |tips_completed, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Action(TipAction::SaveNewLaunchConfig),
-                tips_completed,
-                ctx,
-            );
             ctx.notify();
         });
 
@@ -6295,7 +6127,6 @@ impl Workspace {
         let is_restoration = matches!(panes_layout, PanesLayout::Snapshot(_));
         let new_pane_group = ctx.add_typed_action_view(|ctx| {
             let mut pane_group = PaneGroup::new_with_panes_layout(
-                self.tips_completed.clone(),
                 self.user_default_shell_unsupported_banner_model_handle
                     .clone(),
                 panes_layout,
@@ -6368,7 +6199,6 @@ impl Workspace {
         let new_pane_group = ctx.add_typed_action_view(|ctx| {
             PaneGroup::new_from_existing_pane(
                 pane,
-                self.tips_completed.clone(),
                 self.user_default_shell_unsupported_banner_model_handle
                     .clone(),
                 self.model_event_sender.clone(),
@@ -6772,30 +6602,12 @@ impl Workspace {
     }
 
     fn open_command_palette(&mut self, ctx: &mut ViewContext<Self>) {
-        self.tips_completed.update(ctx, |tips_completed, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Action(TipAction::CommandPalette),
-                tips_completed,
-                ctx,
-            );
-            ctx.notify();
-        });
-
         self.palette.update(ctx, |view, ctx| {
             view.reset(ctx);
         });
     }
 
     fn open_files_palette(&mut self, ctx: &mut ViewContext<Self>) {
-        self.tips_completed.update(ctx, |tips_completed, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Action(TipAction::CommandPalette),
-                tips_completed,
-                ctx,
-            );
-            ctx.notify();
-        });
-
         self.palette.update(ctx, |view, ctx| {
             view.reset(ctx);
             // Reset mixer with correct file data source before setting filter
@@ -7168,7 +6980,6 @@ impl Workspace {
         match event {
             pane_group::Event::AppStateChanged => {
                 ctx.dispatch_global_action("workspace:save_app", ());
-                self.update_resource_center_action_target(ctx);
                 self.update_active_session(ctx);
 
                 if FeatureFlag::DirectoryTabColors.is_enabled()
@@ -7185,8 +6996,8 @@ impl Workspace {
                 // ctx.notify();
             }
             pane_group::Event::Escape => {
-                if self.current_workspace_state.is_resource_center_open {
-                    self.current_workspace_state.is_resource_center_open = false;
+                if self.current_workspace_state.is_keybindings_open {
+                    self.current_workspace_state.is_keybindings_open = false;
                     ctx.notify();
                 }
             }
@@ -7788,17 +7599,9 @@ impl Workspace {
         };
     }
 
-    fn handle_resource_center_event(
-        &mut self,
-        event: &ResourceCenterEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn handle_keybindings_event(&mut self, event: &KeybindingsEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            ResourceCenterEvent::Close => {
-                self.current_workspace_state.is_resource_center_open = false;
-                ctx.notify();
-            }
-            ResourceCenterEvent::Escape => {
+            KeybindingsEvent::Escape => {
                 // Calls terminal view focus to determine where focus should be
                 if let Some(pane_group_handle) = self.get_pane_group_view(self.active_tab_index) {
                     pane_group_handle.update(ctx, |pane_group, ctx| {
@@ -7867,16 +7670,6 @@ impl Workspace {
                     menu_positioning,
                     ctx,
                 );
-            });
-
-            let tip = match query_filter {
-                Some(search::QueryFilter::History) => Tip::Action(TipAction::HistorySearch),
-                _ => Tip::Action(TipAction::CommandSearch),
-            };
-
-            self.tips_completed.update(ctx, |tips_completed, ctx| {
-                mark_feature_used_and_write_to_user_defaults(tip, tips_completed, ctx);
-                ctx.notify();
             });
 
             ctx.notify();
@@ -8110,8 +7903,8 @@ impl Workspace {
                 self.open_command_palette(ctx);
             } else if self.current_workspace_state.is_theme_chooser_open {
                 self.focus_theme_chooser(ctx);
-            } else if self.current_workspace_state.is_resource_center_open {
-                ctx.focus(&self.resource_center_view);
+            } else if self.current_workspace_state.is_keybindings_open {
+                ctx.focus(&self.keybindings_view);
             } else if self.current_workspace_state.is_native_quit_modal_open {
                 ctx.focus(&self.native_modal);
             } else {
@@ -9585,15 +9378,6 @@ impl Workspace {
             }
         }
 
-        let resource_center_closed = !self.current_workspace_state.is_resource_center_open;
-        if resource_center_closed {
-            target.add_child(
-                Container::new(self.render_resource_center_button(appearance, ctx))
-                    .with_margin_left(TAB_BAR_PADDING_LEFT)
-                    .finish(),
-            );
-        }
-
         target.add_child(
             Container::new(self.render_settings_button(appearance))
                 .with_margin_left(TAB_BAR_PADDING_LEFT)
@@ -9856,54 +9640,6 @@ impl Workspace {
         .finish()
     }
 
-    fn render_resource_center_button(
-        &self,
-        appearance: &Appearance,
-        ctx: &AppContext,
-    ) -> Box<dyn Element> {
-        // only show the unread indicator if the tips are NOT completed
-        let should_show_unread_indicator = !self.tips_completed.as_ref(ctx).skipped_or_completed;
-        let mut button = self
-            .render_tab_bar_icon_button(
-                appearance,
-                icons::Icon::Lightbulb,
-                &self.mouse_states.resource_center_icon,
-                WorkspaceAction::ToggleResourceCenter,
-                "NeoWarp Essentials".to_string(),
-                self.cached_keybindings[TOGGLE_RESOURCE_CENTER_KEYBINDING_NAME].clone(),
-                false,
-                false,
-            )
-            .finish();
-
-        if should_show_unread_indicator {
-            const INDICATOR_DIAMETER: f32 = 6.;
-            let indicator = Container::new(
-                ConstrainedBox::new(
-                    WarpUiIcon::new(ELLIPSE_SVG_PATH, appearance.theme().accent()).finish(),
-                )
-                .with_height(INDICATOR_DIAMETER)
-                .with_width(INDICATOR_DIAMETER)
-                .finish(),
-            )
-            .finish();
-            let mut stack = Stack::new();
-            stack.add_child(button);
-            stack.add_positioned_child(
-                indicator,
-                OffsetPositioning::offset_from_parent(
-                    Vector2F::zero(),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::TopRight,
-                    ChildAnchor::TopRight,
-                ),
-            );
-            button = stack.finish();
-        }
-
-        Align::new(button).finish()
-    }
-
     fn render_settings_button(&self, appearance: &Appearance) -> Box<dyn Element> {
         Align::new(
             self.render_tab_bar_icon_button(
@@ -10082,8 +9818,8 @@ impl Workspace {
             .with_max_width(240.0)
             .finish()
     }
-    fn render_resource_center(&self) -> Box<dyn Element> {
-        ConstrainedBox::new(ChildView::new(&self.resource_center_view).finish())
+    fn render_keybindings(&self) -> Box<dyn Element> {
+        ConstrainedBox::new(ChildView::new(&self.keybindings_view).finish())
             .with_width(RESOURCE_CENTER_WIDTH)
             .finish()
     }
@@ -10518,7 +10254,7 @@ impl Workspace {
         if self.current_workspace_state.is_right_panel_open() {
             panels_view = panels_view.with_child(self.render_panel(
                 app,
-                self.render_resource_center(),
+                self.render_keybindings(),
                 &PanelPosition::Right,
             ));
         }
@@ -10843,11 +10579,6 @@ impl Workspace {
         if *terminal_settings.use_audible_bell {
             context.set.insert(flags::USE_AUDIBLE_BELL_CONTEXT_FLAG);
         }
-        if *terminal_settings.show_terminal_zero_state_block.value() {
-            context
-                .set
-                .insert(flags::SHOW_TERMINAL_ZERO_STATE_BLOCK_FLAG);
-        }
         if matches!(
             terminal_settings.alt_screen_padding.value(),
             crate::terminal::settings::AltScreenPaddingMode::Custom { .. }
@@ -11078,7 +10809,6 @@ impl TypedActionView for Workspace {
                 position,
             } => self.toggle_vertical_tabs_pane_context_menu(*tab_index, *target, *position, ctx),
             ToggleBlockSnackbar => self.toggle_block_snackbar(ctx),
-            ToggleWelcomeTips => self.toggle_welcome_tips_visiblity(ctx),
             CloseTab(index) => self.close_tab(*index, false, true, ctx),
             CloseActiveTab => self.close_tab(self.active_tab_index, false, true, ctx),
             CloseOtherTabs(index) => self.close_other_tabs(*index, false, ctx),
@@ -11347,13 +11077,6 @@ impl TypedActionView for Workspace {
             ToggleInBandGenerators => self.toggle_in_band_generators(ctx),
             ToggleDebugNetworkStatus => self.toggle_debug_network_status(ctx),
             ToggleShowMemoryStats => self.toggle_show_memory_stats(ctx),
-            ToggleResourceCenter => {
-                #[cfg(feature = "local_fs")]
-                {
-                    self.git_review_view = None;
-                }
-                self.toggle_resource_center(ctx);
-            }
             ToggleKeybindingsPage => self.toggle_keybindings_page(ctx),
             ShowCommandSearch(CommandSearchOptions {
                 filter,
@@ -11678,7 +11401,7 @@ impl TypedActionView for Workspace {
                                         root, status, ctx,
                                     )
                                 }));
-                                self.current_workspace_state.is_resource_center_open = false;
+                                self.current_workspace_state.is_keybindings_open = false;
                                 ctx.notify();
                             }
                             Err(error) => log::warn!("Cannot open Git review: {error:#}"),
@@ -12494,10 +12217,6 @@ impl View for Workspace {
                     .finish(),
                 positioning,
             );
-        }
-
-        if self.welcome_tips_view_state.is_popup_open() {
-            stack.add_child(ChildView::new(&self.welcome_tips_view).finish());
         }
 
         if self.current_workspace_state.is_palette_open {

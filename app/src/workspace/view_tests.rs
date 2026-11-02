@@ -1168,10 +1168,6 @@ fn test_switch_focus_panels() {
         let workspace = mock_workspace(&mut app);
 
         workspace.update(&mut app, |view, ctx| {
-            view.resource_center_view.update(ctx, |center, ctx| {
-                center
-                    .set_current_page(crate::resource_center::ResourceCenterPage::Keybindings, ctx);
-            });
             view.focus_active_tab(ctx);
         });
         workspace.update(&mut app, |view, ctx| {
@@ -1183,12 +1179,12 @@ fn test_switch_focus_panels() {
 
         // Shift focus left from the terminal to the resource center.
         workspace.update(&mut app, |view, ctx| {
-            view.current_workspace_state.is_resource_center_open = true;
+            view.current_workspace_state.is_keybindings_open = true;
             view.focus_left_panel(ctx);
         });
         workspace.update(&mut app, |view, ctx| {
             assert!(
-                view.resource_center_view.is_self_or_child_focused(ctx),
+                view.keybindings_view.is_self_or_child_focused(ctx),
                 "Expected resource center to be focused"
             );
         });
@@ -1206,12 +1202,12 @@ fn test_switch_focus_panels() {
 
         // Shift focus right from the terminal to the resource center.
         workspace.update(&mut app, |view, ctx| {
-            view.current_workspace_state.is_resource_center_open = true;
+            view.current_workspace_state.is_keybindings_open = true;
             view.focus_right_panel(ctx);
         });
         workspace.update(&mut app, |view, ctx| {
             assert!(
-                view.resource_center_view.is_self_or_child_focused(ctx),
+                view.keybindings_view.is_self_or_child_focused(ctx),
                 "Expected resource center to be focused"
             );
         });

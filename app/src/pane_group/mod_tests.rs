@@ -16,7 +16,6 @@ use super::*;
 use crate::code::persisted_workspace::PersistedWorkspace;
 use crate::context_chips::prompt::Prompt;
 use crate::network::NetworkStatus;
-use crate::resource_center::TipsCompleted;
 use crate::search::files::model::FileSearchModel;
 use crate::settings::PrivacySettings;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -90,14 +89,12 @@ impl Default for MockOptions {
 }
 
 fn mock_pane_group(app: &mut App, options: MockOptions) -> ViewHandle<PaneGroup> {
-    let tips_model = app.add_model(|_| TipsCompleted::default());
     let (_, pane_group) =
         app.add_window_with_bounds(WindowStyle::NotStealFocus, options.window_bounds, |ctx| {
             let user_default_shell_changed_banner_dismissal_model_handle =
                 ctx.add_model(|_| BannerState::default());
             let block_lists = Arc::new(HashMap::new());
             PaneGroup::new_with_panes_layout(
-                tips_model,
                 user_default_shell_changed_banner_dismissal_model_handle,
                 options.layout,
                 block_lists,
@@ -999,8 +996,6 @@ fn test_focused_pane_is_synchronized_with_application_focus() {
                 },
             ],
         });
-
-        let tips_model = app.add_model(|_| TipsCompleted::default());
         let (_, root_view) =
             app.add_window_with_bounds(WindowStyle::NotStealFocus, WindowBounds::Default, |ctx| {
                 let user_default_shell_changed_banner_dismissal_model_handle =
@@ -1008,7 +1003,6 @@ fn test_focused_pane_is_synchronized_with_application_focus() {
                 let block_lists = Arc::new(HashMap::new());
                 let pane_group = ctx.add_typed_action_view(|ctx| {
                     PaneGroup::new_with_panes_layout(
-                        tips_model,
                         user_default_shell_changed_banner_dismissal_model_handle,
                         panes_layout,
                         block_lists,

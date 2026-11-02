@@ -84,7 +84,6 @@ pub enum CustomAction {
     FilesPalette,
     TriggerWelcomeBlock,
     CommandSearch,
-    ToggleResourceCenter,
     ToggleKeybindingsPage,
     ScrollToTopOfSelectedBlocks,
     ScrollToBottomOfSelectedBlocks,
@@ -332,7 +331,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         // Note: The base character '/' is used instead of '?' as mac registers keybindings
         // differently compared to the app which saves the resulting character used with shift
         // TODO: resolve these keybinding differences
-        CustomAction::ToggleResourceCenter => Keystroke::parse("ctrl-shift-/").ok(),
         // Set this to mac-only. On Linux/Windows `cmdorctrl-/` resolves to `ctrl-/`, which is
         // reserved for the PTY: keybindings are dispatched before terminal input, so this
         // swallowed the keystroke before the terminal ever saw it.

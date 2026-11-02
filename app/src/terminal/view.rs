@@ -24,7 +24,6 @@ mod tab_metadata;
 mod testing;
 mod tooltips;
 mod warpify_footer;
-mod zero_state_block;
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -157,14 +156,9 @@ use crate::editor::{AutosuggestionType, EditorAction};
 use crate::features::FeatureFlag;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::PaneFocusHandle;
-use crate::pane_group::{
-    PaneConfiguration, PaneEvent, PaneGroupAction, SplitPaneState, TerminalViewResources,
-};
+use crate::pane_group::{PaneConfiguration, PaneEvent, PaneGroupAction, SplitPaneState};
 use crate::persistence::{self, FinishedCommandMetadata};
 use crate::remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
-use crate::resource_center::{
-    Tip, TipHint, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
-};
 use crate::session_management::{CommandContext, SessionNavigationPromptElements};
 #[cfg(feature = "local_fs")]
 use crate::settings::import::model::ImportedConfigModel;
@@ -259,7 +253,6 @@ use crate::terminal::view::ssh_remote_server_failed_banner::{
 use crate::terminal::view::ssh_tmux_deprecation_banner::{
     SshTmuxDeprecationBanner, SshTmuxDeprecationBannerEvent,
 };
-use crate::terminal::view::zero_state_block::TerminalViewZeroStateBlock;
 use crate::terminal::warpify::render::render_subshell_separator;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::terminal::waterfall_gap_element::WaterfallGapElement;
@@ -1467,7 +1460,6 @@ pub struct TerminalView {
     file_link_scanning_join_handle: Option<JoinHandle<()>>,
 
     last_focus_ts: Option<NaiveDateTime>,
-    tips_completed: ModelHandle<TipsCompleted>,
 
     /// Whether or not this terminal session was ever active.
     was_ever_visible: bool,
@@ -1574,6 +1566,8 @@ pub struct TerminalView {
 
     pty_spawn_failed: bool,
 
+    // ActiveSession retains the dispatcher; tests also need direct event injection.
+    #[cfg(test)]
     model_events_handle: ModelHandle<ModelEventDispatcher>,
 
     /// Per-repo git status model for the current repository, if any.
@@ -1728,7 +1722,6 @@ impl TerminalView {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        resources: TerminalViewResources,
         wakeups_rx: Receiver<()>,
         model_events_handle: ModelHandle<ModelEventDispatcher>,
         model: Arc<FairMutex<TerminalModel>>,
@@ -1870,7 +1863,6 @@ impl TerminalView {
         let input: ViewHandle<Input> = ctx.add_typed_action_view(|ctx| {
             Input::new(
                 model.clone(),
-                resources.tips_completed.clone(),
                 sessions.clone(),
                 size_info,
                 menu_positioning_provider,
@@ -2246,7 +2238,6 @@ impl TerminalView {
             bookmarked_blocks: Default::default(),
             file_link_scanning_join_handle: None,
             last_focus_ts: None,
-            tips_completed: resources.tips_completed.clone(),
             was_ever_visible: false,
             view_id: ctx.view_id(),
             current_state: TerminalViewStateChange::default(),
@@ -2279,6 +2270,7 @@ impl TerminalView {
             cursor_position_id: format!("terminal_view:cursor_{}", ctx.view_id()),
             active_session,
             pty_spawn_failed: false,
+            #[cfg(test)]
             model_events_handle,
             git_repo_status: None,
             github_repo_model: None,
@@ -5855,8 +5847,6 @@ impl TerminalView {
             self.insert_vim_mode_banner(ctx);
         }
 
-        let is_subshell_or_ssh = session.is_subshell_or_ssh();
-
         // Make sure we decorate any text that is already in the input.  We
         // need to make sure external commands have finished loading before
         // doing the decoration to ensure we don't erroneously apply error
@@ -5906,24 +5896,6 @@ impl TerminalView {
         }
 
         self.update_pane_configuration(ctx);
-
-        if TerminalSettings::as_ref(ctx).should_show_zero_state_block()
-            && !self.model.lock().block_list().is_restored_session()
-            && !is_subshell_or_ssh
-        {
-            let terminal_zero_state = ctx.add_typed_action_view(|ctx| {
-                TerminalViewZeroStateBlock::new(&self.model_events_handle, ctx)
-            });
-            self.insert_rich_content(
-                Some(RichContentType::TerminalViewZeroState),
-                terminal_zero_state,
-                Some(RichContentMetadata::TerminalViewZeroState),
-                RichContentInsertionPosition::Append {
-                    insert_below_long_running_block: false,
-                },
-                ctx,
-            );
-        }
 
         self.refresh_warp_prompt(ctx);
         ctx.emit(Event::SessionBootstrapped);
@@ -7868,15 +7840,6 @@ impl TerminalView {
             BlockSelectAction::MouseDown(maybe_block_index) => {
                 if let Some(block_index) = maybe_block_index {
                     self.mouse_down_block_index = Some(*block_index);
-
-                    self.tips_completed.update(ctx, |tips, ctx| {
-                        mark_feature_used_and_write_to_user_defaults(
-                            Tip::Hint(TipHint::BlockSelect),
-                            tips,
-                            ctx,
-                        );
-                        ctx.notify();
-                    });
                 } else {
                     // Clear the current block selection upon clicking on a rich content block
                     self.clear_selected_blocks(ctx);
@@ -7950,15 +7913,6 @@ impl TerminalView {
                         } else {
                             self.reset_selection_to_single_block(*block_index, ctx);
                         }
-
-                        self.tips_completed.update(ctx, |tips, ctx| {
-                            mark_feature_used_and_write_to_user_defaults(
-                                Tip::Hint(TipHint::BlockSelect),
-                                tips,
-                                ctx,
-                            );
-                            ctx.notify();
-                        });
                     }
                 }
             }
@@ -8375,14 +8329,6 @@ impl TerminalView {
     }
 
     fn find_within_block(&mut self, ctx: &mut ViewContext<Self>) {
-        self.tips_completed.update(ctx, |tips, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Hint(TipHint::BlockAction),
-                tips,
-                ctx,
-            );
-            ctx.notify();
-        });
         self.update_find_selection(ctx);
         self.show_find_bar(ctx);
     }
@@ -8571,14 +8517,6 @@ impl TerminalView {
         };
         ctx.clipboard().write(ClipboardContent::plain_text(to_copy));
 
-        self.tips_completed.update(ctx, |tips, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Hint(TipHint::BlockAction),
-                tips,
-                ctx,
-            );
-            ctx.notify();
-        });
         self.close_context_menu(ctx, true);
     }
 
@@ -8765,15 +8703,6 @@ impl TerminalView {
             ctx,
         );
 
-        self.tips_completed.update(ctx, |tips, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Hint(TipHint::BlockSelect),
-                tips,
-                ctx,
-            );
-            ctx.notify();
-        });
-
         // In AI input mode, block selection is used to attach blocks as context. To allow users to
         // submit queries quickly, we don't want to divert the focus away from the input box.
         //
@@ -8821,15 +8750,6 @@ impl TerminalView {
 
             self.scroll_to_if_not_visible(new_block_index, ctx);
             ctx.notify();
-
-            self.tips_completed.update(ctx, |tips, ctx| {
-                mark_feature_used_and_write_to_user_defaults(
-                    Tip::Hint(TipHint::BlockSelect),
-                    tips,
-                    ctx,
-                );
-                ctx.notify();
-            });
         } else {
             self.select_most_recent_blocks(1, ctx);
         }
@@ -8885,14 +8805,6 @@ impl TerminalView {
                     self.reset_selection_to_single_block(new_block_index, ctx);
                 }
                 self.scroll_to_if_not_visible(new_block_index, ctx);
-                self.tips_completed.update(ctx, |tips, ctx| {
-                    mark_feature_used_and_write_to_user_defaults(
-                        Tip::Hint(TipHint::BlockSelect),
-                        tips,
-                        ctx,
-                    );
-                    ctx.notify();
-                });
             } else if !is_most_recent_block_visible {
                 // Scroll to the bottom if the index hasn't changed.
                 // This happens when there is a second arrow down when the bottom
@@ -9217,15 +9129,6 @@ impl TerminalView {
     }
 
     fn copy_blocks(&mut self, entity: BlockEntity, ctx: &mut ViewContext<Self>) {
-        self.tips_completed.update(ctx, |tips, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Hint(TipHint::BlockAction),
-                tips,
-                ctx,
-            );
-            ctx.notify();
-        });
-
         let selected_block_contents = self.selected_block_contents_as_string(entity, "\n", ctx);
         ctx.clipboard()
             .write(ClipboardContent::plain_text(selected_block_contents));
@@ -9279,14 +9182,6 @@ impl TerminalView {
     }
 
     fn bookmark_selected_block(&mut self, ctx: &mut ViewContext<Self>) {
-        self.tips_completed.update(ctx, |tips, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Hint(TipHint::BlockAction),
-                tips,
-                ctx,
-            );
-            ctx.notify();
-        });
         if let Some(selected_block_index) = self.selected_blocks.tail() {
             self.bookmark_block(&selected_block_index, ctx);
             ctx.notify();

@@ -53,9 +53,6 @@ use crate::pane_group::focus_state::PaneGroupFocusEvent;
 use crate::pane_group::pane::ActionOrigin;
 use crate::persistence::ModelEvent;
 use crate::quit_warning::UnsavedStateSummary;
-use crate::resource_center::{
-    Tip, TipAction, TipsCompleted, mark_feature_used_and_write_to_user_defaults,
-};
 use crate::session_management::SessionNavigationData;
 use crate::settings::PaneSettings;
 use crate::settings_view::SettingsSection;
@@ -575,7 +572,6 @@ pub enum PaneDragDropLocation {
 }
 
 pub struct PaneGroup {
-    tips_completed: ModelHandle<TipsCompleted>,
     user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
     model_event_sender: Option<SyncSender<ModelEvent>>,
     panes: PaneData,
@@ -608,13 +604,6 @@ pub enum PaneState {
 pub enum SplitPaneState {
     InSplitPane(PaneState),
     NotInSplitPane,
-}
-
-// Helper to group together certain structs necessary to instantiate a new terminal view.
-#[derive(Clone)]
-pub struct TerminalViewResources {
-    pub tips_completed: ModelHandle<TipsCompleted>,
-    pub model_event_sender: Option<SyncSender<ModelEvent>>,
 }
 
 impl SplitPaneState {
@@ -689,7 +678,6 @@ struct LeftmostPaneId {
 
 /// The [`InitialLayoutCallback`] provides state to pane group constructors
 /// to build the initial layout of the pane group. Specifically, it provides
-/// - resources ([`TerminalViewResources`]) to help construct terminal views,
 /// - a mutable mapping from [`PaneId`] to [`AnyPaneContent`],
 /// - a mutable list of [`PaneId`]s representing the pane history,
 /// - the view bounds, and
@@ -697,7 +685,6 @@ struct LeftmostPaneId {
 /// It expects a return type of [`(PaneData, InitialFocus)`].
 type InitialLayoutCallback = Box<
     dyn FnOnce(
-        TerminalViewResources,
         &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
         &mut Vec<PaneId>,
         RectF,
@@ -892,7 +879,6 @@ impl PaneGroup {
     #[allow(clippy::too_many_arguments)]
     fn pane_tree_from_template(
         root: PaneTemplateType,
-        resources: TerminalViewResources,
         ctx: &mut ViewContext<PaneGroup>,
         pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
         is_left_pane: bool,
@@ -903,7 +889,6 @@ impl PaneGroup {
         let (leftmost_pane_id, pane_data, initial_focus) =
             PaneGroup::pane_tree_from_template_recursive(
                 root,
-                resources,
                 ctx,
                 pane_contents,
                 is_left_pane,
@@ -928,7 +913,6 @@ impl PaneGroup {
     #[allow(clippy::too_many_arguments)]
     fn pane_tree_from_template_recursive(
         root: PaneTemplateType,
-        resources: TerminalViewResources,
         ctx: &mut ViewContext<PaneGroup>,
         pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
         is_left_pane: bool,
@@ -962,7 +946,6 @@ impl PaneGroup {
                     Some(cwd).filter(|p| p.exists()),
                     HashMap::new(),
                     uuid.as_bytes(),
-                    resources,
                     None,
                     user_default_shell_unsupported_banner_model_handle,
                     view_size,
@@ -1032,7 +1015,6 @@ impl PaneGroup {
                     let (child_leftmost_pane_id, child, child_focus) =
                         PaneGroup::pane_tree_from_template_recursive(
                             node.clone(),
-                            resources.clone(),
                             ctx,
                             pane_contents,
                             // Focus and activate the leftmost pane of the entire tree.
@@ -1062,7 +1044,6 @@ impl PaneGroup {
     fn restore_pane_tree(
         root: PaneNodeSnapshot,
         block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
-        resources: TerminalViewResources,
         ctx: &mut ViewContext<PaneGroup>,
         pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
@@ -1073,7 +1054,6 @@ impl PaneGroup {
             PaneNodeSnapshot::Leaf(leaf) => Self::restore_pane_leaf(
                 leaf,
                 block_lists,
-                resources,
                 ctx,
                 pane_contents,
                 user_default_shell_unsupported_banner_model_handle,
@@ -1102,7 +1082,6 @@ impl PaneGroup {
                     match PaneGroup::restore_pane_tree(
                         node,
                         block_lists.clone(),
-                        resources.clone(),
                         ctx,
                         pane_contents,
                         user_default_shell_unsupported_banner_model_handle.clone(),
@@ -1136,7 +1115,6 @@ impl PaneGroup {
     fn restore_pane_leaf(
         leaf: LeafSnapshot,
         block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
-        resources: TerminalViewResources,
         ctx: &mut ViewContext<PaneGroup>,
         pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
@@ -1169,7 +1147,6 @@ impl PaneGroup {
                     startup_directory,
                     HashMap::new(),
                     uuid.0.as_slice(),
-                    resources,
                     block_list,
                     user_default_shell_unsupported_banner_model_handle,
                     view_size,
@@ -1528,7 +1505,6 @@ impl PaneGroup {
     }
 
     fn new_internal(
-        tips_completed: ModelHandle<TipsCompleted>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         model_event_sender: Option<SyncSender<ModelEvent>>,
         initial_layout_callback: InitialLayoutCallback,
@@ -1539,22 +1515,12 @@ impl PaneGroup {
 
         let mut pane_contents = HashMap::new();
 
-        let resources = TerminalViewResources {
-            tips_completed: tips_completed.clone(),
-            model_event_sender: model_event_sender.clone(),
-        };
-
         let view_bounds = Self::estimated_view_bounds(ctx);
 
         let mut pane_history = Vec::new();
 
-        let (pane_data, initial_focus) = initial_layout_callback(
-            resources,
-            &mut pane_contents,
-            &mut pane_history,
-            view_bounds,
-            ctx,
-        );
+        let (pane_data, initial_focus) =
+            initial_layout_callback(&mut pane_contents, &mut pane_history, view_bounds, ctx);
 
         let focused_pane = initial_focus
             .focused_pane
@@ -1621,7 +1587,6 @@ impl PaneGroup {
         });
 
         let mut pane_group = Self {
-            tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             model_event_sender,
             panes: pane_data,
@@ -1644,7 +1609,6 @@ impl PaneGroup {
     }
 
     pub fn new_with_panes_layout(
-        tips_completed: ModelHandle<TipsCompleted>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         panes_layout: PanesLayout,
         block_lists: Arc<HashMap<PaneUuid, Vec<SerializedBlock>>>,
@@ -1655,15 +1619,13 @@ impl PaneGroup {
             user_default_shell_unsupported_banner_model_handle.clone();
         let model_event_sender_clone = model_event_sender.clone();
 
-        let initial_layout = move |resources,
-                                   pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
+        let initial_layout = move |pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
                                    pane_history: &mut Vec<PaneId>,
                                    view_bounds: RectF,
                                    ctx: &mut ViewContext<Self>| {
             match panes_layout {
                 PanesLayout::Template(template) => Self::pane_tree_from_template(
                     template,
-                    resources,
                     ctx,
                     pane_contents,
                     true, // initialize as the leftmost pane
@@ -1674,7 +1636,6 @@ impl PaneGroup {
                 PanesLayout::Snapshot(panes_snapshot) => Self::restore_pane_tree(
                     *panes_snapshot,
                     block_lists,
-                    resources.clone(),
                     ctx,
                     pane_contents,
                     unsupported_banner_model_handle.clone(),
@@ -1685,7 +1646,6 @@ impl PaneGroup {
                     log::warn!("Error restoring pane tree: {err:#}");
                     Self::initial_single_terminal_pane(
                         NewTerminalOptions::default(),
-                        resources,
                         unsupported_banner_model_handle,
                         view_bounds,
                         model_event_sender_clone,
@@ -1696,7 +1656,6 @@ impl PaneGroup {
                 }),
                 PanesLayout::SingleTerminal(options) => Self::initial_single_terminal_pane(
                     *options,
-                    resources,
                     unsupported_banner_model_handle,
                     view_bounds,
                     model_event_sender_clone,
@@ -1708,7 +1667,6 @@ impl PaneGroup {
         };
 
         Self::new_internal(
-            tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             model_event_sender.clone(),
             Box::new(initial_layout),
@@ -1718,14 +1676,12 @@ impl PaneGroup {
 
     pub fn new_from_existing_pane(
         pane: Box<dyn AnyPaneContent>,
-        tips_completed: ModelHandle<TipsCompleted>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         model_event_sender: Option<SyncSender<ModelEvent>>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let pane_id = pane.as_pane().id();
-        let initial_layout = move |_,
-                                   pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
+        let initial_layout = move |pane_contents: &mut HashMap<PaneId, Box<dyn AnyPaneContent>>,
                                    pane_history: &mut Vec<PaneId>,
                                    _: RectF,
 
@@ -1739,7 +1695,6 @@ impl PaneGroup {
             (PaneData::new(pane_id), initial_focus)
         };
         Self::new_internal(
-            tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             model_event_sender,
             Box::new(initial_layout),
@@ -2490,7 +2445,6 @@ impl PaneGroup {
     #[allow(clippy::too_many_arguments)]
     fn initial_single_terminal_pane(
         options: NewTerminalOptions,
-        resources: TerminalViewResources,
         unsupported_banner_model_handle: ModelHandle<BannerState>,
         view_bounds: RectF,
         model_event_sender: Option<SyncSender<ModelEvent>>,
@@ -2503,7 +2457,6 @@ impl PaneGroup {
             options.initial_directory,
             options.env_vars,
             uuid.as_bytes(),
-            resources,
             None,
             unsupported_banner_model_handle,
             view_bounds.size(),
@@ -3044,7 +2997,6 @@ impl PaneGroup {
         startup_directory: Option<PathBuf>,
         mut env_vars: HashMap<OsString, OsString>,
         terminal_session_uuid: &[u8],
-        resources: TerminalViewResources,
         restored_blocks: Option<&Vec<SerializedBlock>>,
         user_default_shell_unsupported_banner_model_handle: ModelHandle<BannerState>,
         initial_size: Vector2F,
@@ -3074,7 +3026,6 @@ impl PaneGroup {
                     |surface_init, ctx| {
                         create_terminal_view_surface(
                             TerminalViewSurfaceConfig {
-                                resources,
                                 model_event_sender: model_event_sender_for_surface,
                                 window_id,
                                 has_restored_command_blocks,
@@ -3095,7 +3046,6 @@ impl PaneGroup {
                         display_name: ShellName::blank(),
                         shell_type: ShellType::Zsh
                     },
-                    resources,
                     None,
                     initial_size,
                     ctx.window_id(),
@@ -3181,17 +3131,12 @@ impl PaneGroup {
         ctx: &mut ViewContext<Self>,
     ) -> (TerminalPane, ViewHandle<TerminalView>) {
         let uuid = Uuid::new_v4();
-        let resources = TerminalViewResources {
-            tips_completed: self.tips_completed.clone(),
-            model_event_sender: self.model_event_sender.clone(),
-        };
 
         let view_bounds = Self::estimated_view_bounds(ctx);
         let (view, terminal_manager) = PaneGroup::create_session(
             startup_directory,
             env_vars,
             uuid.as_bytes(),
-            resources,
             None,
             self.user_default_shell_unsupported_banner_model_handle
                 .clone(),
@@ -3337,14 +3282,6 @@ impl PaneGroup {
         focus_new_pane: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Option<PaneId> {
-        self.tips_completed.update(ctx, |tips_completed, ctx| {
-            mark_feature_used_and_write_to_user_defaults(
-                Tip::Action(TipAction::SplitPane),
-                tips_completed,
-                ctx,
-            );
-            ctx.notify();
-        });
         self.add_pane_with_options(
             new_pane,
             AddPaneOptions {

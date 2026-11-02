@@ -781,15 +781,6 @@ pub fn init(app: &mut AppContext) {
         .with_custom_action(CustomAction::SaveCurrentConfig),
     ]);
 
-    app.register_editable_bindings([EditableBinding::new(
-        "workspace:toggle_resource_center",
-        "Toggle resource center",
-        WorkspaceAction::ToggleResourceCenter,
-    )
-    .with_group(bindings::BindingGroup::Navigation.as_str())
-    .with_context_predicate(id!("Workspace"))
-    .with_custom_action(CustomAction::ToggleResourceCenter)]);
-
     app.register_editable_bindings([
         EditableBinding::new(
             "workspace:shift_focus_left",

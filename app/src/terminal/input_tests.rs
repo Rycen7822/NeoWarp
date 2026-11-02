@@ -232,13 +232,11 @@ pub fn initialize_app(app: &mut App) {
     app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
 
     // Add GlobalResourceHandlesProvider for persistence
-    let tips_handle = app.add_model(|_| TipsCompleted::default());
     let user_default_shell_unsupported_banner_model_handle =
         app.add_model(|_| UserDefaultShellUnsupportedBannerState::default_value());
     app.add_singleton_model(move |_ctx| {
         GlobalResourceHandlesProvider::new(GlobalResourceHandles {
             model_event_sender: None, // No persistence in tests
-            tips_completed: tips_handle,
             user_default_shell_unsupported_banner_model_handle,
             settings_file_error: None,
         })
@@ -321,8 +319,6 @@ pub async fn add_window_with_bootstrapped_terminal_and_window_id(
     history_file_commands: Option<Vec<String>>,
     session_info: Option<SessionInfo>,
 ) -> (WindowId, ViewHandle<TerminalView>) {
-    let tips_model = app.add_model(|_| TipsCompleted::default());
-
     let shell_starter_source =
         ShellStarter::init(crate::terminal::available_shells::AvailableShell::default())
             .expect("Could not create a shell starter source or wsl name")
@@ -338,7 +334,7 @@ pub async fn add_window_with_bootstrapped_terminal_and_window_id(
     let history_file_commands = history_file_commands.unwrap_or_default();
 
     let (window_id, terminal) = app.add_window(WindowStyle::NotStealFocus, move |ctx| {
-        TerminalView::new_for_test(tips_model, None, ctx)
+        TerminalView::new_for_test(None, ctx)
     });
 
     // TODO(vorporeal): There's a lot of fuckiness here.  `TerminalView::new_for_test`

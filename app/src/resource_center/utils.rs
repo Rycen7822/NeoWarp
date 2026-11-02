@@ -89,7 +89,6 @@ pub const TERMINAL_KEYBINDINGS: &[&str] = &[
     "workspace:toggle_launch_config_palette",
     "workspace:toggle_mouse_reporting",
     "workspace:toggle_navigation_palette",
-    "workspace:toggle_resource_center",
     "pane_group:add_down",
     "pane_group:navigate_down",
     "pane_group:navigate_left",
