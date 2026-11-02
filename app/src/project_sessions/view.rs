@@ -8,7 +8,7 @@ use warpui::accessibility::{SemanticId, Semantics, accessible};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    Align, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DispatchEventResult, DragAxis, Draggable, DraggableState, Empty, EventHandler, Expanded, Fill,
     Flex, Hoverable, List, ListState, MouseStateHandle, NewScrollable, OffsetPositioning, Padding,
     ParentAnchor, ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollStateHandle,
@@ -23,7 +23,7 @@ use warpui::{
 };
 
 use super::ProjectSessions;
-use super::config::{Entry as Row, Host};
+use super::config::{Entry as Row, Host, Provider};
 use crate::appearance::Appearance;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
@@ -206,19 +206,18 @@ impl ProjectsView {
                     theme.sub_text_color(theme.background()),
                 ));
             }
-            let icon = if terminal.is_some() {
-                Align::new(sized_icon(Icon::CircleFilled, 7., theme.accent())).finish()
-            } else {
-                sized_icon(
-                    if session.is_some() {
-                        Icon::Terminal
-                    } else {
-                        Icon::FolderClosed
-                    },
-                    16.,
-                    theme.sub_text_color(theme.background()),
-                )
-            };
+            let icon = sized_icon(
+                match session.map(|session| session.provider) {
+                    Some(Provider::Codex) => Icon::OpenAILogo,
+                    Some(Provider::Claude) => Icon::ClaudeLogo,
+                    Some(Provider::Pi) => Icon::PiLogo,
+                    Some(Provider::Hermes) => Icon::HermesMonogram,
+                    Some(Provider::Custom) => Icon::Terminal,
+                    None => Icon::FolderClosed,
+                },
+                16.,
+                theme.sub_text_color(theme.background()),
+            );
             leading.add_child(
                 ConstrainedBox::new(icon)
                     .with_width(16.)
