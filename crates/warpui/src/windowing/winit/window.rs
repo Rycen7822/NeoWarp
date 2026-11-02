@@ -1224,6 +1224,10 @@ impl Window {
     }
 
     pub fn focus(&self) {
+        #[cfg(windows)]
+        if super::windows::background_launch() {
+            return;
+        }
         if let Some(Inner { window, level, .. }) = self.inner.borrow().as_ref() {
             // Winit is a bit quirky here. Trying to focus a window which isn't visible will not
             // make it visible. So, make it visible first if needed, then explicitly focus it.
@@ -1392,6 +1396,9 @@ fn create_window(
         // the window to be invisible to ensure the window doesn't flash in between the window being
         // created and the window being marked as cloaked.
         window_attributes.visible = false;
+        if super::windows::background_launch() {
+            window_attributes = window_attributes.with_active(false);
+        }
 
         let icon = winit::window::Icon::from_resource(IDI_ICON, None);
         window_attributes.window_icon = icon.as_ref().ok().cloned();
@@ -1511,10 +1518,12 @@ fn create_window(
 
             // When launching a window from windows file explorer, it isn't given focus. We're considering
             // this a winit quirk and forcing it to be focused.
-            if !matches!(
-                window_options.style,
-                WindowStyle::NotStealFocus | WindowStyle::PositionedNoFocus
-            ) {
+            if !super::windows::background_launch()
+                && !matches!(
+                    window_options.style,
+                    WindowStyle::NotStealFocus | WindowStyle::PositionedNoFocus
+                )
+            {
                 window.focus_window();
             }
 
