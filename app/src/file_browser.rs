@@ -6,14 +6,18 @@ use std::time::Duration;
 
 use futures_lite::StreamExt;
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
+use warp_core::ui::theme::color::internal_colors;
 #[cfg(windows)]
 use warp_files::FileModel;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Flex,
-    List, ListState, NewScrollable, Padding, ParentElement, ScrollStateHandle, Shrinkable, Text,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Hoverable, List,
+    ListState, MainAxisSize, MouseStateHandle, NewScrollable, ParentElement, Radius,
+    ScrollStateHandle, Shrinkable, Text,
 };
+use warpui::fonts::{Properties, Weight};
+use warpui::text_layout::ClipConfig;
 use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
@@ -46,6 +50,7 @@ struct Row {
     path: PathBuf,
     depth: usize,
     is_dir: bool,
+    mouse: MouseStateHandle,
 }
 
 pub(crate) struct FileBrowserView {
@@ -350,6 +355,7 @@ impl FileBrowserView {
                         path: entry.path.clone(),
                         depth,
                         is_dir: entry.is_dir,
+                        mouse: Default::default(),
                     });
                     if entry.is_dir {
                         collect(&entry.path, depth + 1, directories, rows);
@@ -360,7 +366,13 @@ impl FileBrowserView {
         let old_count = self.rows.len();
         self.rows.clear();
         if let Some(root) = &self.root {
-            collect(root, 0, &self.directories, &mut self.rows);
+            self.rows.push(Row {
+                path: root.clone(),
+                depth: 0,
+                is_dir: true,
+                mouse: Default::default(),
+            });
+            collect(root, 1, &self.directories, &mut self.rows);
         }
         for _ in old_count..self.rows.len() {
             self.list.add_item();
@@ -390,50 +402,100 @@ impl FileBrowserView {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let expanded = self.directories.contains_key(&row.path);
-        let name = row.path.file_name().unwrap_or_default().to_string_lossy();
-        let label = if row.is_dir {
-            format!("{} {name}", if expanded { "▾" } else { "▸" })
-        } else {
-            name.into_owned()
-        };
-        let icon = if row.is_dir { Icon::Folder } else { Icon::File };
-        let content = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(4.)
-            .with_child(
-                ConstrainedBox::new(icon.to_warpui_icon(theme.foreground()).finish())
-                    .with_width(16.)
-                    .with_height(16.)
+        let is_root = self.root.as_ref() == Some(&row.path);
+        let selected =
+            self.selected.as_ref() == Some(&row.path) || (is_root && self.selected.is_none());
+        let content = Hoverable::new(row.mouse.clone(), |mouse| {
+            let color = if selected {
+                theme.foreground()
+            } else if mouse.is_hovered() {
+                theme.main_text_color(theme.background())
+            } else {
+                theme.sub_text_color(theme.background())
+            };
+            let chevron = if row.is_dir {
+                if expanded {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                }
+                .to_warpui_icon(color)
+                .finish()
+            } else {
+                Empty::new().finish()
+            };
+            let icon = if row.is_dir {
+                Icon::Folder.to_warpui_icon(color).finish()
+            } else {
+                crate::code::icon_from_file_path(&row.path.to_string_lossy(), appearance)
+                    .unwrap_or_else(|| Icon::File.to_warpui_icon(color).finish())
+            };
+            let name = row
+                .path
+                .file_name()
+                .unwrap_or(row.path.as_os_str())
+                .to_string_lossy();
+            let content = Flex::row()
+                .with_main_axis_size(MainAxisSize::Max)
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_child(
+                    Container::new(
+                        ConstrainedBox::new(chevron)
+                            .with_width(16.)
+                            .with_height(16.)
+                            .finish(),
+                    )
+                    .with_margin_right(4.)
                     .finish(),
-            )
-            .with_child(
-                Shrinkable::new(
-                    1.,
-                    Text::new_inline(label, appearance.ui_font_family(), 13.)
-                        .with_color(theme.main_text_color(theme.background()).into())
-                        .finish(),
                 )
-                .finish(),
-            );
-        let mut container = Container::new(content.finish()).with_padding(Padding::uniform(2.));
-        if self.selected.as_ref() == Some(&row.path) {
-            container = container.with_background(theme.surface_2());
-        }
-        let path = row.path.clone();
-        EventHandler::new(
-            ConstrainedBox::new(
-                container
-                    .with_margin_left(8. + row.depth as f32 * 14.)
+                .with_child(
+                    Container::new(
+                        ConstrainedBox::new(icon)
+                            .with_width(16.)
+                            .with_height(16.)
+                            .finish(),
+                    )
+                    .with_margin_right(8.)
                     .finish(),
-            )
-            .with_height(28.)
-            .finish(),
-        )
-        .on_left_mouse_down(move |ctx, _, _| {
-            ctx.dispatch_typed_action(FileBrowserAction::Select(path.clone()));
-            DispatchEventResult::StopPropagation
-        })
-        .finish()
+                )
+                .with_child(
+                    Shrinkable::new(
+                        1.,
+                        Text::new_inline(name.into_owned(), appearance.ui_font_family(), 14.)
+                            .with_clip(ClipConfig::ellipsis())
+                            .with_color(color.into())
+                            .with_style(Properties::default().weight(if is_root {
+                                Weight::Bold
+                            } else {
+                                Weight::Normal
+                            }))
+                            .finish(),
+                    )
+                    .finish(),
+                );
+            let mut container = Container::new(content.finish())
+                .with_padding_left(8. + row.depth as f32 * 16.)
+                .with_padding_right(8.)
+                .with_vertical_padding(4.);
+            if selected || mouse.is_hovered() {
+                container = container
+                    .with_background(if selected {
+                        internal_colors::fg_overlay_4(theme)
+                    } else {
+                        internal_colors::fg_overlay_2(theme)
+                    })
+                    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
+            }
+            ConstrainedBox::new(container.finish())
+                .with_height(26.)
+                .finish()
+        });
+        let path = row.path.clone();
+        content
+            .on_mouse_down(move |ctx, _, _| {
+                ctx.dispatch_typed_action(FileBrowserAction::Select(path.clone()));
+            })
+            .finish()
     }
 }
 
@@ -481,6 +543,7 @@ impl TypedActionView for FileBrowserView {
         let FileBrowserAction::Select(path) = action;
         let is_dir = self.rows.iter().any(|row| row.path == *path && row.is_dir);
         if is_dir {
+            self.selected = Some(path.clone());
             if self.directories.contains_key(path) {
                 self.collapse(path, ctx);
             } else {
@@ -503,16 +566,6 @@ impl View for FileBrowserView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
-        let title = self
-            .root
-            .as_ref()
-            .map(|p| {
-                p.file_name()
-                    .unwrap_or_else(|| p.as_os_str())
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .unwrap_or_else(|| "Files".into());
         let header = crate::workspace::sidebar::header(
             crate::workspace::SidebarTab::Files,
             &self.header,
@@ -520,12 +573,7 @@ impl View for FileBrowserView {
         );
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .with_child(header)
-            .with_child(
-                Text::new_inline(title, appearance.ui_font_family(), 13.)
-                    .with_color(theme.main_text_color(theme.background()).into())
-                    .finish(),
-            );
+            .with_child(header);
         let message = match &self.root {
             None => Some("Select a local or WSL terminal folder"),
             Some(root) => self
@@ -552,7 +600,7 @@ impl View for FileBrowserView {
         .finish();
         column.add_child(Shrinkable::new(1., list).finish());
         Container::new(column.finish())
-            .with_padding(Padding::uniform(8.))
+            .with_uniform_padding(8.)
             .finish()
     }
 }
