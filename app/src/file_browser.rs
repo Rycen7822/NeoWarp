@@ -399,7 +399,13 @@ impl FileBrowserView {
         let icon = if row.is_dir { Icon::Folder } else { Icon::File };
         let content = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(icon.to_warpui_icon(theme.foreground()).finish())
+            .with_spacing(4.)
+            .with_child(
+                ConstrainedBox::new(icon.to_warpui_icon(theme.foreground()).finish())
+                    .with_width(16.)
+                    .with_height(16.)
+                    .finish(),
+            )
             .with_child(
                 Shrinkable::new(
                     1.,
