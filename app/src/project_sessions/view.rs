@@ -1,4 +1,5 @@
-use pathfinder_geometry::vector::Vector2F;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{Vector2F, vec2f};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -6,10 +7,11 @@ use uuid::Uuid;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Align, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DispatchEventResult, DragAxis, Draggable, DraggableState, Empty, EventHandler, Expanded, Fill,
-    Flex, Hoverable, List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement,
-    Radius, SavePosition, ScrollStateHandle, Shrinkable, Text,
+    Flex, Hoverable, List, ListState, MouseStateHandle, NewScrollable, OffsetPositioning, Padding,
+    ParentAnchor, ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollStateHandle,
+    Shrinkable, Stack, Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::platform::Cursor;
@@ -379,15 +381,18 @@ impl ProjectsView {
             if selected {
                 container = container
                     .with_background(theme.surface_overlay_2())
-                    .with_border(Border::left(2.).with_border_fill(theme.accent()));
+                    .with_corner_radius(CornerRadius::default());
             } else if hover.is_hovered() {
                 container = container.with_background(theme.surface_overlay_1());
             }
-            Container::new(
-                ConstrainedBox::new(container.finish())
-                    .with_height(if session.is_some() { 52. } else { 36. })
-                    .finish(),
-            )
+            let card = ConstrainedBox::new(container.finish())
+                .with_height(if session.is_some() { 52. } else { 36. })
+                .finish();
+            Container::new(if selected {
+                selection_corners(card)
+            } else {
+                card
+            })
             .with_margin_left(if session.is_some() { 14. } else { 0. })
             .with_margin_bottom(4.)
             .finish()
@@ -582,6 +587,41 @@ fn sized_icon(icon: Icon, size: f32, color: warp_core::ui::theme::Fill) -> Box<d
         .with_width(size)
         .with_height(size)
         .finish()
+}
+
+fn selection_corners(card: Box<dyn Element>) -> Box<dyn Element> {
+    let mut stack = Stack::new().with_child(card);
+    for (x, y, parent, child) in [
+        (-2., -2., ParentAnchor::TopLeft, ChildAnchor::TopLeft),
+        (2., -2., ParentAnchor::TopRight, ChildAnchor::TopRight),
+        (-2., 2., ParentAnchor::BottomLeft, ChildAnchor::BottomLeft),
+        (2., 2., ParentAnchor::BottomRight, ChildAnchor::BottomRight),
+    ] {
+        let border = Border {
+            top: y < 0.,
+            bottom: y > 0.,
+            left: x < 0.,
+            right: x > 0.,
+            ..Border::all(2.).with_border_color(ColorU::white())
+        };
+        stack.add_positioned_child(
+            ConstrainedBox::new(
+                Container::new(Empty::new().finish())
+                    .with_border(border)
+                    .finish(),
+            )
+            .with_width(12.)
+            .with_height(12.)
+            .finish(),
+            OffsetPositioning::offset_from_parent(
+                vec2f(x, y),
+                ParentOffsetBounds::Unbounded,
+                parent,
+                child,
+            ),
+        );
+    }
+    stack.finish()
 }
 
 fn relative_time(last_used: i64) -> String {
