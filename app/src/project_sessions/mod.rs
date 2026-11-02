@@ -2,8 +2,10 @@
 
 pub(crate) mod command;
 pub(crate) mod config;
+pub(crate) mod editor;
 pub(crate) mod launch;
 mod provider;
+pub(crate) mod view;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -68,6 +70,99 @@ pub(crate) struct ProjectSessions {
 }
 
 impl ProjectSessions {
+    pub(crate) fn entry(&self, id: Uuid) -> Option<(&Project, &Session)> {
+        self.catalog.projects.iter().find_map(|project| {
+            project
+                .sessions
+                .iter()
+                .find(|session| session.id == id)
+                .map(|session| (project, session))
+        })
+    }
+
+    pub(crate) fn edit(
+        &mut self,
+        edit: config::Edit,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<Uuid> {
+        anyhow::ensure!(self.ready, "Project sessions are not available yet");
+        let path = edit
+            .host
+            .native_path(&edit.directory)
+            .ok_or_else(|| anyhow::anyhow!("Invalid directory"))?;
+        anyhow::ensure!(
+            path.is_absolute() && path.is_dir(),
+            "Directory is unavailable: {}",
+            edit.directory
+        );
+        anyhow::ensure!(
+            !edit.session.title.trim().is_empty() && !edit.session.command.trim().is_empty(),
+            "Name and startup command are required"
+        );
+        for key in edit.session.environment.keys() {
+            anyhow::ensure!(command::variable_name(key), "Invalid variable name: {key}");
+        }
+        if let Some((_, previous)) = self.entry(edit.session.id)
+            && previous.provider != edit.session.provider
+        {
+            anyhow::ensure!(
+                self.active_terminal(edit.session.id, ctx).is_none(),
+                "Create another session to change CLI type while it is running"
+            );
+            anyhow::ensure!(
+                edit.session.identity.is_none(),
+                "Clear the old CLI identity when changing CLI type"
+            );
+        }
+        let slot = self
+            .entry(edit.session.id)
+            .filter(|(project, _)| {
+                project.host == edit.host
+                    && edit.host.same_path(&project.directory, &edit.directory)
+            })
+            .and_then(|(project, _)| {
+                project
+                    .sessions
+                    .iter()
+                    .position(|session| session.id == edit.session.id)
+            });
+        launch::resolve_shell(&edit.host, &edit.session.shell, ctx)?;
+        let mut next = self.catalog.clone();
+        for project in &mut next.projects {
+            project
+                .sessions
+                .retain(|session| session.id != edit.session.id);
+        }
+        let project = match next.projects.iter().position(|project| {
+            project.host == edit.host && edit.host.same_path(&project.directory, &edit.directory)
+        }) {
+            Some(index) => &mut next.projects[index],
+            None => {
+                next.projects.push(Project {
+                    id: Uuid::new_v4(),
+                    host: edit.host,
+                    directory: edit.directory,
+                    pinned: false,
+                    last_used: edit.session.last_used,
+                    manual_order: false,
+                    sessions: Vec::new(),
+                });
+                next.projects.last_mut().expect("project was inserted")
+            }
+        };
+        let id = edit.session.id;
+        project.last_used = project.last_used.max(edit.session.last_used);
+        project
+            .sessions
+            .insert(slot.unwrap_or(0).min(project.sessions.len()), edit.session);
+        next.projects
+            .retain(|project| project.pinned || !project.sessions.is_empty());
+        write(&self.path, &next)?;
+        self.catalog = next;
+        self.error = None;
+        ctx.notify();
+        Ok(id)
+    }
     pub(crate) fn new(ctx: &mut ModelContext<Self>) -> Self {
         let path = warp_core::paths::data_dir().join("project_sessions.json");
         let load_path = path.clone();
@@ -394,6 +489,7 @@ impl ProjectSessions {
             return;
         }
         let query = running.query.clone();
+        let provider = query.provider;
         let block = running.block.clone();
         let task = ctx.spawn(
             async move {
@@ -427,7 +523,7 @@ impl ProjectSessions {
                             .expect("running entry was checked")
                             .ambiguous = true;
                     } else if let Some(identity) = candidates.into_iter().next() {
-                        me.bind_identity(id, identity, ctx);
+                        me.bind_identity(id, identity, provider, ctx);
                     }
                 }
                 if !active {
@@ -481,13 +577,14 @@ impl ProjectSessions {
         {
             let id = live.session_id;
             let query = running.query.clone();
+            let provider = query.provider;
             ctx.spawn(
                 async move { provider::candidates(&query) },
                 move |me, result, ctx| {
                     if let Ok(candidates) = result {
                         let mut candidates = me.unbound_candidates(id, candidates);
                         if candidates.len() == 1 {
-                            me.bind_identity(id, candidates.remove(0), ctx);
+                            me.bind_identity(id, candidates.remove(0), provider, ctx);
                         }
                     }
                 },
@@ -496,11 +593,17 @@ impl ProjectSessions {
         ctx.notify();
     }
 
-    fn bind_identity(&mut self, id: Uuid, identity: Identity, ctx: &mut ModelContext<Self>) {
+    fn bind_identity(
+        &mut self,
+        id: Uuid,
+        identity: Identity,
+        provider: config::Provider,
+        ctx: &mut ModelContext<Self>,
+    ) {
         let Some(session) = self
             .catalog
             .session_mut(id)
-            .filter(|session| session.identity.is_none())
+            .filter(|session| session.identity.is_none() && session.provider == provider)
         else {
             return;
         };

@@ -137,6 +137,12 @@ pub(crate) struct Catalog {
     pub(crate) projects: Vec<Project>,
 }
 
+pub(crate) struct Edit {
+    pub(crate) host: Host,
+    pub(crate) directory: String,
+    pub(crate) session: Session,
+}
+
 impl Catalog {
     pub(crate) fn session(&self, id: Uuid) -> Option<&Session> {
         self.projects

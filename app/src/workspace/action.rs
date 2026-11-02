@@ -362,6 +362,22 @@ pub enum WorkspaceAction {
     OpenProjectSession(uuid::Uuid),
     #[cfg(feature = "local_fs")]
     StartNewProjectSession(uuid::Uuid),
+    #[cfg(feature = "local_fs")]
+    SelectSidebarTab(super::SidebarTab),
+    #[cfg(feature = "local_fs")]
+    CreateProjectSession(Option<uuid::Uuid>),
+    #[cfg(feature = "local_fs")]
+    EditProjectSession(uuid::Uuid),
+    #[cfg(feature = "local_fs")]
+    ShowProjectSessionMenu {
+        id: uuid::Uuid,
+        position: Vector2F,
+    },
+    #[cfg(feature = "local_fs")]
+    ShowProjectMenu {
+        id: uuid::Uuid,
+        position: Vector2F,
+    },
     /// Acknowledges and dismisses the local Wayland crash recovery warning.
     #[cfg(target_os = "linux")]
     DismissWaylandCrashRecoveryBanner,
@@ -437,6 +453,13 @@ impl WorkspaceAction {
         match self {
             #[cfg(feature = "local_fs")]
             OpenProjectSession(_) | StartNewProjectSession(_) => true,
+            #[cfg(feature = "local_fs")]
+            SelectSidebarTab(_) => false,
+            #[cfg(feature = "local_fs")]
+            CreateProjectSession(_)
+            | EditProjectSession(_)
+            | ShowProjectSessionMenu { .. }
+            | ShowProjectMenu { .. } => false,
             ActivateTab(_)
             | ActivateTabByNumber(_)
             | SetTabShortcutModifierKey { .. }

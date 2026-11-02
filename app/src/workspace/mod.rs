@@ -8,6 +8,10 @@ pub mod header_toolbar_item;
 mod lightbox_view;
 mod native_modal;
 mod registry;
+#[cfg(feature = "local_fs")]
+pub(crate) mod sidebar;
+#[cfg(feature = "local_fs")]
+pub use sidebar::SidebarTab;
 pub mod sync_inputs;
 pub mod tab_group;
 pub mod tab_settings;

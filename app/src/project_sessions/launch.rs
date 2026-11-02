@@ -3,7 +3,7 @@ use warp_terminal::shell::{ShellType, shell_quote_arg};
 use warpui::{AppContext, SingletonEntity};
 
 use super::command;
-use super::config::{Activation, Host, Project, Provider, Session};
+use super::config::{Activation, Host, Project, Provider, SavedShell, Session};
 use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 
 #[derive(Clone, Copy)]
@@ -34,16 +34,28 @@ pub(crate) fn prepare(
         "Working directory is unavailable: {}",
         project.directory
     );
-    let shell = match &project.host {
+    let shell = resolve_shell(&project.host, &session.shell, app)?;
+    Ok(Launch {
+        title: session.title.clone(),
+        shell,
+        directory,
+        command: script(project, session, intent)?,
+    })
+}
+
+pub(crate) fn resolve_shell(
+    host: &Host,
+    saved: &SavedShell,
+    app: &AppContext,
+) -> Result<AvailableShell> {
+    let shell = match host {
         Host::Local => AvailableShells::as_ref(app)
-            .find_by_command_name(&session.shell.program)
+            .find_by_command_name(&saved.program)
             .filter(|shell| !shell.is_wsl())
-            .or_else(|| AvailableShell::try_from(session.shell.program.as_str()).ok()),
+            .or_else(|| AvailableShell::try_from(saved.program.as_str()).ok()),
         Host::Wsl(distro) => AvailableShells::as_ref(app)
             .find_by_command_name(distro)
-            .and_then(|shell| {
-                shell.with_wsl_shell(session.shell.program.clone(), session.shell.kind)
-            }),
+            .and_then(|shell| shell.with_wsl_shell(saved.program.clone(), saved.kind)),
     }
     .context("The saved shell is unavailable; modify the session shell")?;
     let data = shell
@@ -53,16 +65,11 @@ pub(crate) fn prepare(
     | warp_terminal::shell::ShellLaunchData::MSYS2 { shell_type, .. } = data
     {
         ensure!(
-            shell_type == session.shell.kind,
+            shell_type == saved.kind,
             "Shell type does not match the saved command syntax"
         );
     }
-    Ok(Launch {
-        title: session.title.clone(),
-        shell,
-        directory,
-        command: script(project, session, intent)?,
-    })
+    Ok(shell)
 }
 
 pub(crate) fn script(project: &Project, session: &Session, intent: Intent) -> Result<String> {

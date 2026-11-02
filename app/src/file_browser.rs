@@ -11,11 +11,10 @@ use warp_files::FileModel;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler,
-    Expanded, Flex, List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement,
-    ScrollStateHandle, Shrinkable, Text,
+    ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Flex,
+    List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
+    Shrinkable, Text,
 };
-use warpui::ui_components::components::UiComponent;
 use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
@@ -24,9 +23,8 @@ use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 use crate::appearance::Appearance;
 #[cfg(windows)]
 use crate::file_watcher::wsl;
-use crate::ui_components::buttons::close_button;
 use crate::ui_components::icons::Icon;
-use crate::workspace::{ActiveSession, WorkspaceAction};
+use crate::workspace::ActiveSession;
 
 struct Entry {
     path: PathBuf,
@@ -510,28 +508,19 @@ impl View for FileBrowserView {
                     .into_owned()
             })
             .unwrap_or_else(|| "Files".into());
-        let header = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(
-                Expanded::new(
-                    1.,
-                    Text::new_inline(title, appearance.ui_font_family(), 13.)
-                        .with_color(theme.main_text_color(theme.background()).into())
-                        .finish(),
-                )
-                .finish(),
-            )
-            .with_child(
-                close_button(appearance, self.close_mouse.clone())
-                    .build()
-                    .on_click(|ctx, _, _| {
-                        ctx.dispatch_typed_action(WorkspaceAction::ToggleFileBrowser);
-                    })
-                    .finish(),
-            );
+        let header = crate::workspace::sidebar::header(
+            crate::workspace::SidebarTab::Files,
+            self.close_mouse.clone(),
+            app,
+        );
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .with_child(header.finish());
+            .with_child(header)
+            .with_child(
+                Text::new_inline(title, appearance.ui_font_family(), 13.)
+                    .with_color(theme.main_text_color(theme.background()).into())
+                    .finish(),
+            );
         let message = match &self.root {
             None => Some("Select a local or WSL terminal folder"),
             Some(root) => self

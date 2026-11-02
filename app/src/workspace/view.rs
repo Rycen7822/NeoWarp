@@ -522,14 +522,17 @@ pub struct Workspace {
     #[cfg(feature = "local_fs")]
     git_review_view: Option<ViewHandle<crate::code_review::review::GitReviewView>>,
     #[cfg(feature = "local_fs")]
-    file_browser: Option<ViewHandle<crate::file_browser::FileBrowserView>>,
+    sidebar: super::sidebar::Sidebar,
+    #[cfg(feature = "local_fs")]
+    project_session_editor:
+        Option<ViewHandle<Modal<crate::project_sessions::editor::SessionEditor>>>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
     settings_error_banner_dismissed: bool,
     prompt_editor_modal: ViewHandle<PromptEditorModal>,
     header_toolbar_editor_modal: ViewHandle<HeaderToolbarEditorModal>,
-    header_toolbar_context_menu: ViewHandle<Menu<WorkspaceAction>>,
-    show_header_toolbar_context_menu: Option<Vector2F>,
+    context_menu: ViewHandle<Menu<WorkspaceAction>>,
+    context_menu_position: Option<Vector2F>,
     /// Dropdown menu for the title-bar team-switcher pill.
     theme_creator_modal: ViewHandle<ThemeCreatorModal>,
     theme_deletion_modal: ViewHandle<ThemeDeletionModal>,
@@ -1510,7 +1513,9 @@ impl Workspace {
             #[cfg(feature = "local_fs")]
             git_review_view: None,
             #[cfg(feature = "local_fs")]
-            file_browser: None,
+            sidebar: super::sidebar::Sidebar::Closed(super::SidebarTab::Files),
+            #[cfg(feature = "local_fs")]
+            project_session_editor: None,
             command_search_view,
             settings_file_error,
             settings_error_banner_dismissed: false,
@@ -1521,8 +1526,8 @@ impl Workspace {
             cached_keybindings,
             prompt_editor_modal,
             header_toolbar_editor_modal: Self::build_header_toolbar_editor_modal(ctx),
-            header_toolbar_context_menu: Self::build_header_toolbar_context_menu(ctx),
-            show_header_toolbar_context_menu: None,
+            context_menu: Self::build_context_menu(ctx),
+            context_menu_position: None,
             tab_bar_pinned_by_popup: false,
             native_modal,
             file_upload_sessions: Default::default(),
@@ -2882,13 +2887,11 @@ impl Workspace {
         });
     }
 
-    fn build_header_toolbar_context_menu(
-        ctx: &mut ViewContext<Self>,
-    ) -> ViewHandle<Menu<WorkspaceAction>> {
+    fn build_context_menu(ctx: &mut ViewContext<Self>) -> ViewHandle<Menu<WorkspaceAction>> {
         let menu = ctx.add_typed_action_view(|_| Menu::new().with_drop_shadow());
         ctx.subscribe_to_view(&menu, |me, _, event, ctx| {
             if let MenuEvent::Close { .. } = event {
-                me.show_header_toolbar_context_menu = None;
+                me.context_menu_position = None;
                 ctx.notify();
             }
         });
@@ -2908,10 +2911,10 @@ impl Workspace {
                 .with_on_select_action(WorkspaceAction::OpenHeaderToolbarEditor)
                 .into_item(),
         ];
-        self.header_toolbar_context_menu
+        self.context_menu
             .update(ctx, |menu, ctx| menu.set_items(items, ctx));
-        self.show_header_toolbar_context_menu = Some(position);
-        ctx.focus(&self.header_toolbar_context_menu);
+        self.context_menu_position = Some(position);
+        ctx.focus(&self.context_menu);
         ctx.notify();
     }
 
@@ -4384,13 +4387,115 @@ impl Workspace {
 
     #[cfg(feature = "local_fs")]
     fn toggle_file_browser(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.file_browser.take().is_none() {
-            let browser = ctx.add_typed_action_view(crate::file_browser::FileBrowserView::new);
-            ctx.subscribe_to_view(&browser, |me, _, path, ctx| {
-                me.open_sidebar_file(path.clone(), ctx);
-            });
-            self.file_browser = Some(browser);
+        let tab = self.sidebar.tab();
+        if self.sidebar.is_open() {
+            self.sidebar = super::sidebar::Sidebar::Closed(tab);
+        } else {
+            self.select_sidebar_tab(tab, ctx);
         }
+        ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn select_sidebar_tab(&mut self, tab: super::SidebarTab, ctx: &mut ViewContext<Self>) {
+        use super::sidebar::{Sidebar, SidebarTab};
+        if self.sidebar.is_open() && self.sidebar.tab() == tab {
+            return;
+        }
+        self.sidebar = Sidebar::Closed(tab);
+        self.sidebar = match tab {
+            SidebarTab::Files => {
+                let browser = ctx.add_typed_action_view(crate::file_browser::FileBrowserView::new);
+                ctx.subscribe_to_view(&browser, |me, _, path, ctx| {
+                    me.open_sidebar_file(path.clone(), ctx)
+                });
+                Sidebar::Files(browser)
+            }
+            SidebarTab::Projects => Sidebar::Projects(
+                ctx.add_typed_action_view(crate::project_sessions::view::ProjectsView::new),
+            ),
+        };
+        ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn show_project_session_editor(
+        &mut self,
+        session: Option<uuid::Uuid>,
+        project: Option<uuid::Uuid>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        use crate::project_sessions::editor::{self, EditorResult, SessionEditor};
+        let draft = match editor::draft(session, project, ctx.window_id(), ctx) {
+            Ok(draft) => draft,
+            Err(error) => {
+                self.toast_stack.update(ctx, |stack, ctx| {
+                    stack.add_ephemeral_toast(DismissibleToast::error(format!("{error:#}")), ctx)
+                });
+                return;
+            }
+        };
+        let body =
+            ctx.add_typed_action_view(|ctx| SessionEditor::new(draft, session.is_none(), ctx));
+        ctx.subscribe_to_view(&body, |me, _, event, ctx| {
+            me.project_session_editor = None;
+            me.current_workspace_state.is_project_session_editor_open = false;
+            ctx.focus_self();
+            if let EditorResult::Saved { id, is_new: true } = event {
+                ctx.dispatch_typed_action_deferred(WorkspaceAction::StartNewProjectSession(*id));
+            }
+            ctx.notify();
+        });
+        let modal = ctx.add_typed_action_view(|ctx| {
+            Modal::new(Some("CLI session".into()), body, ctx)
+                .with_modal_style(UiComponentStyles {
+                    width: Some(560.),
+                    height: Some(620.),
+                    ..Default::default()
+                })
+                .with_body_style(UiComponentStyles {
+                    height: Some(480.),
+                    padding: Some(Coords::uniform(16.)),
+                    ..Default::default()
+                })
+        });
+        ctx.subscribe_to_view(&modal, |me, _, _, ctx| {
+            me.project_session_editor = None;
+            me.current_workspace_state.is_project_session_editor_open = false;
+            ctx.focus_self();
+            ctx.notify();
+        });
+        ctx.focus(&modal);
+        self.project_session_editor = Some(modal);
+        self.current_workspace_state.is_project_session_editor_open = true;
+        ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn show_project_menu(
+        &mut self,
+        id: uuid::Uuid,
+        session: bool,
+        position: Vector2F,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let items = if session {
+            vec![
+                MenuItemFields::new("Modify")
+                    .with_on_select_action(WorkspaceAction::EditProjectSession(id))
+                    .into_item(),
+            ]
+        } else {
+            vec![
+                MenuItemFields::new("New session here")
+                    .with_on_select_action(WorkspaceAction::CreateProjectSession(Some(id)))
+                    .into_item(),
+            ]
+        };
+        self.context_menu
+            .update(ctx, |menu, ctx| menu.set_items(items, ctx));
+        self.context_menu_position = Some(position);
+        ctx.focus(&self.context_menu);
         ctx.notify();
     }
 
@@ -6848,6 +6953,10 @@ impl Workspace {
 
     /// Close all overlays in this workspace and the active pane group.
     fn close_all_overlays(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        {
+            self.project_session_editor = None;
+        }
         self.current_workspace_state.close_all_modals();
         self.close_all_chip_menus(ctx);
 
@@ -7191,6 +7300,10 @@ impl Workspace {
             }
             // Refresh transient overlays and pane dimming when focus changes.
             pane_group::Event::PaneFocused => {
+                #[cfg(feature = "local_fs")]
+                {
+                    self.project_session_editor = None;
+                }
                 self.current_workspace_state.close_all_modals();
                 self.update_pane_dimming_for_current_focus_region(ctx);
             }
@@ -9159,16 +9272,16 @@ impl Workspace {
         tab_bar.add_child(
             self.render_tab_bar_icon_button(
                 appearance,
-                if self.file_browser.is_some() {
+                if self.sidebar.is_open() {
                     icons::Icon::LeftSidebarClose
                 } else {
                     icons::Icon::LeftSidebarOpen
                 },
                 &self.mouse_states.file_browser_icon,
                 WorkspaceAction::ToggleFileBrowser,
-                "Files".to_owned(),
+                "Sidebar".to_owned(),
                 None,
-                self.file_browser.is_some(),
+                self.sidebar.is_open(),
                 false,
             )
             .finish(),
@@ -10302,12 +10415,8 @@ impl Workspace {
         let mut panels_view = Flex::row();
         let mut prev_panel_added = false;
         #[cfg(feature = "local_fs")]
-        if let Some(browser) = &self.file_browser {
-            panels_view.add_child(
-                ConstrainedBox::new(ChildView::new(browser).finish())
-                    .with_width(280.)
-                    .finish(),
-            );
+        if let Some(sidebar) = self.sidebar.render() {
+            panels_view.add_child(ConstrainedBox::new(sidebar).with_width(280.).finish());
             prev_panel_added = true;
         }
 
@@ -11570,6 +11679,18 @@ impl TypedActionView for Workspace {
                 ctx.notify();
             }
             #[cfg(feature = "local_fs")]
+            SelectSidebarTab(tab) => self.select_sidebar_tab(*tab, ctx),
+            #[cfg(feature = "local_fs")]
+            CreateProjectSession(project) => self.show_project_session_editor(None, *project, ctx),
+            #[cfg(feature = "local_fs")]
+            EditProjectSession(id) => self.show_project_session_editor(Some(*id), None, ctx),
+            #[cfg(feature = "local_fs")]
+            ShowProjectSessionMenu { id, position } => {
+                self.show_project_menu(*id, true, *position, ctx)
+            }
+            #[cfg(feature = "local_fs")]
+            ShowProjectMenu { id, position } => self.show_project_menu(*id, false, *position, ctx),
+            #[cfg(feature = "local_fs")]
             OpenProjectSession(id) | StartNewProjectSession(id) => {
                 let intent = if matches!(action, OpenProjectSession(_)) {
                     crate::project_sessions::launch::Intent::Resume
@@ -11976,9 +12097,9 @@ impl View for Workspace {
             );
         }
 
-        if let Some(position) = self.show_header_toolbar_context_menu {
+        if let Some(position) = self.context_menu_position {
             stack.add_positioned_overlay_child(
-                ChildView::new(&self.header_toolbar_context_menu).finish(),
+                ChildView::new(&self.context_menu).finish(),
                 OffsetPositioning::offset_from_parent(
                     position,
                     ParentOffsetBounds::WindowByPosition,
@@ -12353,6 +12474,11 @@ impl View for Workspace {
 
         if self.tab_config_params_modal.is_open() {
             stack.add_child(self.tab_config_params_modal.render());
+        }
+
+        #[cfg(feature = "local_fs")]
+        if let Some(editor) = &self.project_session_editor {
+            stack.add_child(ChildView::new(editor).finish());
         }
 
         if self.session_config_modal.is_open() {

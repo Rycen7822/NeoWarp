@@ -1247,7 +1247,10 @@ fn test_file_browser_reuses_editor_without_replacing_terminal() {
 
         workspace.update(&mut app, |workspace, ctx| {
             workspace.toggle_file_browser(ctx);
-            assert!(workspace.file_browser.is_some());
+            assert!(matches!(
+                workspace.sidebar,
+                crate::workspace::sidebar::Sidebar::Files(_)
+            ));
             workspace.open_sidebar_file(first, ctx);
         });
         let editor = group.read(&app, |group, ctx| {
@@ -1264,7 +1267,10 @@ fn test_file_browser_reuses_editor_without_replacing_terminal() {
         });
         workspace.update(&mut app, |workspace, ctx| {
             workspace.toggle_file_browser(ctx);
-            assert!(workspace.file_browser.is_none());
+            assert!(matches!(
+                workspace.sidebar,
+                crate::workspace::sidebar::Sidebar::Closed(_)
+            ));
         });
     });
 }
