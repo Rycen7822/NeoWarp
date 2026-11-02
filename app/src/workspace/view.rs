@@ -11707,7 +11707,8 @@ impl TypedActionView for Workspace {
             EditProjectSession(id) => self.show_project_session_editor(Some(*id), None, ctx),
             #[cfg(feature = "local_fs")]
             ToggleProjectPin(id) | ToggleProjectSessionPin(id) => {
-                use crate::project_sessions::{ProjectSessions, config::Entry};
+                use crate::project_sessions::ProjectSessions;
+                use crate::project_sessions::config::Entry;
                 let store = ProjectSessions::handle(ctx);
                 let entry = if matches!(action, ToggleProjectSessionPin(_)) {
                     store

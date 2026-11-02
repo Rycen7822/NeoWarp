@@ -1,8 +1,8 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{Vector2F, vec2f};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{Vector2F, vec2f};
 use uuid::Uuid;
 use warpui::accessibility::{SemanticId, Semantics, accessible};
 use warpui::r#async::{SpawnedFutureHandle, Timer};

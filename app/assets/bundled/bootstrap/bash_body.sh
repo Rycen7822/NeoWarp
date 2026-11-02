@@ -434,8 +434,8 @@ if [ -z "$WARP_BOOTSTRAPPED" ]; then
         else
           local truncated_command=$(warp_escape_json "$BASH_COMMAND")
           local launch_env="$(warp_agent_launch_environment "$BASH_COMMAND")"
-          warp_send_json_message "{\"hook\":\"Preexec\",\"value\":{\"command\":\"$truncated_command\","\
-"\"session_id\":$WARP_SESSION_ID$launch_env}}"
+          warp_send_json_message "{\"hook\":\"Preexec\",\"value\":{\"command\":\"$truncated_command\",\
+\"session_id\":$WARP_SESSION_ID$launch_env}}"
         fi
         warp_maybe_send_reset_grid_osc
 

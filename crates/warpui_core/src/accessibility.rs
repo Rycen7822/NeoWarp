@@ -47,7 +47,6 @@
 
 mod controls;
 pub use controls::{Control, SemanticId, Semantics, accessible};
-
 use pathfinder_geometry::rect::RectF;
 use serde::{Deserialize, Serialize};
 
