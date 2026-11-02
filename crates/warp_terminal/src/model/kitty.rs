@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::io::Read;
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "local_fs")]
 use std::{env, fs, str};
 
@@ -16,6 +17,8 @@ use warpui_core::image_cache::{
 use warpui_core::util::{parse_i32, parse_u32};
 
 use super::escape_sequences::C1;
+
+static NEXT_KITTY_ASSET_ID: AtomicU64 = AtomicU64::new(u32::MAX as u64 + 1);
 
 /// Actions specified by the [Kitty Image Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 #[derive(Debug, Clone)]
@@ -418,6 +421,8 @@ impl TryFrom<KittyMessage> for KittyAction {
 
 #[derive(Debug, Default, Clone)]
 pub struct KittyImageMetadata {
+    /// Process-local asset identity; CLI image IDs can repeat between terminals.
+    pub asset_id: u64,
     pub pixel_data_format: KittyPixelDataFormat,
     pub transmission_medium: KittyTransmissionMedium,
     pub image_size: Vector2F,
@@ -473,6 +478,7 @@ impl KittyPlacementData {
 impl From<KittyControlData> for KittyImageMetadata {
     fn from(control_data: KittyControlData) -> Self {
         Self {
+            asset_id: NEXT_KITTY_ASSET_ID.fetch_add(1, Ordering::Relaxed),
             pixel_data_format: control_data.pixel_data_format,
             image_size: Vector2F::new(control_data.width as f32, control_data.height as f32),
             transmission_medium: control_data.transmission_medium,

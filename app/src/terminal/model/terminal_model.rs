@@ -36,7 +36,7 @@ use super::image_map::StoredImageMetadata;
 use super::index::Point;
 use super::kitty::{
     DeletionType, KittyAction, KittyChunk, KittyMessage, KittyResponse, PendingKittyMessage,
-    create_kitty_error_reply, create_kitty_ok_reply,
+    StoreAndDisplay, StoreOnly, create_kitty_error_reply, create_kitty_ok_reply,
 };
 use super::lifecycle::{
     BlockLifecycleCoordinator, CommandStartKind, IgnoreReason, LifecycleAction, LifecycleInput,
@@ -1274,8 +1274,9 @@ impl TerminalModel {
         self.block_list.clear_screen(ansi::ClearMode::ResetAndClear);
     }
 
-    pub fn remove_image_id_to_metadata_entry(&mut self, image_id: u32) {
-        self.image_id_to_metadata.remove(&image_id);
+    pub fn remove_image_asset_metadata(&mut self, asset_id: u64) {
+        self.image_id_to_metadata
+            .retain(|_, metadata| metadata.asset_id() != asset_id);
     }
 
     /// Starts the active block and resets block-to-block state. For local sessions, this is called
@@ -2948,17 +2949,18 @@ impl ansi::Handler for TerminalModel {
         match KittyAction::try_from(message) {
             Ok(action) => {
                 match &action {
-                    KittyAction::StoreOnly(action) => {
-                        self.image_id_to_metadata.insert(
-                            action.image_id,
-                            StoredImageMetadata::Kitty(action.image.metadata.clone()),
-                        );
-                    }
-                    KittyAction::StoreAndDisplay(action) => {
-                        self.image_id_to_metadata.insert(
-                            action.image_id,
-                            StoredImageMetadata::Kitty(action.image.metadata.clone()),
-                        );
+                    KittyAction::StoreOnly(StoreOnly { image_id, image })
+                    | KittyAction::StoreAndDisplay(StoreAndDisplay {
+                        image_id, image, ..
+                    }) => {
+                        if let Some(old) = self.image_id_to_metadata.insert(
+                            *image_id,
+                            StoredImageMetadata::Kitty(image.metadata.clone()),
+                        ) {
+                            self.event_proxy.send_app_event(Event::ImagesDeleted {
+                                asset_ids: vec![old.asset_id()],
+                            });
+                        }
                     }
                     KittyAction::DisplayStoredImage(_) => {}
                     KittyAction::QuerySupport(_) => {}
@@ -2968,7 +2970,13 @@ impl ansi::Handler for TerminalModel {
                     } => match deletion_type {
                         DeletionType::DeleteAll => {
                             if !delete_placements_only {
-                                self.image_id_to_metadata.clear();
+                                let asset_ids = self
+                                    .image_id_to_metadata
+                                    .drain()
+                                    .map(|(_, metadata)| metadata.asset_id())
+                                    .collect();
+                                self.event_proxy
+                                    .send_app_event(Event::ImagesDeleted { asset_ids });
                             }
 
                             if self.alt_screen_active {
@@ -2980,8 +2988,13 @@ impl ansi::Handler for TerminalModel {
                             }
                         }
                         DeletionType::DeleteById(delete_by_id) => {
-                            if !delete_placements_only {
-                                self.image_id_to_metadata.remove(&delete_by_id.image_id);
+                            if !delete_placements_only
+                                && let Some(old) =
+                                    self.image_id_to_metadata.remove(&delete_by_id.image_id)
+                            {
+                                self.event_proxy.send_app_event(Event::ImagesDeleted {
+                                    asset_ids: vec![old.asset_id()],
+                                });
                             }
 
                             if self.alt_screen_active {

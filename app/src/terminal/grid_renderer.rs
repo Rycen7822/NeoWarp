@@ -570,7 +570,6 @@ fn render_grid_without_ligatures<'a>(
                     );
 
                 render_image(
-                    image_placement.image_id,
                     image_metadata,
                     image_placement_data,
                     grid_origin,
@@ -598,7 +597,6 @@ fn render_grid_without_ligatures<'a>(
                         );
 
                     render_image(
-                        image_placement.image_id,
                         image_metadata,
                         image_placement_data,
                         grid_origin,
@@ -1063,7 +1061,6 @@ fn render_grid_with_ligatures<'a>(
                     );
 
                 render_image(
-                    image_placement.image_id,
                     image_metadata,
                     image_placement_data,
                     grid_origin,
@@ -1091,7 +1088,6 @@ fn render_grid_with_ligatures<'a>(
                         );
 
                     render_image(
-                        image_placement.image_id,
                         image_metadata,
                         image_placement_data,
                         grid_origin,
@@ -1809,9 +1805,7 @@ fn render_glyph_svg(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_image(
-    image_id: u32,
     image_metadata: &StoredImageMetadata,
     image_placement_data: &ImagePlacementData,
     grid_origin: Vector2F,
@@ -1824,7 +1818,7 @@ fn render_image(
     let asset_cache = AssetCache::as_ref(app);
     let image = ImageCache::as_ref(app).image(
         AssetSource::Raw {
-            id: image_id.to_string(),
+            id: image_metadata.asset_id().to_string(),
         },
         bounds,
         if image_metadata.preserve_aspect_ratio() {
@@ -1845,7 +1839,7 @@ fn render_image(
             return;
         }
         _ => {
-            log::warn!("Could not load image to render (image id = {image_id})");
+            log::warn!("Could not load terminal image to render");
             return;
         }
     };

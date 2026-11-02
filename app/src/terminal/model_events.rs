@@ -236,14 +236,15 @@ impl ModelEventDispatcher {
             Event::TextSelectionChanged => ModelEvent::SelectedTextChanged,
             Event::ShellSpawned(shell_type) => ModelEvent::ShellSpawned(shell_type),
             Event::ImageReceived {
-                image_id,
+                asset_id,
                 image_data,
                 image_protocol,
             } => ModelEvent::ImageReceived {
-                image_id,
+                asset_id,
                 image_data,
                 image_protocol,
             },
+            Event::ImagesDeleted { asset_ids } => ModelEvent::ImagesDeleted { asset_ids },
             Event::BootstrapPrecmdDone => ModelEvent::BootstrapPrecmdDone,
             Event::PluggableNotification { title, body } => {
                 ModelEvent::PluggableNotification { title, body }
@@ -414,9 +415,12 @@ pub enum ModelEvent {
     ShellSpawned(ShellType),
     CompletionsFinished(Vec<ShellCompletion>, Option<warp_completer::meta::Span>),
     ImageReceived {
-        image_id: u32,
+        asset_id: u64,
         image_data: Vec<u8>,
         image_protocol: ImageProtocol,
+    },
+    ImagesDeleted {
+        asset_ids: Vec<u64>,
     },
     BootstrapPrecmdDone,
     /// A pluggable notification triggered via OSC 9 or OSC 777 escape sequences.

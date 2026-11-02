@@ -125,9 +125,12 @@ pub enum Event {
     TextSelectionChanged,
     ShellSpawned(ShellType),
     ImageReceived {
-        image_id: u32,
+        asset_id: u64,
         image_data: Vec<u8>,
         image_protocol: ImageProtocol,
+    },
+    ImagesDeleted {
+        asset_ids: Vec<u64>,
     },
     BootstrapPrecmdDone,
     /// A pluggable notification triggered via OSC 9 or OSC 777 escape sequences.
@@ -157,11 +160,11 @@ impl From<warp_terminal::event::Event> for Event {
             }
             warp_terminal::event::Event::Bell => Self::Bell,
             warp_terminal::event::Event::ImageReceived {
-                image_id,
+                asset_id,
                 image_data,
                 image_protocol,
             } => Self::ImageReceived {
-                image_id,
+                asset_id,
                 image_data,
                 image_protocol,
             },
@@ -446,9 +449,10 @@ impl Debug for Event {
             }
             Event::TextSelectionChanged => write!(f, "TextSelectionChanged"),
             Event::ShellSpawned(shell_type) => write!(f, "ShellSpawned({shell_type:?})"),
-            Event::ImageReceived { image_id, .. } => {
-                write!(f, "ImageReceived(image_id: {image_id})")
+            Event::ImageReceived { asset_id, .. } => {
+                write!(f, "ImageReceived(asset_id: {asset_id})")
             }
+            Event::ImagesDeleted { asset_ids } => write!(f, "ImagesDeleted({asset_ids:?})"),
             Event::BootstrapPrecmdDone => write!(f, "BootstrapPrecmdDone"),
             Event::PluggableNotification { .. } => write!(f, "PluggableNotification"),
             Event::ExitShell { session_id } => {

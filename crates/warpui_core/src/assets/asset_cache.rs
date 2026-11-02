@@ -307,7 +307,7 @@ impl AssetCache {
     }
 
     /// Removes the least recently added raw assets until the total size is within the limit.
-    fn evict_raw_assets_if_needed(&self, ctx: &ModelContext<Self>) -> Vec<u32> {
+    fn evict_raw_assets_if_needed(&self, ctx: &ModelContext<Self>) -> Vec<u64> {
         let mut total_size = self.get_total_raw_asset_size();
         let mut assets = self.inner.borrow_mut();
 
@@ -349,7 +349,7 @@ impl AssetCache {
                 ImageCache::as_ref(ctx).evict_image(&handle.source);
                 total_size -= size_in_bytes;
 
-                if let Ok(id) = id.parse::<u32>() {
+                if let Ok(id) = id.parse::<u64>() {
                     evicted_image_ids.push(id);
                 }
             }
@@ -474,6 +474,17 @@ impl AssetCache {
         }
 
         assets[&key].to_external_type(source)
+    }
+
+    pub fn evict_raw_image(&self, asset_id: u64) {
+        let source = AssetSource::Raw {
+            id: asset_id.to_string(),
+        };
+        self.inner.borrow_mut().remove(&AssetHandle {
+            source: source.clone(),
+            asset_type: TypeId::of::<ImageType>(),
+        });
+        self.image_cache.evict_image(&source);
     }
 
     pub fn insert_raw_asset_bytes<T: Asset>(
@@ -633,7 +644,7 @@ impl AssetCache {
 
 #[derive(Debug, Clone)]
 pub enum AssetCacheEvent {
-    ImagesEvicted { image_ids: Vec<u32> },
+    ImagesEvicted { image_ids: Vec<u64> },
 }
 
 impl Entity for AssetCache {

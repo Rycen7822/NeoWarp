@@ -195,7 +195,7 @@ pub enum Event {
     CursorBlinkingChange(bool),
     Bell,
     ImageReceived {
-        image_id: u32,
+        asset_id: u64,
         image_data: Vec<u8>,
         image_protocol: ImageProtocol,
     },

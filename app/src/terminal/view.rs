@@ -2183,7 +2183,7 @@ impl TerminalView {
             AssetCacheEvent::ImagesEvicted { image_ids } => {
                 let mut terminal_model = me.model.lock();
                 for &image_id in image_ids {
-                    terminal_model.remove_image_id_to_metadata_entry(image_id);
+                    terminal_model.remove_image_asset_metadata(image_id);
                 }
             }
         });
@@ -3013,6 +3013,9 @@ impl TerminalView {
     /// Shuts down the pty and event loop, terminating the shell process.
     /// Also prevents shell replacement while shutdown is in progress.
     pub fn shutdown_pty(&mut self, ctx: &mut ViewContext<Self>) {
+        for metadata in self.model.lock().image_id_to_metadata.values() {
+            AssetCache::as_ref(ctx).evict_raw_image(metadata.asset_id());
+        }
         self.manual_pty_shutdown_requested = true;
         ctx.emit(Event::ShutdownPty);
     }
@@ -5434,17 +5437,23 @@ impl TerminalView {
             }
             ModelEvent::CompletionsFinished(..) => {}
             ModelEvent::ImageReceived {
-                image_id,
+                asset_id,
                 image_data,
                 image_protocol: _,
             } => {
                 AssetCache::handle(ctx).update(ctx, |asset_cache, ctx| {
                     asset_cache.insert_raw_asset_bytes::<ImageType>(
-                        image_id.to_string(),
+                        asset_id.to_string(),
                         &image_data[..],
                         ctx,
                     );
                 });
+                ctx.notify();
+            }
+            ModelEvent::ImagesDeleted { asset_ids } => {
+                for &asset_id in asset_ids {
+                    AssetCache::as_ref(ctx).evict_raw_image(asset_id);
+                }
                 ctx.notify();
             }
             ModelEvent::BootstrapPrecmdDone => {

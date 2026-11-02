@@ -290,6 +290,13 @@ pub enum StoredImageMetadata {
 }
 
 impl StoredImageMetadata {
+    pub fn asset_id(&self) -> u64 {
+        match self {
+            Self::ITerm(metadata) => u64::from(metadata.id),
+            Self::Kitty(metadata) => metadata.asset_id,
+        }
+    }
+
     pub fn image_size(&self) -> Vector2F {
         match self {
             StoredImageMetadata::ITerm(metadata) => metadata.image_size,
