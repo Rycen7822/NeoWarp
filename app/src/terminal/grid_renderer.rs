@@ -548,7 +548,7 @@ fn render_grid_without_ligatures<'a>(
         .flat_map(|marked_text| marked_text.chars());
     let mut next_marked_text_cell_is_wide_char_spacer = false;
 
-    if FeatureFlag::ITermImages.is_enabled() {
+    if FeatureFlag::ITermImages.is_enabled() || FeatureFlag::KittyImages.is_enabled() {
         let image_ids = grid.get_image_ids_in_range(start_row, end_row);
 
         let (background_image_ids, foreground_image_ids): (Vec<_>, Vec<_>) = image_ids
@@ -1041,7 +1041,7 @@ fn render_grid_with_ligatures<'a>(
         .flat_map(|marked_text| marked_text.chars())
         .peekable();
     let mut next_marked_text_cell_is_wide_char_spacer = false;
-    if FeatureFlag::ITermImages.is_enabled() {
+    if FeatureFlag::ITermImages.is_enabled() || FeatureFlag::KittyImages.is_enabled() {
         let image_ids = grid.get_image_ids_in_range(start_row, end_row);
 
         let (background_image_ids, foreground_image_ids): (Vec<_>, Vec<_>) = image_ids

@@ -65,7 +65,7 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         FeatureFlag::ValidateAutosuggestions,
         #[cfg(feature = "clear_autosuggestion_on_escape")]
         FeatureFlag::ClearAutosuggestionOnEscape,
-        #[cfg(all(not(windows), feature = "kitty_images"))]
+        #[cfg(feature = "kitty_images")]
         FeatureFlag::KittyImages,
         #[cfg(feature = "command_correction_key")]
         FeatureFlag::CommandCorrectionKey,
