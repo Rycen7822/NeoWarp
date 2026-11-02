@@ -578,7 +578,6 @@ impl ThemeChooser {
         WindowFocusDimming::apply_panel_header_dimming(
             header_element,
             self.header_dimming_mouse_state.clone(),
-            PANEL_HEADER_HEIGHT,
             appearance.theme().surface_1().into(),
             self.window_id,
             app,

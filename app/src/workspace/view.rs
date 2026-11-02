@@ -9678,7 +9678,6 @@ impl Workspace {
             WindowFocusDimming::apply_panel_header_dimming(
                 tab_bar_element,
                 self.mouse_states.header_dimming.clone(),
-                TAB_BAR_HEIGHT,
                 dimming_color,
                 self.window_id,
                 ctx,

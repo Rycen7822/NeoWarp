@@ -107,13 +107,7 @@ unsafe extern "C" fn dispatch(context: usize, target: u64, action: u32) {
     if bridge
         .proxy
         .send_event(CustomEvent::UpdateUIApp(Box::new(move |ctx| {
-            if target == 0 {
-                if let Some(window) = ctx.windows().platform_window(window) {
-                    window.request_redraw();
-                }
-            } else {
-                ctx.invoke_accessibility(window, target, action);
-            }
+            ctx.invoke_accessibility(window, target, action);
         })))
         .is_err()
     {

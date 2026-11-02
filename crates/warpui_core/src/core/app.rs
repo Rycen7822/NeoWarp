@@ -759,6 +759,15 @@ impl AppContext {
     }
 
     pub fn invoke_accessibility(&mut self, window: WindowId, id: u64, action: u32) {
+        if id == 0 {
+            if self.is_window_open(window) {
+                self.window_invalidations
+                    .entry(window)
+                    .or_default()
+                    .redraw_requested = true;
+            }
+            return;
+        }
         let control = self
             .presenter(window)
             .and_then(|presenter| presenter.borrow().semantic_control(id));

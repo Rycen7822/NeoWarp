@@ -1,7 +1,5 @@
 use warp_core::ui::color::coloru_with_opacity;
-use warpui::elements::{
-    ConstrainedBox, Element, Fill, Hoverable, MouseStateHandle, ParentElement, Rect, Stack,
-};
+use warpui::elements::{Container, Element, Fill, Hoverable, MouseStateHandle};
 use warpui::windowing::WindowManager;
 use warpui::{AppContext, SingletonEntity, WindowId};
 
@@ -28,11 +26,9 @@ impl WindowFocusDimming {
     }
 
     /// Applies dimming overlay for headers and top bar areas.
-    /// Takes height and background color parameters for maximum flexibility.
     pub fn apply_panel_header_dimming(
         element: Box<dyn Element>,
         mouse_state: MouseStateHandle,
-        height: f32,
         background_color: warpui::color::ColorU,
         window_id: WindowId,
         ctx: &AppContext,
@@ -43,23 +39,17 @@ impl WindowFocusDimming {
                 .effective_opacity(window_id, ctx);
             let scaled_opacity =
                 (UNFOCUSED_WINDOW_DIMMING_OPACITY as f32 * background_opacity as f32 / 100.) as u8;
-            let mut stack = Stack::new().with_child(element);
-            let dimming_overlay = Rect::new()
-                .with_background(Fill::Solid(coloru_with_opacity(
+            // Dimming is decoration, not an input-blocking layer over the controls.
+            let dimmed = Container::new(element)
+                .with_foreground_overlay(Fill::Solid(coloru_with_opacity(
                     background_color,
                     scaled_opacity,
                 )))
                 .with_corner_radius(panel_header_corner_radius())
                 .finish();
-            stack.add_child(
-                ConstrainedBox::new(dimming_overlay)
-                    .with_height(height)
-                    .finish(),
-            );
-
             // Wrap the dimmed content in a hoverable that can clear dimming
             // if the window becomes active during hover (failsafe mechanism)
-            Hoverable::new(mouse_state, |_| stack.finish())
+            Hoverable::new(mouse_state, |_| dimmed)
                 .on_hover(move |is_hovered, ctx, app, _position| {
                     if is_hovered {
                         // Double-check if window became active during hover
