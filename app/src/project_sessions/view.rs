@@ -1,34 +1,33 @@
-use std::collections::HashSet;
+use pathfinder_geometry::vector::Vector2F;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 use warpui::elements::Fill;
 
 use uuid::Uuid;
+use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Flex,
-    List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
-    Shrinkable, Text,
+    ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, DragAxis, Draggable,
+    DraggableState, Empty, EventHandler, Expanded, Flex, List, ListState, MouseStateHandle,
+    NewScrollable, Padding, ParentElement, SavePosition, ScrollStateHandle, Shrinkable, Text,
 };
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use super::ProjectSessions;
-use super::config::Host;
+use super::config::{Entry as Row, Host};
 use crate::appearance::Appearance;
 use crate::workspace::{SidebarTab, WorkspaceAction};
 
-#[derive(Clone, Eq, PartialEq)]
-enum Row {
-    Project(Uuid),
-    Session { project: Uuid, session: Uuid },
-}
-
 pub(crate) struct ProjectsView {
     rows: Vec<Row>,
+    drags: HashMap<Row, DraggableState>,
     collapsed: HashSet<Uuid>,
     selected: Option<Uuid>,
     show_older: bool,
     list: ListState<()>,
     scroll: ScrollStateHandle,
     close: MouseStateHandle,
+    expiry: Option<SpawnedFutureHandle>,
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +36,7 @@ pub(crate) enum ProjectsAction {
     Open { project: Uuid, session: Uuid },
     Older,
     New,
+    Drop { source: Row, position: Vector2F },
 }
 
 impl ProjectsView {
@@ -51,15 +51,28 @@ impl ProjectsView {
         ctx.observe(&ProjectSessions::handle(ctx), |me, _, ctx| me.sync(ctx));
         let mut view = Self {
             rows: Vec::new(),
+            drags: HashMap::new(),
             collapsed: HashSet::new(),
             selected: None,
             show_older: false,
             list,
             scroll: Default::default(),
             close: Default::default(),
+            expiry: None,
         };
         view.sync(ctx);
+        view.schedule_expiry(ctx);
         view
+    }
+
+    fn schedule_expiry(&mut self, ctx: &mut ViewContext<Self>) {
+        self.expiry = Some(
+            ctx.spawn(Timer::after(Duration::from_secs(60)), |me, _, ctx| {
+                me.expiry = None;
+                me.sync(ctx);
+                me.schedule_expiry(ctx);
+            }),
+        );
     }
 
     fn sync(&mut self, ctx: &mut ViewContext<Self>) {
@@ -112,6 +125,11 @@ impl ProjectsView {
         }
         let previous = self.rows.len();
         self.rows = rows;
+        let visible: HashSet<_> = self.rows.iter().copied().collect();
+        self.drags.retain(|row, _| visible.contains(row));
+        for row in &self.rows {
+            self.drags.entry(*row).or_default();
+        }
         for _ in previous..self.rows.len() {
             self.list.add_item();
         }
@@ -166,12 +184,20 @@ impl ProjectsView {
                 let Some(session) = folder.sessions.iter().find(|session| session.id == id) else {
                     return Empty::new().finish();
                 };
-                let state = if store.active_terminal(id, app).is_some() {
-                    "Running"
+                let state = if let Some(terminal) = store.active_terminal(id, app) {
+                    match store.running_directory(terminal) {
+                        Some((host, directory))
+                            if host != &folder.host
+                                || !host.same_path(directory, &folder.directory) =>
+                        {
+                            format!("Running in {directory}")
+                        }
+                        _ => "Running".to_owned(),
+                    }
                 } else if session.identity.is_some() || session.resume_command.is_some() {
-                    "Resume"
+                    "Resume".to_owned()
                 } else {
-                    "Needs ID"
+                    "Needs ID".to_owned()
                 };
                 format!(
                     "{}{} · {} · {state}",
@@ -193,7 +219,7 @@ impl ProjectsView {
         )
         .with_height(28.)
         .finish();
-        EventHandler::new(child)
+        let clickable = EventHandler::new(child)
             .on_left_mouse_down(move |ctx, _, _| {
                 if let Some(id) = session {
                     ctx.dispatch_typed_action(ProjectsAction::Open {
@@ -219,12 +245,66 @@ impl ProjectsView {
                 }
                 DispatchEventResult::StopPropagation
             })
-            .finish()
+            .finish();
+        let source = *row;
+        let grip = ConstrainedBox::new(
+            Text::new_inline("⠿", appearance.ui_font_family(), 12.)
+                .with_color(theme.sub_text_color(theme.background()).into())
+                .finish(),
+        )
+        .with_width(18.)
+        .with_height(28.)
+        .finish();
+        let grip = Draggable::new(self.drags[row].clone(), grip)
+            .with_drag_axis(DragAxis::VerticalOnly)
+            .on_drop(move |ctx, _, position, _| {
+                ctx.dispatch_typed_action(ProjectsAction::Drop {
+                    source,
+                    position: position.center(),
+                });
+            })
+            .finish();
+        SavePosition::new(
+            Flex::row()
+                .with_child(grip)
+                .with_child(Expanded::new(1., clickable).finish())
+                .finish(),
+            &format!("project-entry-{}", row.id()),
+        )
+        .finish()
+    }
+
+    fn drop_entry(&mut self, source: Row, position: Vector2F, ctx: &mut ViewContext<Self>) {
+        let target = self.rows.iter().find_map(|row| {
+            let rect = ctx.element_position_by_id_at_last_frame(
+                ctx.window_id(),
+                format!("project-entry-{}", row.id()),
+            )?;
+            rect.contains_point(position)
+                .then_some((*row, position.y() > rect.center().y()))
+        });
+        let Some((target, after)) = target else {
+            return;
+        };
+        ProjectSessions::handle(ctx).update(ctx, |store, ctx| {
+            if let Err(error) = store.reorder(source, target, after, ctx) {
+                store.error = Some(format!("Cannot reorder: {error:#}"));
+                ctx.notify();
+            }
+        });
     }
 }
 
 impl Entity for ProjectsView {
     type Event = ();
+}
+
+impl Drop for ProjectsView {
+    fn drop(&mut self) {
+        if let Some(expiry) = self.expiry.take() {
+            expiry.abort();
+        }
+    }
 }
 impl TypedActionView for ProjectsView {
     type Action = ProjectsAction;
@@ -248,6 +328,7 @@ impl TypedActionView for ProjectsView {
             ProjectsAction::New => {
                 ctx.dispatch_typed_action(&WorkspaceAction::CreateProjectSession(self.selected))
             }
+            ProjectsAction::Drop { source, position } => self.drop_entry(*source, *position, ctx),
         }
     }
 }
@@ -329,4 +410,3 @@ impl View for ProjectsView {
             .finish()
     }
 }
-

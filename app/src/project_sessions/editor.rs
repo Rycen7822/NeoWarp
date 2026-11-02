@@ -82,16 +82,12 @@ pub(crate) fn draft(
             session: session.clone(),
         });
     }
-    if let Some(project) = project.and_then(|id| {
-        store
-            .catalog
-            .projects
+    let project = project.and_then(|id| store.project(id));
+    if let Some(project) = project
+        && let Some(template) = project
+            .sessions
             .iter()
-            .find(|project| project.id == id)
-    }) && let Some(template) = project
-        .sessions
-        .iter()
-        .max_by_key(|session| session.last_used)
+            .max_by_key(|session| session.last_used)
     {
         let mut session = template.clone();
         session.id = Uuid::new_v4();
@@ -115,12 +111,19 @@ pub(crate) fn draft(
         .path_if_local(window)
         .context("Select a local or WSL terminal folder first")?;
     let wsl = warp_util::path::parse_wsl_unc_path(path);
-    let (host, directory) = match wsl {
+    let (host, mut directory) = match wsl {
         Some(path) if session.wsl_distro_name().is_some() => {
             (Host::Wsl(path.distro), path.linux_path)
         }
         _ => (Host::Local, path.to_string_lossy().into_owned()),
     };
+    if let Some(project) = project {
+        anyhow::ensure!(
+            host == project.host,
+            "Select a terminal on this project's host to choose its shell"
+        );
+        directory = project.directory.clone();
+    }
     Ok(Edit {
         host,
         directory,
@@ -357,6 +360,15 @@ impl View for SessionEditor {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let mut form = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
+        form.add_child(
+            Text::new_inline(
+                "Changes apply on the next launch; the active terminal stays unchanged.",
+                appearance.ui_font_family(),
+                12.,
+            )
+            .with_color(theme.sub_text_color(theme.background()).into())
+            .finish(),
+        );
         for (index, field) in Field::ALL.into_iter().enumerate() {
             form.add_child(
                 Text::new_inline(field.label(), appearance.ui_font_family(), 12.)
@@ -428,4 +440,3 @@ impl View for SessionEditor {
         column.with_child(buttons.finish()).finish()
     }
 }
-

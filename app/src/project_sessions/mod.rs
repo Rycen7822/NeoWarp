@@ -20,7 +20,7 @@ use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{Entity, EntityId, ModelContext, SingletonEntity, WeakViewHandle};
 
 use self::command::ParsedCommand;
-use self::config::{Activation, Catalog, Host, Identity, Project, SavedShell, Session};
+use self::config::{Activation, Catalog, Entry, Host, Identity, Project, SavedShell, Session};
 use self::provider::Query;
 use crate::terminal::TerminalView;
 
@@ -70,6 +70,13 @@ pub(crate) struct ProjectSessions {
 }
 
 impl ProjectSessions {
+    pub(crate) fn project(&self, id: Uuid) -> Option<&Project> {
+        self.catalog
+            .projects
+            .iter()
+            .find(|project| project.id == id)
+    }
+
     pub(crate) fn entry(&self, id: Uuid) -> Option<(&Project, &Session)> {
         self.catalog.projects.iter().find_map(|project| {
             project
@@ -86,6 +93,15 @@ impl ProjectSessions {
         ctx: &mut ModelContext<Self>,
     ) -> Result<Uuid> {
         anyhow::ensure!(self.ready, "Project sessions are not available yet");
+        anyhow::ensure!(
+            !self
+                .live
+                .values()
+                .any(|live| live.session_id == edit.session.id
+                    && live.running.is_none()
+                    && live.terminal.upgrade(ctx).is_some()),
+            "Wait for the session terminal to finish starting before modifying it"
+        );
         let path = edit
             .host
             .native_path(&edit.directory)
@@ -138,16 +154,19 @@ impl ProjectSessions {
         }) {
             Some(index) => &mut next.projects[index],
             None => {
-                next.projects.push(Project {
-                    id: Uuid::new_v4(),
-                    host: edit.host,
-                    directory: edit.directory,
-                    pinned: false,
-                    last_used: edit.session.last_used,
-                    manual_order: false,
-                    sessions: Vec::new(),
-                });
-                next.projects.last_mut().expect("project was inserted")
+                next.projects.insert(
+                    0,
+                    Project {
+                        id: Uuid::new_v4(),
+                        host: edit.host,
+                        directory: edit.directory,
+                        pinned: false,
+                        last_used: edit.session.last_used,
+                        manual_order: false,
+                        sessions: Vec::new(),
+                    },
+                );
+                &mut next.projects[0]
             }
         };
         let id = edit.session.id;
@@ -157,12 +176,100 @@ impl ProjectSessions {
             .insert(slot.unwrap_or(0).min(project.sessions.len()), edit.session);
         next.projects
             .retain(|project| project.pinned || !project.sessions.is_empty());
-        write(&self.path, &next)?;
-        self.catalog = next;
-        self.error = None;
-        ctx.notify();
+        self.replace_catalog(next, ctx)?;
         Ok(id)
     }
+
+    pub(crate) fn toggle_pin(&mut self, entry: Entry, ctx: &mut ModelContext<Self>) -> Result<()> {
+        let mut next = self.catalog.clone();
+        match entry {
+            Entry::Project(id) => {
+                let project = next
+                    .projects
+                    .iter_mut()
+                    .find(|project| project.id == id)
+                    .ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
+                project.pinned = !project.pinned;
+            }
+            Entry::Session { project, session } => {
+                let session = next
+                    .projects
+                    .iter_mut()
+                    .find(|candidate| candidate.id == project)
+                    .and_then(|project| {
+                        project
+                            .sessions
+                            .iter_mut()
+                            .find(|candidate| candidate.id == session)
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("Session no longer exists"))?;
+                session.pinned = !session.pinned;
+            }
+        }
+        self.replace_catalog(next, ctx)
+    }
+
+    pub(crate) fn reorder(
+        &mut self,
+        source: Entry,
+        target: Entry,
+        after: bool,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<()> {
+        if source == target {
+            return Ok(());
+        }
+        let mut next = self.catalog.clone();
+        match (source, target) {
+            (Entry::Project(source), Entry::Project(target)) => {
+                if !next.manual_order {
+                    next.projects
+                        .sort_by_key(|project| std::cmp::Reverse(project.last_used));
+                }
+                move_entry(&mut next.projects, source, target, after, |project| {
+                    (project.id, project.pinned)
+                })?;
+                next.manual_order = true;
+            }
+            (
+                Entry::Session {
+                    project,
+                    session: source,
+                },
+                Entry::Session {
+                    project: target_project,
+                    session: target,
+                },
+            ) if project == target_project => {
+                let project = next
+                    .projects
+                    .iter_mut()
+                    .find(|candidate| candidate.id == project)
+                    .ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
+                if !project.manual_order {
+                    project
+                        .sessions
+                        .sort_by_key(|session| std::cmp::Reverse(session.last_used));
+                }
+                move_entry(&mut project.sessions, source, target, after, |session| {
+                    (session.id, session.pinned)
+                })?;
+                project.manual_order = true;
+            }
+            _ => anyhow::bail!("Reorder within the same project and level"),
+        }
+        self.replace_catalog(next, ctx)
+    }
+
+    fn replace_catalog(&mut self, catalog: Catalog, ctx: &mut ModelContext<Self>) -> Result<()> {
+        anyhow::ensure!(self.ready, "Project sessions are not available yet");
+        write(&self.path, &catalog)?;
+        self.catalog = catalog;
+        self.error = None;
+        ctx.notify();
+        Ok(())
+    }
+
     pub(crate) fn new(ctx: &mut ModelContext<Self>) -> Self {
         let path = warp_core::paths::data_dir().join("project_sessions.json");
         let load_path = path.clone();
@@ -215,6 +322,13 @@ impl ProjectSessions {
             })
             .max_by_key(|(time, _)| *time)
             .map(|(_, terminal)| terminal)
+    }
+
+    pub(crate) fn running_directory(&self, terminal: EntityId) -> Option<(&Host, &str)> {
+        self.live
+            .get(&terminal)
+            .and_then(|live| live.running.as_ref())
+            .map(|running| (&running.query.host, running.query.directory.as_str()))
     }
 
     pub(crate) fn prepare_launch(
@@ -379,16 +493,19 @@ impl ProjectSessions {
                 project.host == host && host.same_path(&project.directory, &directory)
             })
             .unwrap_or_else(|| {
-                self.catalog.projects.push(Project {
-                    id: Uuid::new_v4(),
-                    host,
-                    directory,
-                    pinned: false,
-                    last_used: started_at,
-                    manual_order: false,
-                    sessions: Vec::new(),
-                });
-                self.catalog.projects.len() - 1
+                self.catalog.projects.insert(
+                    0,
+                    Project {
+                        id: Uuid::new_v4(),
+                        host,
+                        directory,
+                        pinned: false,
+                        last_used: started_at,
+                        manual_order: false,
+                        sessions: Vec::new(),
+                    },
+                );
+                0
             });
         let project = &mut self.catalog.projects[project_index];
         project.last_used = started_at;
@@ -646,6 +763,31 @@ impl ProjectSessions {
             .map(|error| format!("Cannot save project sessions: {error:#}"));
         ctx.notify();
     }
+}
+
+fn move_entry<T>(
+    items: &mut Vec<T>,
+    source: Uuid,
+    target: Uuid,
+    after: bool,
+    key: impl Fn(&T) -> (Uuid, bool),
+) -> Result<()> {
+    let from = items
+        .iter()
+        .position(|item| key(item).0 == source)
+        .ok_or_else(|| anyhow::anyhow!("Dragged entry no longer exists"))?;
+    let to = items
+        .iter()
+        .position(|item| key(item).0 == target)
+        .ok_or_else(|| anyhow::anyhow!("Drop target no longer exists"))?;
+    anyhow::ensure!(
+        key(&items[from]).1 == key(&items[to]).1,
+        "Reorder within the same pin group"
+    );
+    let item = items.remove(from);
+    let insertion = to - usize::from(from < to) + usize::from(after);
+    items.insert(insertion, item);
+    Ok(())
 }
 
 fn load(path: &Path) -> Result<Catalog> {

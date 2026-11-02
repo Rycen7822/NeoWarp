@@ -143,6 +143,21 @@ pub(crate) struct Edit {
     pub(crate) session: Session,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum Entry {
+    Project(Uuid),
+    Session { project: Uuid, session: Uuid },
+}
+
+impl Entry {
+    pub(crate) fn id(self) -> Uuid {
+        match self {
+            Self::Project(id) => id,
+            Self::Session { session, .. } => session,
+        }
+    }
+}
+
 impl Catalog {
     pub(crate) fn session(&self, id: Uuid) -> Option<&Session> {
         self.projects

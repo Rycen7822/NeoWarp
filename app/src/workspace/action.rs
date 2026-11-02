@@ -369,6 +369,10 @@ pub enum WorkspaceAction {
     #[cfg(feature = "local_fs")]
     EditProjectSession(uuid::Uuid),
     #[cfg(feature = "local_fs")]
+    ToggleProjectPin(uuid::Uuid),
+    #[cfg(feature = "local_fs")]
+    ToggleProjectSessionPin(uuid::Uuid),
+    #[cfg(feature = "local_fs")]
     ShowProjectSessionMenu {
         id: uuid::Uuid,
         position: Vector2F,
@@ -458,6 +462,8 @@ impl WorkspaceAction {
             #[cfg(feature = "local_fs")]
             CreateProjectSession(_)
             | EditProjectSession(_)
+            | ToggleProjectPin(_)
+            | ToggleProjectSessionPin(_)
             | ShowProjectSessionMenu { .. }
             | ShowProjectMenu { .. } => false,
             ActivateTab(_)

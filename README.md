@@ -5,7 +5,7 @@ terminal sessions and local data.
 
 ## Product Scope
 
-Use the upper-left Files toggle to browse the active terminal's directory. Expand folders on demand
+Open the upper-left sidebar and select **Files** to browse the active terminal's directory. Expand folders on demand
 and select a file to open it beside the terminal, with basic editing and saving. On Windows, WSL
 directory changes arrive through the bundled Linux filesystem watcher, including ignored folders.
 
@@ -20,6 +20,25 @@ and Web/WASM product are outside NeoWarp's scope. External CLI tools run as ordi
 
 Development is ongoing. Cross-platform runtime and packaging acceptance is still in progress;
 check validation results for the platform and scenario you intend to use.
+
+## Project Shortcuts
+
+Select **Projects** in the sidebar to group external CLI sessions by working directory. Literal
+Codex, Pi, Claude Code and Hermes launches in NeoWarp are recorded automatically; **New session**
+also supports other tools. A running entry focuses its terminal. After it ends, opening it resumes
+that CLI's saved conversation ID or session file. Missing or ambiguous IDs require **Modify**;
+NeoWarp does not substitute the latest conversation or silently start a new one.
+
+Right-click a session and choose **Modify** to edit its name, directory, shell, environment variables
+(a JSON object), existing uv virtual environment or Conda environment, startup command and resume
+identity/command. Changes apply on the next launch. Only explicit command variables, selected CLI
+configuration directories and Python activation state are captured; other variables come from the
+new shell. Complex launch scripts can be configured manually. No conversations are imported.
+
+Unused sessions hide after 72 hours; **Show older** reveals them without deleting records.
+Right-click projects or sessions to **Pin** them, and drag their handles to reorder within the same
+level, project and pin group. Unpinned entries use recent activity until manually reordered.
+Launch records are stored locally in `project_sessions.json` inside NeoWarp's data directory.
 
 ## Local Data
 

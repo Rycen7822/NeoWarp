@@ -4479,17 +4479,35 @@ impl Workspace {
         position: Vector2F,
         ctx: &mut ViewContext<Self>,
     ) {
+        let store = crate::project_sessions::ProjectSessions::as_ref(ctx);
+        let pinned = if session {
+            store.entry(id).map(|(_, session)| session.pinned)
+        } else {
+            store.project(id).map(|project| project.pinned)
+        };
+        let Some(pinned) = pinned else {
+            return;
+        };
+        let pin = MenuItemFields::new(if pinned { "Unpin" } else { "Pin" })
+            .with_on_select_action(if session {
+                WorkspaceAction::ToggleProjectSessionPin(id)
+            } else {
+                WorkspaceAction::ToggleProjectPin(id)
+            })
+            .into_item();
         let items = if session {
             vec![
                 MenuItemFields::new("Modify")
                     .with_on_select_action(WorkspaceAction::EditProjectSession(id))
                     .into_item(),
+                pin,
             ]
         } else {
             vec![
                 MenuItemFields::new("New session here")
                     .with_on_select_action(WorkspaceAction::CreateProjectSession(Some(id)))
                     .into_item(),
+                pin,
             ]
         };
         self.context_menu
@@ -11684,6 +11702,32 @@ impl TypedActionView for Workspace {
             CreateProjectSession(project) => self.show_project_session_editor(None, *project, ctx),
             #[cfg(feature = "local_fs")]
             EditProjectSession(id) => self.show_project_session_editor(Some(*id), None, ctx),
+            #[cfg(feature = "local_fs")]
+            ToggleProjectPin(id) | ToggleProjectSessionPin(id) => {
+                use crate::project_sessions::{ProjectSessions, config::Entry};
+                let store = ProjectSessions::handle(ctx);
+                let entry = if matches!(action, ToggleProjectSessionPin(_)) {
+                    store
+                        .as_ref(ctx)
+                        .entry(*id)
+                        .map(|(project, _)| Entry::Session {
+                            project: project.id,
+                            session: *id,
+                        })
+                } else {
+                    Some(Entry::Project(*id))
+                };
+                if let Some(entry) = entry
+                    && let Err(error) = store.update(ctx, |store, ctx| store.toggle_pin(entry, ctx))
+                {
+                    self.toast_stack.update(ctx, |stack, ctx| {
+                        stack.add_ephemeral_toast(
+                            DismissibleToast::error(format!("Cannot pin: {error:#}")),
+                            ctx,
+                        )
+                    });
+                }
+            }
             #[cfg(feature = "local_fs")]
             ShowProjectSessionMenu { id, position } => {
                 self.show_project_menu(*id, true, *position, ctx)
