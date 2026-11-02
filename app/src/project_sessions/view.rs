@@ -394,6 +394,7 @@ impl ProjectsView {
                 card
             })
             .with_margin_left(if session.is_some() { 14. } else { 0. })
+            .with_margin_right(1.)
             .with_margin_bottom(4.)
             .finish()
         })
@@ -592,17 +593,17 @@ fn sized_icon(icon: Icon, size: f32, color: warp_core::ui::theme::Fill) -> Box<d
 fn selection_corners(card: Box<dyn Element>) -> Box<dyn Element> {
     let mut stack = Stack::new().with_child(card);
     for (x, y, parent, child) in [
-        (-2., -2., ParentAnchor::TopLeft, ChildAnchor::TopLeft),
-        (2., -2., ParentAnchor::TopRight, ChildAnchor::TopRight),
-        (-2., 2., ParentAnchor::BottomLeft, ChildAnchor::BottomLeft),
-        (2., 2., ParentAnchor::BottomRight, ChildAnchor::BottomRight),
+        (-1., -1., ParentAnchor::TopLeft, ChildAnchor::TopLeft),
+        (1., -1., ParentAnchor::TopRight, ChildAnchor::TopRight),
+        (-1., 1., ParentAnchor::BottomLeft, ChildAnchor::BottomLeft),
+        (1., 1., ParentAnchor::BottomRight, ChildAnchor::BottomRight),
     ] {
         let border = Border {
             top: y < 0.,
             bottom: y > 0.,
             left: x < 0.,
             right: x > 0.,
-            ..Border::all(2.).with_border_color(ColorU::white())
+            ..Border::all(1.).with_border_color(ColorU::white())
         };
         stack.add_positioned_child(
             ConstrainedBox::new(
