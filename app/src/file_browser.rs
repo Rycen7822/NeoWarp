@@ -12,8 +12,7 @@ use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Flex,
-    List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
-    Shrinkable, Text,
+    List, ListState, NewScrollable, Padding, ParentElement, ScrollStateHandle, Shrinkable, Text,
 };
 use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
@@ -60,7 +59,7 @@ pub(crate) struct FileBrowserView {
     poll: Option<SpawnedFutureHandle>,
     list: ListState<()>,
     scroll: ScrollStateHandle,
-    close_mouse: MouseStateHandle,
+    header: crate::workspace::sidebar::HeaderState,
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +87,7 @@ impl FileBrowserView {
             poll: None,
             list,
             scroll: Default::default(),
-            close_mouse: Default::default(),
+            header: Default::default(),
         };
         view.sync_root(ctx);
         view
@@ -510,7 +509,7 @@ impl View for FileBrowserView {
             .unwrap_or_else(|| "Files".into());
         let header = crate::workspace::sidebar::header(
             crate::workspace::SidebarTab::Files,
-            self.close_mouse.clone(),
+            &self.header,
             app,
         );
         let mut column = Flex::column()

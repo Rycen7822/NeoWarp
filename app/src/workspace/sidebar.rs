@@ -1,6 +1,6 @@
 use warpui::elements::{
-    ChildView, Container, CrossAxisAlignment, DispatchEventResult, EventHandler, Expanded, Flex,
-    Padding, ParentElement, Text,
+    Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Expanded, Flex,
+    ParentElement, Text,
 };
 use warpui::ui_components::components::UiComponent;
 use warpui::{AppContext, Element, SingletonEntity, ViewHandle};
@@ -9,7 +9,15 @@ use super::WorkspaceAction;
 use crate::appearance::Appearance;
 use crate::file_browser::FileBrowserView;
 use crate::project_sessions::view::ProjectsView;
-use crate::ui_components::buttons::close_button;
+use crate::ui_components::buttons::{close_button, icon_button};
+use crate::ui_components::icons::Icon;
+
+#[derive(Default)]
+pub(crate) struct HeaderState {
+    files: warpui::elements::MouseStateHandle,
+    projects: warpui::elements::MouseStateHandle,
+    close: warpui::elements::MouseStateHandle,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SidebarTab {
@@ -45,46 +53,64 @@ impl Sidebar {
     }
 }
 
-pub(crate) fn header(
-    tab: SidebarTab,
-    close: warpui::elements::MouseStateHandle,
-    app: &AppContext,
-) -> Box<dyn Element> {
+pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let mut tabs = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
-    for (target, label) in [
-        (SidebarTab::Files, "Files"),
-        (SidebarTab::Projects, "Projects"),
+    for (target, label, icon, mouse) in [
+        (SidebarTab::Files, "Files", Icon::Folder, &state.files),
+        (
+            SidebarTab::Projects,
+            "Projects",
+            Icon::Terminal,
+            &state.projects,
+        ),
     ] {
-        let mut item = Container::new(
-            Text::new_inline(label, appearance.ui_font_family(), 13.)
-                .with_color(theme.main_text_color(theme.background()).into())
-                .finish(),
-        )
-        .with_padding(Padding::uniform(6.));
-        if tab == target {
-            item = item.with_background(theme.surface_2());
-        }
+        let tooltip = appearance
+            .ui_builder()
+            .tool_tip(label.to_owned())
+            .build()
+            .finish();
         tabs.add_child(
-            EventHandler::new(item.finish())
-                .on_left_mouse_down(move |ctx, _, _| {
+            icon_button(appearance, icon, tab == target, mouse.clone())
+                .with_tooltip(move || tooltip)
+                .build()
+                .on_click(move |ctx, _, _| {
                     ctx.dispatch_typed_action(WorkspaceAction::SelectSidebarTab(target));
-                    DispatchEventResult::StopPropagation
                 })
                 .finish(),
         );
     }
-    Flex::row()
+    tabs.add_child(
+        Container::new(
+            Text::new_inline(
+                match tab {
+                    SidebarTab::Files => "Files",
+                    SidebarTab::Projects => "Projects",
+                },
+                appearance.ui_font_family(),
+                13.,
+            )
+            .with_color(theme.sub_text_color(theme.background()).into())
+            .finish(),
+        )
+        .with_padding_left(8.)
+        .finish(),
+    );
+    let row = Flex::row()
         .with_cross_axis_alignment(CrossAxisAlignment::Center)
         .with_child(Expanded::new(1., tabs.finish()).finish())
         .with_child(
-            close_button(appearance, close)
+            close_button(appearance, state.close.clone())
                 .build()
                 .on_click(|ctx, _, _| {
                     ctx.dispatch_typed_action(WorkspaceAction::ToggleFileBrowser);
                 })
                 .finish(),
         )
+        .finish();
+    Container::new(ConstrainedBox::new(row).with_height(38.).finish())
+        .with_border(Border::bottom(1.).with_border_fill(theme.outline()))
+        .with_margin_bottom(8.)
         .finish()
 }

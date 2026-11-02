@@ -1,32 +1,50 @@
 use pathfinder_geometry::vector::Vector2F;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use warpui::elements::Fill;
 
 use uuid::Uuid;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, DragAxis, Draggable,
-    DraggableState, Empty, EventHandler, Expanded, Flex, List, ListState, MouseStateHandle,
-    NewScrollable, Padding, ParentElement, SavePosition, ScrollStateHandle, Shrinkable, Text,
+    Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    DispatchEventResult, DragAxis, Draggable, DraggableState, Empty, EventHandler, Expanded, Fill,
+    Flex, Hoverable, List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement,
+    Radius, SavePosition, ScrollStateHandle, Shrinkable, Text,
 };
-use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use warpui::fonts::{Properties, Weight};
+use warpui::platform::Cursor;
+use warpui::text_layout::ClipConfig;
+use warpui::ui_components::components::UiComponent;
+use warpui::{
+    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, WindowId,
+};
 
 use super::ProjectSessions;
 use super::config::{Entry as Row, Host};
 use crate::appearance::Appearance;
-use crate::workspace::{SidebarTab, WorkspaceAction};
+use crate::ui_components::buttons::icon_button;
+use crate::ui_components::icons::Icon;
+use crate::workspace::{ActiveSession, SidebarTab, WorkspaceAction};
+
+#[derive(Default)]
+struct RowState {
+    hover: MouseStateHandle,
+    menu: MouseStateHandle,
+    drag: DraggableState,
+}
 
 pub(crate) struct ProjectsView {
     rows: Vec<Row>,
-    drags: HashMap<Row, DraggableState>,
+    states: HashMap<Row, RowState>,
+    window: WindowId,
     collapsed: HashSet<Uuid>,
     selected: Option<Uuid>,
     show_older: bool,
     list: ListState<()>,
     scroll: ScrollStateHandle,
-    close: MouseStateHandle,
+    header: crate::workspace::sidebar::HeaderState,
+    new_button: MouseStateHandle,
+    older_button: MouseStateHandle,
     expiry: Option<SpawnedFutureHandle>,
 }
 
@@ -49,15 +67,19 @@ impl ProjectsView {
             )
         });
         ctx.observe(&ProjectSessions::handle(ctx), |me, _, ctx| me.sync(ctx));
+        ctx.observe(&ActiveSession::handle(ctx), |_, _, ctx| ctx.notify());
         let mut view = Self {
             rows: Vec::new(),
-            drags: HashMap::new(),
+            states: HashMap::new(),
+            window: ctx.window_id(),
             collapsed: HashSet::new(),
             selected: None,
             show_older: false,
             list,
             scroll: Default::default(),
-            close: Default::default(),
+            header: Default::default(),
+            new_button: Default::default(),
+            older_button: Default::default(),
             expiry: None,
         };
         view.sync(ctx);
@@ -126,9 +148,9 @@ impl ProjectsView {
         let previous = self.rows.len();
         self.rows = rows;
         let visible: HashSet<_> = self.rows.iter().copied().collect();
-        self.drags.retain(|row, _| visible.contains(row));
+        self.states.retain(|row, _| visible.contains(row));
         for row in &self.rows {
-            self.drags.entry(*row).or_default();
+            self.states.entry(*row).or_default();
         }
         for _ in previous..self.rows.len() {
             self.list.add_item();
@@ -140,138 +162,248 @@ impl ProjectsView {
     }
 
     fn row(&self, index: usize, app: &AppContext) -> Box<dyn Element> {
-        let Some(row) = self.rows.get(index) else {
+        let Some(row) = self.rows.get(index).copied() else {
             return Empty::new().finish();
+        };
+        let (project, session_id) = match row {
+            Row::Project(id) => (id, None),
+            Row::Session { project, session } => (project, Some(session)),
         };
         let store = ProjectSessions::as_ref(app);
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let (project, session) = match row {
-            Row::Project(id) => (*id, None),
-            Row::Session { project, session } => (*project, Some(*session)),
-        };
-        let Some(folder) = store
-            .catalog
-            .projects
-            .iter()
-            .find(|candidate| candidate.id == project)
-        else {
+        let Some(folder) = store.project(project) else {
             return Empty::new().finish();
         };
-        let label = match session {
-            None => {
-                let name = folder
-                    .directory
-                    .trim_end_matches(['/', '\\'])
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .unwrap_or(&folder.directory);
-                let host = match &folder.host {
-                    Host::Local => String::new(),
-                    Host::Wsl(name) => format!(" [{name}]"),
-                };
-                format!(
-                    "{} {}{name}{host}",
+        let session =
+            session_id.and_then(|id| folder.sessions.iter().find(|session| session.id == id));
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        let state = &self.states[&row];
+        let terminal = session_id.and_then(|id| store.active_terminal(id, app));
+        let selected = terminal.is_some()
+            && terminal == ActiveSession::as_ref(app).terminal_view_id(self.window);
+        let hovered = Hoverable::new(state.hover.clone(), |hover| {
+            let show_controls = hover.is_hovered() || state.drag.is_dragging();
+            let mut leading = Flex::row()
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_spacing(6.);
+            if session.is_none() {
+                leading.add_child(sized_icon(
                     if self.collapsed.contains(&project) {
-                        "▸"
+                        Icon::ChevronRight
                     } else {
-                        "▾"
+                        Icon::ChevronDown
                     },
-                    if folder.pinned { "★ " } else { "" }
-                )
+                    12.,
+                    theme.sub_text_color(theme.background()),
+                ));
             }
-            Some(id) => {
-                let Some(session) = folder.sessions.iter().find(|session| session.id == id) else {
-                    return Empty::new().finish();
-                };
-                let state = if let Some(terminal) = store.active_terminal(id, app) {
-                    match store.running_directory(terminal) {
-                        Some((host, directory))
-                            if host != &folder.host
-                                || !host.same_path(directory, &folder.directory) =>
-                        {
-                            format!("Running in {directory}")
-                        }
-                        _ => "Running".to_owned(),
+            let icon = if terminal.is_some() {
+                Align::new(sized_icon(Icon::CircleFilled, 7., theme.accent())).finish()
+            } else {
+                sized_icon(
+                    if session.is_some() {
+                        Icon::Terminal
+                    } else {
+                        Icon::FolderClosed
+                    },
+                    16.,
+                    theme.sub_text_color(theme.background()),
+                )
+            };
+            leading.add_child(
+                ConstrainedBox::new(icon)
+                    .with_width(16.)
+                    .with_height(16.)
+                    .finish(),
+            );
+            let title = session.map_or_else(
+                || {
+                    let name = folder
+                        .directory
+                        .trim_end_matches(['/', '\\'])
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap_or(&folder.directory);
+                    match &folder.host {
+                        Host::Local => name.to_owned(),
+                        Host::Wsl(distro) => format!("{name} · {distro}"),
                     }
-                } else if session.identity.is_some() || session.resume_command.is_some() {
-                    "Resume".to_owned()
+                },
+                |session| session.title.clone(),
+            );
+            let pinned = session.map_or(folder.pinned, |session| session.pinned);
+            let title_text = Text::new_inline(title, appearance.ui_font_family(), 14.)
+                .with_clip(ClipConfig::ellipsis())
+                .with_color(theme.main_text_color(theme.background()).into())
+                .with_style(Properties::default().weight(if session.is_none() {
+                    Weight::Bold
                 } else {
-                    "Needs ID".to_owned()
-                };
-                format!(
-                    "{}{} · {} · {state}",
-                    if session.pinned { "★ " } else { "" },
-                    session.title,
-                    session.provider.name()
-                )
+                    Weight::Normal
+                }));
+            let mut title_row = Flex::row()
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_spacing(6.)
+                .with_child(Shrinkable::new(1., title_text.finish()).finish());
+            if pinned {
+                title_row.add_child(sized_icon(
+                    Icon::PinFilledDiagonal,
+                    12.,
+                    theme.sub_text_color(theme.background()),
+                ));
             }
-        };
-        let child = ConstrainedBox::new(
-            Container::new(
-                Text::new_inline(label, appearance.ui_font_family(), 12.)
-                    .with_color(theme.main_text_color(theme.background()).into())
+            let text = if let Some(session) = session {
+                let detail = if let Some((host, directory)) =
+                    terminal.and_then(|id| store.running_directory(id))
+                    && (host != &folder.host || !host.same_path(directory, &folder.directory))
+                {
+                    format!("Running in {directory}")
+                } else if terminal.is_none()
+                    && session.identity.is_none()
+                    && session.resume_command.is_none()
+                {
+                    format!("{} · Needs session ID", session.provider.name())
+                } else if session.title.eq_ignore_ascii_case(session.provider.name()) {
+                    format!("{:?}", session.shell.kind)
+                } else {
+                    session.provider.name().to_owned()
+                };
+                let secondary = Flex::row()
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_spacing(8.)
+                    .with_child(
+                        Expanded::new(
+                            1.,
+                            Text::new_inline(detail, appearance.ui_font_family(), 11.)
+                                .with_clip(ClipConfig::ellipsis())
+                                .with_color(theme.sub_text_color(theme.background()).into())
+                                .finish(),
+                        )
+                        .finish(),
+                    )
+                    .with_child(
+                        Text::new_inline(
+                            if terminal.is_some() {
+                                "Running".to_owned()
+                            } else {
+                                relative_time(session.last_used)
+                            },
+                            appearance.ui_font_family(),
+                            11.,
+                        )
+                        .with_color(theme.sub_text_color(theme.background()).into())
+                        .finish(),
+                    )
+                    .finish();
+                Flex::column()
+                    .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .with_spacing(3.)
+                    .with_child(title_row.finish())
+                    .with_child(secondary)
+                    .finish()
+            } else {
+                title_row.add_child(
+                    Text::new_inline(
+                        folder.sessions.len().to_string(),
+                        appearance.ui_font_family(),
+                        11.,
+                    )
+                    .with_color(theme.sub_text_color(theme.background()).into())
+                    .finish(),
+                );
+                title_row.finish()
+            };
+            leading.add_child(Expanded::new(1., text).finish());
+            let clickable = EventHandler::new(
+                ConstrainedBox::new(leading.finish())
+                    .with_height(if session.is_some() { 52. } else { 36. })
                     .finish(),
             )
-            .with_margin_left(if session.is_some() { 16. } else { 0. })
-            .with_padding(Padding::uniform(4.))
-            .finish(),
-        )
-        .with_height(28.)
-        .finish();
-        let clickable = EventHandler::new(child)
             .on_left_mouse_down(move |ctx, _, _| {
-                if let Some(id) = session {
-                    ctx.dispatch_typed_action(ProjectsAction::Open {
-                        project,
-                        session: id,
-                    });
-                } else {
-                    ctx.dispatch_typed_action(ProjectsAction::Toggle(project));
-                }
-                DispatchEventResult::StopPropagation
-            })
-            .on_right_mouse_down(move |ctx, _, position, _| {
-                if let Some(id) = session {
-                    ctx.dispatch_typed_action(WorkspaceAction::ShowProjectSessionMenu {
-                        id,
-                        position,
-                    });
-                } else {
-                    ctx.dispatch_typed_action(WorkspaceAction::ShowProjectMenu {
-                        id: project,
-                        position,
-                    });
-                }
-                DispatchEventResult::StopPropagation
-            })
-            .finish();
-        let source = *row;
-        let grip = ConstrainedBox::new(
-            Text::new_inline("⠿", appearance.ui_font_family(), 12.)
-                .with_color(theme.sub_text_color(theme.background()).into())
-                .finish(),
-        )
-        .with_width(18.)
-        .with_height(28.)
-        .finish();
-        let grip = Draggable::new(self.drags[row].clone(), grip)
-            .with_drag_axis(DragAxis::VerticalOnly)
-            .on_drop(move |ctx, _, position, _| {
-                ctx.dispatch_typed_action(ProjectsAction::Drop {
-                    source,
-                    position: position.center(),
+                ctx.dispatch_typed_action(match session_id {
+                    Some(session) => ProjectsAction::Open { project, session },
+                    None => ProjectsAction::Toggle(project),
                 });
+                DispatchEventResult::StopPropagation
             })
             .finish();
-        SavePosition::new(
-            Flex::row()
+            let grip = ConstrainedBox::new(if show_controls {
+                sized_icon(
+                    Icon::DragIndicatorVertical,
+                    14.,
+                    theme.sub_text_color(theme.background()),
+                )
+            } else {
+                Empty::new().finish()
+            })
+            .with_width(16.)
+            .with_height(24.)
+            .finish();
+            let grip = Draggable::new(state.drag.clone(), grip)
+                .with_drag_axis(DragAxis::VerticalOnly)
+                .on_drop(move |ctx, _, position, _| {
+                    ctx.dispatch_typed_action(ProjectsAction::Drop {
+                        source: row,
+                        position: position.center(),
+                    });
+                })
+                .finish();
+            let menu = if show_controls {
+                icon_button(appearance, Icon::DotsHorizontal, false, state.menu.clone())
+                    .build()
+                    .on_click(move |ctx, _, position| {
+                        ctx.dispatch_typed_action(match session_id {
+                            Some(id) => WorkspaceAction::ShowProjectSessionMenu { id, position },
+                            None => WorkspaceAction::ShowProjectMenu {
+                                id: project,
+                                position,
+                            },
+                        });
+                    })
+                    .finish()
+            } else {
+                ConstrainedBox::new(Empty::new().finish())
+                    .with_width(24.)
+                    .with_height(24.)
+                    .finish()
+            };
+            let content = Flex::row()
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_spacing(4.)
                 .with_child(grip)
                 .with_child(Expanded::new(1., clickable).finish())
-                .finish(),
-            &format!("project-entry-{}", row.id()),
-        )
-        .finish()
+                .with_child(menu)
+                .finish();
+            let mut container = Container::new(content)
+                .with_horizontal_padding(4.)
+                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)));
+            if selected {
+                container = container
+                    .with_background(theme.surface_overlay_2())
+                    .with_border(Border::left(2.).with_border_fill(theme.accent()));
+            } else if hover.is_hovered() {
+                container = container.with_background(theme.surface_overlay_1());
+            }
+            Container::new(
+                ConstrainedBox::new(container.finish())
+                    .with_height(if session.is_some() { 52. } else { 36. })
+                    .finish(),
+            )
+            .with_margin_left(if session.is_some() { 14. } else { 0. })
+            .with_margin_bottom(4.)
+            .finish()
+        })
+        .with_cursor(Cursor::PointingHand)
+        .on_right_click(move |ctx, _, position| {
+            ctx.dispatch_typed_action(match session_id {
+                Some(id) => WorkspaceAction::ShowProjectSessionMenu { id, position },
+                None => WorkspaceAction::ShowProjectMenu {
+                    id: project,
+                    position,
+                },
+            });
+        })
+        .finish();
+        SavePosition::new(hovered, &format!("project-entry-{}", row.id())).finish()
     }
 
     fn drop_entry(&mut self, source: Row, position: Vector2F, ctx: &mut ViewContext<Self>) {
@@ -345,39 +477,69 @@ impl View for ProjectsView {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(crate::workspace::sidebar::header(
                 SidebarTab::Projects,
-                self.close.clone(),
+                &self.header,
                 app,
             ));
-        let mut toolbar = Flex::row().with_spacing(8.);
-        for (action, text) in [
-            (ProjectsAction::New, "+ New session"),
-            (
-                ProjectsAction::Older,
-                if self.show_older {
-                    "Recent only"
-                } else {
-                    "Show older"
-                },
-            ),
-        ] {
-            toolbar.add_child(
-                EventHandler::new(
-                    Container::new(
-                        Text::new_inline(text, appearance.ui_font_family(), 12.)
-                            .with_color(theme.main_text_color(theme.background()).into())
-                            .finish(),
+        let mut toolbar = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(
+                Expanded::new(
+                    1.,
+                    Text::new_inline(
+                        if self.show_older {
+                            "All projects"
+                        } else {
+                            "Recent projects"
+                        },
+                        appearance.ui_font_family(),
+                        12.,
                     )
-                    .with_padding(Padding::uniform(5.))
+                    .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
                 )
-                .on_left_mouse_down(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(action.clone());
-                    DispatchEventResult::StopPropagation
-                })
                 .finish(),
             );
+        for (action, icon, mouse, label, active) in [
+            (
+                ProjectsAction::Older,
+                Icon::History,
+                &self.older_button,
+                if self.show_older {
+                    "Show recent sessions only"
+                } else {
+                    "Show sessions older than 3 days"
+                },
+                self.show_older,
+            ),
+            (
+                ProjectsAction::New,
+                Icon::Plus,
+                &self.new_button,
+                "New CLI session",
+                false,
+            ),
+        ] {
+            let tooltip = appearance
+                .ui_builder()
+                .tool_tip(label.to_owned())
+                .build()
+                .finish();
+            toolbar.add_child(
+                icon_button(appearance, icon, active, mouse.clone())
+                    .with_tooltip(move || tooltip)
+                    .build()
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(action.clone());
+                    })
+                    .finish(),
+            );
         }
-        column.add_child(toolbar.finish());
+        column.add_child(
+            Container::new(toolbar.finish())
+                .with_margin_bottom(8.)
+                .with_horizontal_padding(4.)
+                .finish(),
+        );
         let message = store.error.as_deref().or({
             if !store.ready {
                 Some("Loading sessions…")
@@ -389,9 +551,13 @@ impl View for ProjectsView {
         });
         if let Some(message) = message {
             column.add_child(
-                Text::new_inline(message.to_owned(), appearance.ui_font_family(), 12.)
-                    .with_color(theme.sub_text_color(theme.background()).into())
-                    .finish(),
+                Container::new(
+                    Text::new(message.to_owned(), appearance.ui_font_family(), 12.)
+                        .with_color(theme.sub_text_color(theme.background()).into())
+                        .finish(),
+                )
+                .with_padding(Padding::uniform(12.))
+                .finish(),
             );
         }
         let list = NewScrollable::vertical(
@@ -408,5 +574,22 @@ impl View for ProjectsView {
         Container::new(column.finish())
             .with_padding(Padding::uniform(8.))
             .finish()
+    }
+}
+
+fn sized_icon(icon: Icon, size: f32, color: warp_core::ui::theme::Fill) -> Box<dyn Element> {
+    ConstrainedBox::new(icon.to_warpui_icon(color).finish())
+        .with_width(size)
+        .with_height(size)
+        .finish()
+}
+
+fn relative_time(last_used: i64) -> String {
+    let minutes = (chrono::Utc::now().timestamp_millis() - last_used).max(0) / 60_000;
+    match minutes {
+        0 => "Just now".to_owned(),
+        1..60 => format!("{minutes}m ago"),
+        60..1440 => format!("{}h ago", minutes / 60),
+        _ => format!("{}d ago", minutes / 1440),
     }
 }
