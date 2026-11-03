@@ -1,8 +1,9 @@
 use warpui::assets::asset_cache::AssetSource;
 use warpui::elements::{
     Align, CacheOption, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Image,
-    MainAxisAlignment, MouseStateHandle, ParentElement, Wrap,
+    MainAxisAlignment, MouseStateHandle, ParentElement, Text, Wrap,
 };
+use warpui::fonts::{Properties, Weight};
 use warpui::ui_components::components::UiComponent;
 use warpui::{AppContext, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
@@ -13,7 +14,7 @@ use super::settings_page::{
 };
 use crate::appearance::Appearance;
 use crate::channel::ChannelState;
-use crate::themes::theme::ColorScheme;
+use crate::localization::tr;
 use crate::workspace::WorkspaceAction;
 
 pub struct AboutPageView {
@@ -48,13 +49,15 @@ impl View for AboutPageView {
 #[derive(Default)]
 struct AboutPageWidget {
     copy_version_button_mouse_state: MouseStateHandle,
+    neowarp_source_mouse_state: MouseStateHandle,
+    warp_source_mouse_state: MouseStateHandle,
 }
 
 impl SettingsWidget for AboutPageWidget {
     type View = AboutPageView;
 
     fn search_terms(&self) -> &str {
-        "about warp version"
+        "about neowarp warp version license source 关于 版本 开源 许可证"
     }
 
     fn render(
@@ -65,12 +68,6 @@ impl SettingsWidget for AboutPageWidget {
     ) -> Box<dyn Element> {
         let theme = appearance.theme();
         let ui_builder = appearance.ui_builder();
-
-        let image_path = if theme.inferred_color_scheme() == ColorScheme::LightOnDark {
-            "bundled/svg/warp-logo-with-light-title.svg"
-        } else {
-            "bundled/svg/warp-logo-with-dark-title.svg"
-        };
 
         let version = ChannelState::app_version().unwrap_or("v#.##.###");
 
@@ -101,28 +98,81 @@ impl SettingsWidget for AboutPageWidget {
             ]);
 
         Align::new(
-            Flex::column()
+            ConstrainedBox::new(Flex::column()
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_child(
-                    ConstrainedBox::new(
-                        Image::new(
-                            AssetSource::Bundled { path: image_path },
-                            CacheOption::BySize,
+                    Flex::row()
+                        .with_main_axis_alignment(MainAxisAlignment::Center)
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_spacing(16.)
+                        .with_child(
+                            ConstrainedBox::new(
+                                Image::new(
+                                    AssetSource::Bundled { path: "bundled/svg/neowarp-icon.svg" },
+                                    CacheOption::BySize,
+                                ).finish(),
+                            )
+                            .with_width(72.)
+                            .with_height(72.)
+                            .finish(),
+                        )
+                        .with_child(
+                            Text::new_inline("NeoWarp", appearance.ui_font_family(), appearance.scaled_ui_size(36.))
+                                .with_style(Properties::default().weight(Weight::Semibold))
+                                .with_color(theme.active_ui_text_color().into())
+                                .finish(),
                         )
                         .finish(),
-                    )
-                    .with_max_height(100.)
-                    .with_max_width(350.)
-                    .finish(),
                 )
                 .with_child(version_row.finish())
                 .with_child(
                     ui_builder
-                        .span("Copyright 2026 Warp")
+                        .span(tr("NeoWarp is based on the open-source Warp terminal."))
+                        .with_soft_wrap()
                         .build()
                         .with_margin_top(16.)
                         .finish(),
                 )
+                .with_child(
+                    ui_builder
+                        .span(tr("License: AGPL-3.0-only. UI frameworks warpui and warpui_core: MIT."))
+                        .with_soft_wrap()
+                        .build()
+                        .with_margin_top(8.)
+                        .finish(),
+                )
+                .with_child(
+                    Flex::row()
+                        .with_main_axis_alignment(MainAxisAlignment::Center)
+                        .with_spacing(20.)
+                        .with_child(
+                            ui_builder.link(
+                                tr("NeoWarp source").to_owned(),
+                                Some("https://github.com/Rycen7822/NeoWarp".to_owned()),
+                                None,
+                                self.neowarp_source_mouse_state.clone(),
+                            ).build().finish(),
+                        )
+                        .with_child(
+                            ui_builder.link(
+                                tr("Warp upstream source").to_owned(),
+                                Some("https://github.com/warpdotdev/warp".to_owned()),
+                                None,
+                                self.warp_source_mouse_state.clone(),
+                            ).build().finish(),
+                        )
+                        .finish(),
+                )
+                .with_child(
+                    ui_builder
+                        .span(tr("Original work © 2020–2026 Denver Technologies, Inc."))
+                        .with_soft_wrap()
+                        .build()
+                        .with_margin_top(16.)
+                        .finish(),
+                )
+                .finish())
+                .with_max_width(680.)
                 .finish(),
         )
         .finish()

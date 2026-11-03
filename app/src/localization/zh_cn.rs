@@ -7,6 +7,17 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Keyboard shortcuts" => "键盘快捷键",
         "Privacy" => "隐私",
         "About" => "关于",
+        "NeoWarp is based on the open-source Warp terminal." => {
+            "NeoWarp 基于 Warp 开源终端项目开发。"
+        }
+        "License: AGPL-3.0-only. UI frameworks warpui and warpui_core: MIT." => {
+            "许可证：AGPL-3.0-only；UI 框架 warpui 和 warpui_core 使用 MIT 许可证。"
+        }
+        "NeoWarp source" => "NeoWarp 源代码",
+        "Warp upstream source" => "Warp 上游源代码",
+        "Original work © 2020–2026 Denver Technologies, Inc." => {
+            "原始作品 © 2020–2026 Denver Technologies, Inc."
+        }
         "Editor" => "编辑器",
         "Code" => "代码",
         "Language" => "语言",
