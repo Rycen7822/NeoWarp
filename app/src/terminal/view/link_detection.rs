@@ -42,35 +42,35 @@ const PREFIXES_TO_REMOVE: [&str; 2] = ["a/", "b/"];
 const SUFFIXES_TO_REMOVE: [&str; 1] = ["@"];
 
 /// File URLs emitted by WSL tools may identify the Linux host rather than use a Windows path.
-#[cfg(feature = "local_fs")]
-#[cfg_attr(not(windows), allow(unused_variables))]
+#[cfg(all(feature = "local_fs", windows))]
 fn file_url_path(
     url: &url::Url,
-    shell: Option<&ShellLaunchData>,
+    wsl_distro: Option<&str>,
     hostname: Option<&str>,
 ) -> Option<PathBuf> {
     if url.scheme() != "file" {
         return None;
     }
-    #[cfg(windows)]
+    let path = urlencoding::decode(url.path()).ok()?;
+    if path.contains('\0') {
+        return None;
+    }
+    if let Some(distro) = wsl_distro
+        && url
+            .host_str()
+            .is_none_or(|host| hostname.is_some_and(|hostname| host.eq_ignore_ascii_case(hostname)))
     {
-        let path = urlencoding::decode(url.path()).ok()?;
-        if path.contains('\0') {
-            return None;
-        }
-        if let Some(shell @ ShellLaunchData::WSL { .. }) = shell
-            && url.host_str().is_none_or(|host| {
-                hostname.is_some_and(|hostname| host.eq_ignore_ascii_case(hostname))
-            })
+        // A drive-letter URL already names a Windows file, even inside a WSL session.
+        if url.host_str().is_none()
+            && let Ok(path) = url.to_file_path()
         {
-            // A drive-letter URL already names a Windows file, even inside a WSL session.
-            if url.host_str().is_none()
-                && let Ok(path) = url.to_file_path()
-            {
-                return Some(path);
-            }
-            return shell.maybe_convert_absolute_path(&path);
+            return Some(path);
         }
+        return warp_util::path::convert_wsl_to_windows_host_path(
+            &typed_path::TypedPath::unix(path.as_bytes()),
+            distro,
+        )
+        .ok();
     }
     url.to_file_path().ok()
 }
@@ -472,7 +472,7 @@ impl super::TerminalView {
         self.last_hover_fragment_boundary = Some(new_fragment_boundary);
     }
 
-    #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
+    #[cfg_attr(not(all(feature = "local_fs", windows)), allow(unused_variables))]
     pub(super) fn handle_find_link(
         &mut self,
         find_link_arg: FindLinkArg,
@@ -493,7 +493,7 @@ impl super::TerminalView {
             return;
         }
 
-        #[cfg(feature = "local_fs")]
+        #[cfg(all(feature = "local_fs", windows))]
         self.scan_for_file_path(position, from_editor, ctx);
     }
 
@@ -547,7 +547,9 @@ impl super::TerminalView {
             }
             if let Some(path) = file_url_path(
                 &url,
-                session.as_ref().and_then(|session| session.launch_data()),
+                session
+                    .as_ref()
+                    .and_then(|session| session.wsl_distro_name()),
                 session.as_ref().map(|session| session.hostname()),
             ) {
                 ctx.open_file_path(&path);
@@ -608,7 +610,14 @@ impl super::TerminalView {
             Some(path) if matches!(from_editor, TerminalEditor::No) => {
                 let possible_paths = self.model.lock().possible_file_paths_at_point(position);
                 let max_columns = self.size_info.columns;
-                let shell_launch_data = session.and_then(|session| session.launch_data().cloned());
+                let shell_launch_data = session.as_ref().and_then(|session| {
+                    session
+                        .wsl_distro_name()
+                        .map(|distro| ShellLaunchData::WSL {
+                            distro: distro.to_owned(),
+                        })
+                        .or_else(|| session.launch_data().cloned())
+                });
 
                 // Using the thread builder instead of ctx.spawn here so that the previous
                 // scanning job will be dropped once there is a new scanning job created.
@@ -616,6 +625,25 @@ impl super::TerminalView {
                 self.file_link_scanning_join_handle = std::thread::Builder::new()
                     .name("Compute file paths".into())
                     .spawn(move || {
+                        let possible_paths = possible_paths.map(|mut candidate| {
+                            if let Some(session) = session.as_ref() {
+                                let possible_path = match &mut candidate {
+                                    WithinModel::AltScreen(path) => path,
+                                    WithinModel::BlockList(path) => &mut path.inner,
+                                };
+                                let path = &mut possible_path.path.path;
+                                if path.starts_with('~') {
+                                    *path = warp_util::path::expand_session_home(
+                                        path,
+                                        session.home_dir(),
+                                        session.path_separators().all,
+                                    )
+                                    .to_string_lossy()
+                                    .into_owned();
+                                }
+                            }
+                            candidate
+                        });
                         let paths = Self::compute_valid_paths(
                             &path,
                             possible_paths,

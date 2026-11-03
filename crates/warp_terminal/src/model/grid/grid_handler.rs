@@ -1398,11 +1398,8 @@ impl GridHandler {
                     }
                 }
 
-                // Need to expand the path here as built-in Path lib does not understand tilde.
-                let expanded_path = shellexpand::tilde(&possible_path);
-
                 // Scan for line and column number in the current fragment (left + right).
-                let cleaned_path = CleanPathResult::with_line_and_column_number(&expanded_path);
+                let cleaned_path = CleanPathResult::with_line_and_column_number(&possible_path);
 
                 let starting_point =
                     self.advance_point_by_columns(point, left_width, false /*forward*/);

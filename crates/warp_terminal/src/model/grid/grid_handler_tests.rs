@@ -895,6 +895,15 @@ s some more content over here\n\
 
 #[test]
 fn test_possible_file_paths() {
+    // Session-specific expansion belongs to the caller, not the Windows/Linux host grid.
+    let home_path = mock_blockgrid("~/image.png");
+    assert!(
+        home_path
+            .grid_handler
+            .possible_file_paths_at_point(Point { row: 0, col: 4 })
+            .iter()
+            .any(|candidate| candidate.path.path == "~/image.png")
+    );
     let blockgrid = mock_blockgrid("file link: src/восиб,abcвосиб");
     let valid_path = vec![
         PossiblePath {

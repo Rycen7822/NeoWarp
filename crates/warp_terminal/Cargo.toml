@@ -48,7 +48,6 @@ regex_dfas.workspace = true
 secret_redaction.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-shellexpand.workspace = true
 smallvec.workspace = true
 smol_str.workspace = true
 string-offset.workspace = true

@@ -11,13 +11,10 @@ use crate::terminal::model::terminal_model::WithinModel;
 #[cfg(windows)]
 #[test]
 fn file_urls_resolve_windows_and_wsl_paths_without_changing_the_target_host() {
-    let shell = crate::terminal::ShellLaunchData::WSL {
-        distro: "NeoWarp-Link-Test".into(),
-    };
     let resolve = |uri| {
         super::file_url_path(
             &url::Url::parse(uri).unwrap(),
-            Some(&shell),
+            Some("NeoWarp-Link-Test"),
             Some("linux-box"),
         )
     };
@@ -46,15 +43,15 @@ fn file_urls_resolve_windows_and_wsl_paths_without_changing_the_target_host() {
 #[cfg(windows)]
 #[test]
 fn invalid_file_urls_do_not_fall_back_to_local_windows_files() {
-    let shell = crate::terminal::ShellLaunchData::WSL {
-        distro: "NeoWarp-Link-Test".into(),
-    };
     for uri in [
         "file:///home/tester/image%00.png",
         "file:///home/tester/%FF.png",
     ] {
         let url = url::Url::parse(uri).unwrap();
-        assert_eq!(super::file_url_path(&url, Some(&shell), None), None);
+        assert_eq!(
+            super::file_url_path(&url, Some("NeoWarp-Link-Test"), None),
+            None
+        );
     }
     let url = url::Url::parse("file:///home/tester/image.png").unwrap();
     assert_eq!(super::file_url_path(&url, None, None), None);
