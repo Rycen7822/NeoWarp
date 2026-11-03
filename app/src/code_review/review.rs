@@ -419,8 +419,6 @@ fn diff_badge(additions: usize, deletions: usize, appearance: &Appearance) -> Bo
         .finish(),
     );
     Container::new(row.finish())
-        .with_background(appearance.theme().background())
-        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
         .with_padding(Padding::uniform(3.).with_horizontal(8.))
         .with_margin_right(8.)
         .finish()
