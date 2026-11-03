@@ -118,7 +118,7 @@ impl SettingsUmbrella {
                     .set_border_width(0.)
                     .set_margin(Coords::default().left(SUBPAGE_LEFT_MARGIN))
                     .set_padding(Coords::uniform(8.))
-                    .set_font_size(SUBPAGE_FONT_SIZE),
+                    .set_font_size(appearance.scaled_ui_size(SUBPAGE_FONT_SIZE)),
             )
             .build();
 

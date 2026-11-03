@@ -14,7 +14,7 @@ directory changes arrive through the bundled Linux filesystem watcher, including
 - Git change statistics and a dedicated review panel with file lists and inline diffs.
 - English and Simplified Chinese interfaces. Choose **Appearance → Interface language** in settings,
   to apply the change immediately.
-  The separate **Interface font** setting updates menus, settings and sidebars immediately;
+  Separate **Interface font** and **Interface font size (px)** settings update menus, settings and sidebars immediately;
   terminal font settings remain independent, and missing glyphs use system fallback fonts.
 - Windows 11 Snap Layouts when hovering over the maximize/restore button.
 - External Markdown and Notebook editing through VS Code or Zed, plus Typora for Markdown.

@@ -285,7 +285,7 @@ impl TabConfigParamsModal {
                     } else {
                         default_text.clone()
                     };
-                    let text_options = TextOptions::ui_font_size(Appearance::as_ref(ctx));
+                    let text_options = TextOptions::ui_font_size();
                     let editor = ctx.add_typed_action_view(|ctx| {
                         let options = SingleLineEditorOptions {
                             text: text_options,

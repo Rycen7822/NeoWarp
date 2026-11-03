@@ -242,14 +242,18 @@ impl ProjectsView {
             );
             let pinned = session.map_or(folder.pinned, |session| session.pinned);
             let semantic_label = app.accessibility_plugin_enabled().then(|| title.clone());
-            let title_text = Text::new_inline(title, appearance.ui_font_family(), 14.)
-                .with_clip(ClipConfig::ellipsis())
-                .with_color(theme.main_text_color(theme.background()).into())
-                .with_style(Properties::default().weight(if session.is_none() {
-                    Weight::Bold
-                } else {
-                    Weight::Normal
-                }));
+            let title_text = Text::new_inline(
+                title,
+                appearance.ui_font_family(),
+                appearance.scaled_ui_size(14.),
+            )
+            .with_clip(ClipConfig::ellipsis())
+            .with_color(theme.main_text_color(theme.background()).into())
+            .with_style(Properties::default().weight(if session.is_none() {
+                Weight::Bold
+            } else {
+                Weight::Normal
+            }));
             let mut title_row = Flex::row()
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_spacing(6.)
@@ -283,10 +287,14 @@ impl ProjectsView {
                     .with_child(
                         Expanded::new(
                             1.,
-                            Text::new_inline(detail, appearance.ui_font_family(), 11.)
-                                .with_clip(ClipConfig::ellipsis())
-                                .with_color(theme.sub_text_color(theme.background()).into())
-                                .finish(),
+                            Text::new_inline(
+                                detail,
+                                appearance.ui_font_family(),
+                                appearance.scaled_ui_size(11.),
+                            )
+                            .with_clip(ClipConfig::ellipsis())
+                            .with_color(theme.sub_text_color(theme.background()).into())
+                            .finish(),
                         )
                         .finish(),
                     )
@@ -298,7 +306,7 @@ impl ProjectsView {
                                 relative_time(session.last_used)
                             },
                             appearance.ui_font_family(),
-                            11.,
+                            appearance.scaled_ui_size(11.),
                         )
                         .with_color(theme.sub_text_color(theme.background()).into())
                         .finish(),
@@ -315,7 +323,7 @@ impl ProjectsView {
                     Text::new_inline(
                         folder.sessions.len().to_string(),
                         appearance.ui_font_family(),
-                        11.,
+                        appearance.scaled_ui_size(11.),
                     )
                     .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
@@ -325,7 +333,11 @@ impl ProjectsView {
             leading.add_child(Expanded::new(1., text).finish());
             let clickable = EventHandler::new(
                 ConstrainedBox::new(leading.finish())
-                    .with_height(if session.is_some() { 52. } else { 36. })
+                    .with_height(appearance.scaled_ui_size(if session.is_some() {
+                        52.
+                    } else {
+                        36.
+                    }))
                     .finish(),
             )
             .on_left_mouse_down(move |ctx, _, _| {
@@ -437,7 +449,7 @@ impl ProjectsView {
                 container = container.with_background(theme.surface_overlay_1());
             }
             let card = ConstrainedBox::new(container.finish())
-                .with_height(if session.is_some() { 52. } else { 36. })
+                .with_height(appearance.scaled_ui_size(if session.is_some() { 52. } else { 36. }))
                 .finish();
             Container::new(if selected {
                 selection_corners(card)
@@ -549,7 +561,7 @@ impl View for ProjectsView {
                             tr("Recent projects")
                         },
                         appearance.ui_font_family(),
-                        12.,
+                        appearance.scaled_ui_size(12.),
                     )
                     .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
@@ -615,9 +627,13 @@ impl View for ProjectsView {
         if let Some(message) = message {
             column.add_child(
                 Container::new(
-                    Text::new(tr(message).to_owned(), appearance.ui_font_family(), 12.)
-                        .with_color(theme.sub_text_color(theme.background()).into())
-                        .finish(),
+                    Text::new(
+                        tr(message).to_owned(),
+                        appearance.ui_font_family(),
+                        appearance.scaled_ui_size(12.),
+                    )
+                    .with_color(theme.sub_text_color(theme.background()).into())
+                    .finish(),
                 )
                 .with_padding(Padding::uniform(12.))
                 .finish(),

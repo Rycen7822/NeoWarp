@@ -174,9 +174,8 @@ impl ThemeChooser {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let search_editor = {
             ctx.add_typed_action_view(|ctx| {
-                let appearance = Appearance::as_ref(ctx);
                 let options = SingleLineEditorOptions {
-                    text: TextOptions::ui_font_size(appearance),
+                    text: TextOptions::ui_font_size(),
                     propagate_and_no_op_vertical_navigation_keys:
                         PropagateAndNoOpNavigationKeys::Always,
                     ..Default::default()

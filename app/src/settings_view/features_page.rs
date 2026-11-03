@@ -1697,10 +1697,8 @@ impl FeaturesPageView {
 
         let undo_close_view = ctx.add_typed_action_view(features::UndoCloseView::new);
 
-        let appearance_handle = Appearance::handle(ctx);
-
         let width_and_height_editor_options = SingleLineEditorOptions {
-            text: TextOptions::ui_font_size(appearance_handle.as_ref(ctx)),
+            text: TextOptions::ui_font_size(),
             ..Default::default()
         };
 
@@ -1817,8 +1815,8 @@ impl FeaturesPageView {
             ctx.add_typed_action_view(|ctx| {
                 let options = SingleLineEditorOptions {
                     text: TextOptions {
-                        font_size_override: Some(appearance_handle.as_ref(ctx).ui_font_size() - 2.),
-                        ..Default::default()
+                        font_size_override: Some(10.),
+                        ..TextOptions::ui_font_size()
                     },
                     ..Default::default()
                 };

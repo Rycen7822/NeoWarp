@@ -67,6 +67,12 @@ impl AppearanceManager {
         ctx.subscribe_to_model(
             &FontSettings::handle(ctx),
             move |_, _, event, ctx| match event {
+                FontSettingsChangedEvent::UiFontSize { .. } => {
+                    let size = *FontSettings::as_ref(ctx).ui_font_size;
+                    Appearance::handle(ctx).update(ctx, |appearance, ctx| {
+                        appearance.set_ui_font_size(size, ctx);
+                    });
+                }
                 FontSettingsChangedEvent::UiFontName { .. } => match load_ui_font_family(ctx) {
                     Ok(family) => Appearance::handle(ctx).update(ctx, |appearance, ctx| {
                         appearance.set_ui_font_family(family, ctx);
@@ -418,6 +424,7 @@ fn build_appearance(ctx: &mut AppContext) -> Appearance {
         monospace_font_size,
         monospace_font_weight,
         ui_font_family,
+        *FontSettings::as_ref(ctx).ui_font_size,
         line_height_ratio,
         password_font_family,
     )

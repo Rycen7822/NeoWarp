@@ -186,7 +186,7 @@ pub fn build_sub_header(
             Text::new_inline(
                 crate::localization::localize(text_name),
                 appearance.ui_font_family(),
-                SUBHEADER_FONT_SIZE,
+                appearance.scaled_ui_size(SUBHEADER_FONT_SIZE),
             )
             .with_style(Properties::default().weight(Weight::Bold))
             .with_color(color.into())
@@ -211,7 +211,7 @@ pub fn render_sub_header_with_description(
                     Text::new(
                         crate::localization::localize(description),
                         appearance.ui_font_family(),
-                        CONTENT_FONT_SIZE,
+                        appearance.scaled_ui_size(CONTENT_FONT_SIZE),
                     )
                     .with_color(appearance.theme().nonactive_ui_text_color().into())
                     .finish(),
@@ -231,10 +231,14 @@ pub fn render_sub_sub_header(
     let sub_sub_header = Flex::row().with_child(
         Container::new(
             Align::new(
-                Text::new_inline(text_name, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                    .with_style(Properties::default().weight(Weight::Bold))
-                    .with_color(appearance.theme().active_ui_text_color().into())
-                    .finish(),
+                Text::new_inline(
+                    text_name,
+                    appearance.ui_font_family(),
+                    appearance.scaled_ui_size(CONTENT_FONT_SIZE),
+                )
+                .with_style(Properties::default().weight(Weight::Bold))
+                .with_color(appearance.theme().active_ui_text_color().into())
+                .finish(),
             )
             .left()
             .finish(),
@@ -364,7 +368,7 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
     let label_text = Text::new_inline(
         crate::localization::localize(label_text),
         appearance.ui_font_family(),
-        CONTENT_FONT_SIZE,
+        appearance.scaled_ui_size(CONTENT_FONT_SIZE),
     )
     .with_color(label_color.into());
     if let Some(icon) = label_icon {
@@ -426,10 +430,14 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
 
 fn render_title_text(text: &str, size: f32, appearance: &Appearance) -> Box<dyn Element> {
     Align::new(
-        Text::new_inline(tr(text).to_string(), appearance.ui_font_family(), size)
-            .with_style(Properties::default().weight(Weight::Bold))
-            .with_color(appearance.theme().active_ui_text_color().into())
-            .finish(),
+        Text::new_inline(
+            tr(text).to_string(),
+            appearance.ui_font_family(),
+            appearance.scaled_ui_size(size),
+        )
+        .with_style(Properties::default().weight(Weight::Bold))
+        .with_color(appearance.theme().active_ui_text_color().into())
+        .finish(),
     )
     .left()
     .finish()
@@ -496,7 +504,7 @@ pub fn build_toggle_element(
                     appearance.theme(),
                     appearance.theme().surface_1(),
                 )),
-                font_size: Some(12.),
+                font_size: Some(appearance.ui_font_size()),
                 margin: Some(Coords {
                     top: 4.,
                     bottom: 0.,
@@ -526,7 +534,7 @@ pub fn render_dropdown_item_label(
     let label = Text::new(
         crate::localization::localize(label_text),
         appearance.ui_font_family(),
-        CONTENT_FONT_SIZE,
+        appearance.scaled_ui_size(CONTENT_FONT_SIZE),
     )
     .with_color(
         color_override
@@ -631,7 +639,7 @@ pub fn render_input_list<SettingsPageAction: Action + Clone>(
                 .ui_builder()
                 .span(title.to_string())
                 .with_style(UiComponentStyles {
-                    font_size: Some(CONTENT_FONT_SIZE),
+                    font_size: Some(appearance.scaled_ui_size(CONTENT_FONT_SIZE)),
                     ..Default::default()
                 })
                 .build()

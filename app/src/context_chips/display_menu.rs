@@ -194,7 +194,7 @@ impl DisplayChipMenu {
         let search_input = ctx.add_typed_action_view(|ctx| {
             let appearance = Appearance::handle(ctx).as_ref(ctx);
             let ui_font_family = appearance.ui_font_family();
-            let mut text_options = TextOptions::ui_font_size(appearance);
+            let mut text_options = TextOptions::ui_font_size();
             text_options.font_family_override = Some(ui_font_family);
             let options = EditorOptions {
                 autogrow: false,

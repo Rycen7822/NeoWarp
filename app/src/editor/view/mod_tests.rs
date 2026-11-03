@@ -47,21 +47,29 @@ fn initialize_app(app: &mut App) {
 }
 
 #[test]
-fn ui_text_follows_interface_font_without_changing_terminal_font() {
+fn ui_text_follows_interface_font_and_size_without_changing_terminal_text() {
     App::test((), |mut app| async move {
         app.add_singleton_model(|_| Appearance::mock());
         app.update(|ctx| {
             let appearance = Appearance::as_ref(ctx);
             let options = TextOptions::ui_text(None);
             let terminal_font = appearance.monospace_font_family();
+            let terminal_size = appearance.monospace_font_size();
             assert_ne!(options.font_family(appearance), terminal_font);
 
             Appearance::handle(ctx).update(ctx, |appearance, ctx| {
                 appearance.set_ui_font_family(terminal_font, ctx);
+                appearance.set_ui_font_size(16, ctx);
+                appearance.set_line_height_ratio(1.6, ctx);
             });
 
             let appearance = Appearance::as_ref(ctx);
             assert_eq!(options.font_family(appearance), terminal_font);
+            assert_eq!(options.font_size(appearance), 16.);
+            assert_eq!(TextOptions::ui_font_size().font_size(appearance), 16.);
+            assert_eq!(appearance.ui_builder().ui_font_size(), 16.);
+            assert_eq!(appearance.header_font_size(), 24.);
+            assert_eq!(TextOptions::default().font_size(appearance), terminal_size);
             assert_eq!(
                 TextOptions::default().font_family(appearance),
                 terminal_font

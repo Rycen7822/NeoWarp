@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use ::settings::{Setting, SettingSection, ToggleableSetting};
 use enum_iterator::all;
+use warp_core::ui::appearance::{MAX_UI_FONT_SIZE, MIN_UI_FONT_SIZE};
 use warp_core::ui::theme::color::internal_colors;
 use warp_errors::{report_error, report_if_error};
 use warp_util::path::user_friendly_path;
@@ -462,6 +463,7 @@ pub struct AppearanceSettingsPageView {
     page: PageType<Self>,
     window_id: WindowId,
     font_size_editor: ViewHandle<EditorView>,
+    ui_font_size_editor: ViewHandle<EditorView>,
     line_height_editor: ViewHandle<EditorView>,
     new_window_columns_editor: ViewHandle<EditorView>,
     valid_new_window_columns: bool,
@@ -662,7 +664,6 @@ impl AppearanceSettingsPageView {
     fn editor<F>(
         mut event_handler: F,
         buffer_text: &str,
-        ui_font_size: f32,
         ctx: &mut ViewContext<Self>,
     ) -> ViewHandle<EditorView>
     where
@@ -670,10 +671,7 @@ impl AppearanceSettingsPageView {
     {
         let editor = ctx.add_typed_action_view(|ctx| {
             let options = SingleLineEditorOptions {
-                text: TextOptions {
-                    font_size_override: Some(ui_font_size),
-                    ..Default::default()
-                },
+                text: TextOptions::ui_text(None),
                 ..Default::default()
             };
             EditorView::single_line(options, ctx)
@@ -704,7 +702,16 @@ impl AppearanceSettingsPageView {
         let font_size_editor = Self::editor(
             |me, event, ctx| me.handle_font_size_editor_event(event, ctx),
             &format!("{monospace_font_size}"),
-            ui_font_size,
+            ctx,
+        );
+
+        let ui_font_size_editor = Self::editor(
+            |me, event, ctx| match event {
+                EditorEvent::Blurred | EditorEvent::Enter => me.set_ui_font_size(ctx),
+                EditorEvent::Escape => ctx.emit(SettingsPageEvent::FocusModal),
+                _ => {}
+            },
+            &format!("{ui_font_size}"),
             ctx,
         );
 
@@ -873,7 +880,6 @@ impl AppearanceSettingsPageView {
         let line_height_editor = Self::editor(
             |me, event, ctx| me.handle_line_editor_event(event, ctx),
             &format!("{line_height_ratio}"),
-            ui_font_size,
             ctx,
         );
 
@@ -893,7 +899,6 @@ impl AppearanceSettingsPageView {
                 }
             },
             &format!("{num_columns}"),
-            ui_font_size,
             ctx,
         );
 
@@ -908,7 +913,6 @@ impl AppearanceSettingsPageView {
                 }
             },
             &format!("{num_rows}"),
-            ui_font_size,
             ctx,
         );
 
@@ -1116,7 +1120,7 @@ impl AppearanceSettingsPageView {
 
         let alt_screen_padding_editor = {
             let width_and_height_editor_options = SingleLineEditorOptions {
-                text: TextOptions::ui_font_size(appearance_handle.as_ref(ctx)),
+                text: TextOptions::ui_font_size(),
                 ..Default::default()
             };
             ctx.add_typed_action_view(|ctx| {
@@ -1182,6 +1186,7 @@ impl AppearanceSettingsPageView {
             page: Self::build_page(ctx),
             window_id: ctx.window_id(),
             font_size_editor,
+            ui_font_size_editor,
             line_height_editor,
             new_window_columns_editor,
             valid_new_window_columns: true,
@@ -1398,6 +1403,12 @@ impl AppearanceSettingsPageView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
+            AppearanceEvent::UiFontSizeChanged => {
+                let size = handle.as_ref(ctx).ui_font_size();
+                self.ui_font_size_editor.update(ctx, |editor, ctx| {
+                    editor.set_buffer_text(&format!("{size}"), ctx);
+                });
+            }
             AppearanceEvent::MonospaceFontFamilyChanged { .. } => {
                 self.update_font_dropdown(ctx);
             }
@@ -1672,6 +1683,22 @@ impl AppearanceSettingsPageView {
                         .monospace_font_size
                         .set_value(num as f32, ctx,)
                 );
+            });
+        }
+    }
+
+    fn set_ui_font_size(&mut self, ctx: &mut ViewContext<Self>) {
+        let input = self.ui_font_size_editor.as_ref(ctx).buffer_text(ctx);
+        if let Ok(size) = input.parse::<u8>()
+            && (MIN_UI_FONT_SIZE..=MAX_UI_FONT_SIZE).contains(&size)
+        {
+            FontSettings::handle(ctx).update(ctx, |settings, ctx| {
+                report_if_error!(settings.ui_font_size.set_value(size, ctx));
+            });
+        } else {
+            let size = Appearance::as_ref(ctx).ui_font_size();
+            self.ui_font_size_editor.update(ctx, |editor, ctx| {
+                editor.set_buffer_text(&format!("{size}"), ctx);
             });
         }
     }
@@ -3403,7 +3430,7 @@ impl SettingsWidget for UiFontWidget {
     type View = AppearanceSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "interface ui font family 界面 字体 中文"
+        "interface ui font family size 界面 字体 字号 大小 中文"
     }
 
     fn render(
@@ -3412,7 +3439,7 @@ impl SettingsWidget for UiFontWidget {
         appearance: &Appearance,
         _app: &AppContext,
     ) -> Box<dyn Element> {
-        render_body_item::<AppearancePageAction>(
+        let family = render_body_item::<AppearancePageAction>(
             "Interface font".to_owned(),
             None,
             ToggleState::Enabled,
@@ -3422,7 +3449,24 @@ impl SettingsWidget for UiFontWidget {
                 "Used by menus, settings and sidebars. Missing characters use system fallback."
                     .to_owned(),
             ),
-        )
+        );
+        let size = render_body_item::<AppearancePageAction>(
+            "Interface font size (px)".to_owned(),
+            None,
+            ToggleState::Enabled,
+            appearance,
+            appearance
+                .ui_builder()
+                .text_input(view.ui_font_size_editor.clone())
+                .with_style(UiComponentStyles::default().set_width(FONT_SIZE_INPUT_BOX_WIDTH))
+                .build()
+                .finish(),
+            Some(
+                "8–32 px. Changes apply immediately; terminal text size stays independent."
+                    .to_owned(),
+            ),
+        );
+        Flex::column().with_child(family).with_child(size).finish()
     }
 }
 
@@ -3443,7 +3487,7 @@ impl TerminalFontWidget {
                         left: 12.,
                         ..Default::default()
                     }),
-                    font_size: Some(CONTENT_FONT_SIZE),
+                    font_size: Some(appearance.scaled_ui_size(CONTENT_FONT_SIZE)),
                     ..Default::default()
                 })
                 .build()
@@ -3595,7 +3639,7 @@ impl SettingsWidget for TerminalFontWidget {
                 .ui_builder()
                 .label(tr("Font weight").to_string())
                 .with_style(UiComponentStyles {
-                    font_size: Some(CONTENT_FONT_SIZE),
+                    font_size: Some(appearance.scaled_ui_size(CONTENT_FONT_SIZE)),
                     ..Default::default()
                 })
                 .build()
@@ -3622,7 +3666,7 @@ impl SettingsWidget for TerminalFontWidget {
                         left: 2.,
                         ..Default::default()
                     }),
-                    font_size: Some(CONTENT_FONT_SIZE),
+                    font_size: Some(appearance.scaled_ui_size(CONTENT_FONT_SIZE)),
                     ..Default::default()
                 })
                 .build()

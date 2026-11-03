@@ -41,11 +41,10 @@ pub struct SubmittableTextInput {
 impl SubmittableTextInput {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let options = EditorOptions {
                 autogrow: true,
                 soft_wrap: true,
-                text: TextOptions::ui_font_size(appearance),
+                text: TextOptions::ui_font_size(),
                 ..Default::default()
             };
             EditorView::new(options, ctx)

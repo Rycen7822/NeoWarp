@@ -77,10 +77,9 @@ where
         });
 
         let filter_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let mut editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(appearance.ui_font_size())),
+                    text: TextOptions::ui_text(None),
                     propagate_and_no_op_vertical_navigation_keys:
                         PropagateAndNoOpNavigationKeys::Always,
                     ..Default::default()
@@ -436,7 +435,7 @@ where
             Container::new(
                 ConstrainedBox::new(top_bar_element)
                     .with_max_width(self.top_bar_max_width)
-                    .with_height(TOP_MENU_BAR_HEIGHT)
+                    .with_height(appearance.scaled_ui_size(TOP_MENU_BAR_HEIGHT))
                     .finish(),
             )
             .finish(),

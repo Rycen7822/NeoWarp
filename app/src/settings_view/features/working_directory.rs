@@ -353,9 +353,8 @@ fn create_editor(
     ctx: &mut ViewContext<WorkingDirectoryView>,
 ) -> ViewHandle<EditorView> {
     let editor = {
-        let appearance = Appearance::as_ref(ctx);
         let options = SingleLineEditorOptions {
-            text: TextOptions::ui_font_size(appearance),
+            text: TextOptions::ui_font_size(),
             ..Default::default()
         };
         ctx.add_typed_action_view(|ctx| {

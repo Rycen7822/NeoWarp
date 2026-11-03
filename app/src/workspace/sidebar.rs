@@ -116,7 +116,7 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
                     SidebarTab::Projects => tr("Projects"),
                 },
                 appearance.ui_font_family(),
-                13.,
+                appearance.scaled_ui_size(13.),
             )
             .with_color(theme.sub_text_color(theme.background()).into())
             .finish(),
@@ -139,8 +139,12 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
             WorkspaceAction::ToggleFileBrowser,
         ))
         .finish();
-    Container::new(ConstrainedBox::new(row).with_height(38.).finish())
-        .with_border(Border::bottom(1.).with_border_fill(theme.outline()))
-        .with_margin_bottom(8.)
-        .finish()
+    Container::new(
+        ConstrainedBox::new(row)
+            .with_height(appearance.scaled_ui_size(38.))
+            .finish(),
+    )
+    .with_border(Border::bottom(1.).with_border_fill(theme.outline()))
+    .with_margin_bottom(8.)
+    .finish()
 }

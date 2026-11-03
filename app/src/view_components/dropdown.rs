@@ -379,7 +379,7 @@ where
             Container::new(
                 ConstrainedBox::new(top_bar_element.finish())
                     .with_max_width(self.top_bar_max_width)
-                    .with_height(TOP_MENU_BAR_HEIGHT)
+                    .with_height(appearance.scaled_ui_size(TOP_MENU_BAR_HEIGHT))
                     .finish(),
             )
             .finish(),

@@ -462,15 +462,19 @@ impl FileBrowserView {
                 .with_child(
                     Shrinkable::new(
                         1.,
-                        Text::new_inline(name.into_owned(), appearance.ui_font_family(), 14.)
-                            .with_clip(ClipConfig::ellipsis())
-                            .with_color(color.into())
-                            .with_style(Properties::default().weight(if is_root {
-                                Weight::Bold
-                            } else {
-                                Weight::Normal
-                            }))
-                            .finish(),
+                        Text::new_inline(
+                            name.into_owned(),
+                            appearance.ui_font_family(),
+                            appearance.scaled_ui_size(14.),
+                        )
+                        .with_clip(ClipConfig::ellipsis())
+                        .with_color(color.into())
+                        .with_style(Properties::default().weight(if is_root {
+                            Weight::Bold
+                        } else {
+                            Weight::Normal
+                        }))
+                        .finish(),
                     )
                     .finish(),
                 );
@@ -488,7 +492,7 @@ impl FileBrowserView {
                     .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
             }
             ConstrainedBox::new(container.finish())
-                .with_height(26.)
+                .with_height(appearance.scaled_ui_size(26.))
                 .finish()
         });
         let path = row.path.clone();
@@ -584,9 +588,13 @@ impl View for FileBrowserView {
         };
         if let Some(message) = message {
             column.add_child(
-                Text::new_inline(tr(message).to_owned(), appearance.ui_font_family(), 12.)
-                    .with_color(theme.sub_text_color(theme.background()).into())
-                    .finish(),
+                Text::new_inline(
+                    tr(message).to_owned(),
+                    appearance.ui_font_family(),
+                    appearance.scaled_ui_size(12.),
+                )
+                .with_color(theme.sub_text_color(theme.background()).into())
+                .finish(),
             );
         }
         let list = NewScrollable::vertical(

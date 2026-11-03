@@ -1264,12 +1264,13 @@ pub enum PropagateAndNoOpEscapeKey {
 
 /// Options for how the editor displays text.
 ///
-/// Each is an `Option` - if `None`, the editor will use the theme default. If a text option is set,
-/// the parent view is responsible for keeping it in sync with appearance changes (if applicable).
+/// Interface roles follow live appearance changes; other explicit overrides are owned by the parent view.
 #[derive(Default, Clone)]
 pub struct TextOptions {
-    /// If font size is None, we use the settings monospace font size, otherwise we use the given one.
+    /// Size in pixels at the default UI scale for interface text, or absolute pixels for other text.
     pub font_size_override: Option<f32>,
+    /// Follow the current interface size while retaining the monospace family.
+    pub use_ui_font_size: bool,
     /// Font family to use when rendering the editor. If `None`, the monospace font is used.
     pub font_family_override: Option<FamilyId>,
     /// Follow the current interface font unless an explicit family overrides it.
@@ -1282,9 +1283,9 @@ pub struct TextOptions {
 
 impl TextOptions {
     /// Create `TextOptions` that use the UI font size. All other overrides have their default values.
-    pub fn ui_font_size(appearance: &Appearance) -> Self {
+    pub fn ui_font_size() -> Self {
         Self {
-            font_size_override: Some(appearance.ui_font_size()),
+            use_ui_font_size: true,
             font_properties_override: Some(Properties::default()),
             ..Default::default()
         }
@@ -1309,6 +1310,18 @@ impl TextOptions {
                 appearance.monospace_font_family()
             }
         })
+    }
+
+    fn font_size(&self, appearance: &Appearance) -> f32 {
+        if self.use_ui_font_size || self.use_ui_font_family {
+            appearance.scaled_ui_size(
+                self.font_size_override
+                    .unwrap_or(warp_core::ui::appearance::DEFAULT_UI_FONT_SIZE),
+            )
+        } else {
+            self.font_size_override
+                .unwrap_or_else(|| appearance.monospace_font_size())
+        }
     }
 }
 
@@ -6474,9 +6487,7 @@ impl EditorView {
 
     /// Font size of this editor.
     pub fn font_size(&self, appearance: &Appearance) -> f32 {
-        self.text_options
-            .font_size_override
-            .unwrap_or_else(|| appearance.monospace_font_size())
+        self.text_options.font_size(appearance)
     }
 
     /// Font family of this editor.

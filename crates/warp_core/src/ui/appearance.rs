@@ -9,6 +9,8 @@ const HEADER_FONT_SIZE: f32 = 18.;
 const OVERLINE_FONT_SIZE: f32 = 10.;
 
 pub const DEFAULT_UI_FONT_SIZE: f32 = 12.0;
+pub const MIN_UI_FONT_SIZE: u8 = 8;
+pub const MAX_UI_FONT_SIZE: u8 = 32;
 pub const DEFAULT_COMMAND_PALETTE_FONT_SIZE: f32 = 14.0;
 
 /// Holds visual settings that are so widely used that it's best
@@ -25,6 +27,7 @@ pub struct Appearance {
 
     // Interface text reads this live; changing it invalidates every window.
     ui_font_family: FamilyId,
+    ui_font_size: f32,
     /// A font that is used for password fields.
     password_font_family: FamilyId,
 }
@@ -42,6 +45,7 @@ pub struct Appearance {
 /// a bug in [`Appearance`].
 #[derive(Debug)]
 pub enum AppearanceEvent {
+    UiFontSizeChanged,
     ThemeChanged,
     UiFontFamilyChanged {
         previous_family_id: FamilyId,
@@ -66,27 +70,31 @@ pub enum AppearanceEvent {
 }
 
 impl Appearance {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         theme: WarpTheme,
         monospace_font_family: FamilyId,
         monospace_font_size: f32,
         monospace_font_weight: Weight,
         ui_font_family: FamilyId,
+        ui_font_size: u8,
         line_height_ratio: f32,
         password_font_family: FamilyId,
     ) -> Self {
+        let ui_font_size = f32::from(ui_font_size.clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE));
         Self {
             theme: theme.clone(),
             monospace_font_family,
             monospace_font_size,
             monospace_font_weight,
             ui_font_family,
+            ui_font_size,
             line_height_ratio,
             ui_builder: UiBuilder::new(
                 theme,
                 ui_font_family,
-                DEFAULT_UI_FONT_SIZE,
-                DEFAULT_COMMAND_PALETTE_FONT_SIZE,
+                ui_font_size,
+                DEFAULT_COMMAND_PALETTE_FONT_SIZE * ui_font_size / DEFAULT_UI_FONT_SIZE,
                 line_height_ratio,
             ),
             password_font_family,
@@ -126,19 +134,14 @@ impl Appearance {
                 line_height_ratio,
             ),
             ui_font_family,
+            ui_font_size: DEFAULT_UI_FONT_SIZE,
             password_font_family: FamilyId(0),
         }
     }
 
     pub fn set_theme(&mut self, new_theme: WarpTheme, ctx: &mut ModelContext<Self>) {
         self.theme = new_theme;
-        self.ui_builder = UiBuilder::new(
-            self.theme.clone(),
-            self.ui_font_family,
-            self.ui_font_size(),
-            DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-            self.line_height_ratio,
-        );
+        self.rebuild_ui_builder();
 
         // Request a redraw of all windows.
         ctx.invalidate_all_views();
@@ -172,13 +175,7 @@ impl Appearance {
         let previous_family_id = self.ui_font_family;
         self.ui_font_family = new_family;
 
-        self.ui_builder = UiBuilder::new(
-            self.theme.clone(),
-            self.ui_font_family,
-            self.ui_font_size(),
-            DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-            self.line_height_ratio,
-        );
+        self.rebuild_ui_builder();
 
         // Request a redraw of all windows.
         ctx.invalidate_all_views();
@@ -201,6 +198,23 @@ impl Appearance {
             current_font_size: self.monospace_font_size,
             previous_font_size,
         });
+    }
+
+    pub fn set_ui_font_size(&mut self, size: u8, ctx: &mut ModelContext<Self>) {
+        self.ui_font_size = f32::from(size.clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE));
+        self.rebuild_ui_builder();
+        ctx.invalidate_all_views();
+        ctx.emit(AppearanceEvent::UiFontSizeChanged);
+    }
+
+    fn rebuild_ui_builder(&mut self) {
+        self.ui_builder = UiBuilder::new(
+            self.theme.clone(),
+            self.ui_font_family,
+            self.ui_font_size(),
+            self.scaled_ui_size(DEFAULT_COMMAND_PALETTE_FONT_SIZE),
+            self.line_height_ratio,
+        );
     }
 
     pub fn set_monospace_font_weight(
@@ -232,13 +246,7 @@ impl Appearance {
     ) {
         let previous_line_height_ratio = self.line_height_ratio;
         self.line_height_ratio = new_line_height_ratio;
-        self.ui_builder = UiBuilder::new(
-            self.theme.clone(),
-            self.ui_font_family,
-            DEFAULT_UI_FONT_SIZE,
-            DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-            self.line_height_ratio,
-        );
+        self.rebuild_ui_builder();
 
         // Request a redraw of all windows.
         ctx.invalidate_all_views();
@@ -278,7 +286,12 @@ impl Appearance {
     }
 
     pub fn ui_font_size(&self) -> f32 {
-        DEFAULT_UI_FONT_SIZE
+        self.ui_font_size
+    }
+
+    /// Scales interface text and its layout metrics around the configured base font size.
+    pub fn scaled_ui_size(&self, base_size: f32) -> f32 {
+        base_size * self.ui_font_size / DEFAULT_UI_FONT_SIZE
     }
 
     pub fn header_font_family(&self) -> FamilyId {
@@ -286,7 +299,7 @@ impl Appearance {
     }
 
     pub fn header_font_size(&self) -> f32 {
-        HEADER_FONT_SIZE
+        self.scaled_ui_size(HEADER_FONT_SIZE)
     }
 
     pub fn overline_font_family(&self) -> FamilyId {
@@ -294,7 +307,7 @@ impl Appearance {
     }
 
     pub fn overline_font_size(&self) -> f32 {
-        OVERLINE_FONT_SIZE
+        self.scaled_ui_size(OVERLINE_FONT_SIZE)
     }
 
     pub fn line_height_ratio(&self) -> f32 {

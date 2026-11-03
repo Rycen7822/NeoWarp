@@ -84,9 +84,8 @@ impl KeybindingsView {
         let bindings = Some(Self::build_bindings(ctx));
 
         let search_editor = {
-            let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
-                text: TextOptions::ui_font_size(appearance),
+                text: TextOptions::ui_font_size(),
                 propagate_and_no_op_vertical_navigation_keys:
                     PropagateAndNoOpNavigationKeys::Always,
                 ..Default::default()

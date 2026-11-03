@@ -1787,6 +1787,7 @@ impl TerminalView {
                 | AppearanceEvent::LineHeightRatioChanged { .. }
                 | AppearanceEvent::MonospaceFontFamilyChanged { .. }
                 | AppearanceEvent::MonospaceFontWeightChanged { .. }
+                | AppearanceEvent::UiFontSizeChanged
                 | AppearanceEvent::UiFontFamilyChanged { .. } => {
                     me.refresh_size(ctx);
                 }

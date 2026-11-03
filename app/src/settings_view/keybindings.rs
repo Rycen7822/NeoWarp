@@ -489,10 +489,8 @@ impl KeybindingRow {
 impl KeybindingsView {
     pub fn new(ctx: &mut ViewContext<KeybindingsView>) -> Self {
         let search_editor = {
-            let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
                 text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
                     use_ui_font_family: true,
                     ..Default::default()
                 },

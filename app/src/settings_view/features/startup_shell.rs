@@ -67,9 +67,8 @@ impl StartupShellView {
         Self::update_dropdown_state(shell_dropdown.clone(), ctx);
 
         let shell_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance_handle = Appearance::handle(ctx);
             let options = SingleLineEditorOptions {
-                text: TextOptions::ui_font_size(appearance_handle.as_ref(ctx)),
+                text: TextOptions::ui_font_size(),
                 ..Default::default()
             };
             let mut editor = EditorView::single_line(options, ctx);

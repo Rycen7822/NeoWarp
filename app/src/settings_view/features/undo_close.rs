@@ -39,7 +39,7 @@ impl UndoCloseView {
         let grace_period_editor = ctx.add_typed_action_view(|ctx| {
             EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_font_size(Appearance::as_ref(ctx)),
+                    text: TextOptions::ui_font_size(),
                     ..Default::default()
                 },
                 ctx,
