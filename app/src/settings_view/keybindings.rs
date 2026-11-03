@@ -493,6 +493,7 @@ impl KeybindingsView {
             let options = SingleLineEditorOptions {
                 text: TextOptions {
                     font_size_override: Some(appearance.ui_font_size()),
+                    use_ui_font_family: true,
                     ..Default::default()
                 },
                 propagate_and_no_op_vertical_navigation_keys:

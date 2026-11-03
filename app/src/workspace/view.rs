@@ -590,9 +590,8 @@ impl Workspace {
 
     fn vertical_tabs_search_input(ctx: &mut ViewContext<Self>) -> ViewHandle<EditorView> {
         let editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
-                text: TextOptions::ui_text(Some(12.), appearance),
+                text: TextOptions::ui_text(Some(12.)),
                 ..Default::default()
             };
             EditorView::single_line(options, ctx)
@@ -618,10 +617,9 @@ impl Workspace {
             ctx.add_typed_action_view(|ctx| {
                 let appearance = Appearance::as_ref(ctx);
                 let options = SingleLineEditorOptions {
-                    text: TextOptions::ui_text(
-                        Some(Self::tab_rename_editor_font_size(ctx, appearance)),
-                        appearance,
-                    ),
+                    text: TextOptions::ui_text(Some(Self::tab_rename_editor_font_size(
+                        ctx, appearance,
+                    ))),
                     ..Default::default()
                 };
                 EditorView::single_line(options, ctx)
@@ -635,9 +633,8 @@ impl Workspace {
 
     fn pane_rename_editor(ctx: &mut ViewContext<Self>) -> ViewHandle<EditorView> {
         let editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
-                text: TextOptions::ui_text(Some(12.), appearance),
+                text: TextOptions::ui_text(Some(12.)),
                 ..Default::default()
             };
             EditorView::single_line(options, ctx)
@@ -650,9 +647,8 @@ impl Workspace {
 
     fn tab_group_rename_editor(ctx: &mut ViewContext<Self>) -> ViewHandle<EditorView> {
         let editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
-                text: TextOptions::ui_text(Some(12.), appearance),
+                text: TextOptions::ui_text(Some(12.)),
                 ..Default::default()
             };
             EditorView::single_line(options, ctx)

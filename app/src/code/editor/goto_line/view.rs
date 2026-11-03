@@ -37,10 +37,9 @@ pub struct GoToLineView {
 impl GoToLineView {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let line_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let mut editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(GOTO_LINE_EDITOR_FONT_SIZE), appearance),
+                    text: TextOptions::ui_text(Some(GOTO_LINE_EDITOR_FONT_SIZE)),
                     select_all_on_focus: true,
                     clear_selections_on_blur: false,
                     propagate_and_no_op_vertical_navigation_keys:

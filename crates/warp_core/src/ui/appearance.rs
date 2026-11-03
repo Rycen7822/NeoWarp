@@ -23,8 +23,7 @@ pub struct Appearance {
     line_height_ratio: f32,
     ui_builder: UiBuilder,
 
-    // We cache the family id for the ui font - note that this
-    // isn't actually a changeable setting right now.
+    // Interface text reads this live; changing it invalidates every window.
     ui_font_family: FamilyId,
     /// A font that is used for password fields.
     password_font_family: FamilyId,

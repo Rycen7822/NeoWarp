@@ -217,7 +217,7 @@ impl SessionEditor {
             let field = ctx.add_typed_action_view(|ctx| {
                 let mut editor = EditorView::single_line(
                     SingleLineEditorOptions {
-                        text: TextOptions::ui_font_size(Appearance::as_ref(ctx)),
+                        text: TextOptions::ui_text(Some(Appearance::as_ref(ctx).ui_font_size())),
                         propagate_and_no_op_vertical_navigation_keys:
                             PropagateAndNoOpNavigationKeys::Always,
                         ..Default::default()

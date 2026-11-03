@@ -80,7 +80,7 @@ where
             let appearance = Appearance::as_ref(ctx);
             let mut editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(appearance.ui_font_size()), appearance),
+                    text: TextOptions::ui_text(Some(appearance.ui_font_size())),
                     propagate_and_no_op_vertical_navigation_keys:
                         PropagateAndNoOpNavigationKeys::Always,
                     ..Default::default()

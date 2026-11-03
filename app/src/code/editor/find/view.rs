@@ -132,10 +132,9 @@ pub fn init(app: &mut AppContext) {
 impl CodeEditorFind {
     pub fn new(searcher: ModelHandle<Searcher>, ctx: &mut ViewContext<Self>) -> Self {
         let find_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let mut editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(FIND_EDITOR_FONT_SIZE), appearance),
+                    text: TextOptions::ui_text(Some(FIND_EDITOR_FONT_SIZE)),
                     select_all_on_focus: true,
                     clear_selections_on_blur: true,
                     propagate_and_no_op_vertical_navigation_keys:
@@ -149,10 +148,9 @@ impl CodeEditorFind {
         });
 
         let replace_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let mut replace_editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(FIND_EDITOR_FONT_SIZE), appearance),
+                    text: TextOptions::ui_text(Some(FIND_EDITOR_FONT_SIZE)),
                     select_all_on_focus: true,
                     clear_selections_on_blur: true,
                     propagate_and_no_op_vertical_navigation_keys:

@@ -119,10 +119,9 @@ pub fn filter_button_position_id(block: BlockIndex) -> String {
 impl BlockFilterEditor {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let query_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let mut editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(BLOCK_FILTER_FONT_SIZE), appearance),
+                    text: TextOptions::ui_text(Some(BLOCK_FILTER_FONT_SIZE)),
                     select_all_on_focus: true,
                     clear_selections_on_blur: true,
                     propagate_and_no_op_vertical_navigation_keys:
@@ -140,10 +139,9 @@ impl BlockFilterEditor {
         });
 
         let context_line_editor = ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::as_ref(ctx);
             let mut editor = EditorView::single_line(
                 SingleLineEditorOptions {
-                    text: TextOptions::ui_text(Some(BLOCK_FILTER_FONT_SIZE), appearance),
+                    text: TextOptions::ui_text(Some(BLOCK_FILTER_FONT_SIZE)),
                     propagate_and_no_op_vertical_navigation_keys:
                         PropagateAndNoOpNavigationKeys::Always,
                     select_all_on_focus: true,

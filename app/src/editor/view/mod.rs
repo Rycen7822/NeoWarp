@@ -1272,6 +1272,8 @@ pub struct TextOptions {
     pub font_size_override: Option<f32>,
     /// Font family to use when rendering the editor. If `None`, the monospace font is used.
     pub font_family_override: Option<FamilyId>,
+    /// Follow the current interface font unless an explicit family overrides it.
+    pub use_ui_font_family: bool,
     /// Default font properties for editor text.
     pub font_properties_override: Option<Properties>,
     /// Colors to use when rendering editor text. If `None`, the theme's text colors are used.
@@ -1290,13 +1292,23 @@ impl TextOptions {
 
     /// Create `TextOptions` to use the UI font family at the given size. All other overrides
     /// have their default value.
-    pub fn ui_text(size: Option<f32>, appearance: &Appearance) -> Self {
+    pub fn ui_text(size: Option<f32>) -> Self {
         Self {
             font_size_override: size,
-            font_family_override: Some(appearance.ui_font_family()),
+            use_ui_font_family: true,
             font_properties_override: Some(Properties::default()),
             ..Default::default()
         }
+    }
+
+    fn font_family(&self, appearance: &Appearance) -> FamilyId {
+        self.font_family_override.unwrap_or_else(|| {
+            if self.use_ui_font_family {
+                appearance.ui_font_family()
+            } else {
+                appearance.monospace_font_family()
+            }
+        })
     }
 }
 
@@ -6472,16 +6484,12 @@ impl EditorView {
         if self.is_password {
             return appearance.password_font_family();
         }
-        self.text_options
-            .font_family_override
-            .unwrap_or_else(|| appearance.monospace_font_family())
+        self.text_options.font_family(appearance)
     }
 
     /// Font family of this editor's placeholder text.
     pub fn placeholder_font_family(&self, appearance: &Appearance) -> FamilyId {
-        self.text_options
-            .font_family_override
-            .unwrap_or_else(|| appearance.monospace_font_family())
+        self.text_options.font_family(appearance)
     }
 
     pub fn line_height_ratio(&self, appearance: &Appearance) -> f32 {

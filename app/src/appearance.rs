@@ -67,6 +67,12 @@ impl AppearanceManager {
         ctx.subscribe_to_model(
             &FontSettings::handle(ctx),
             move |_, _, event, ctx| match event {
+                FontSettingsChangedEvent::UiFontName { .. } => match load_ui_font_family(ctx) {
+                    Ok(family) => Appearance::handle(ctx).update(ctx, |appearance, ctx| {
+                        appearance.set_ui_font_family(family, ctx);
+                    }),
+                    Err(error) => log::warn!("Cannot load interface font: {error:#}"),
+                },
                 FontSettingsChangedEvent::MonospaceFontName { .. } => {
                     let font_name = FontSettings::as_ref(ctx)
                         .monospace_font_name
@@ -286,7 +292,7 @@ fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId>
         // This font should be bundled with any modern version of Windows, if we can't load it for
         // any reason we fallback to using our normal bundled font.
         #[cfg(windows)]
-        if let Ok(font_family_id) = font_cache.load_system_font("Segoe UI") {
+        if let Ok(font_family_id) = font_cache.get_or_load_system_font("Segoe UI") {
             return Ok(font_family_id);
         }
 
@@ -295,6 +301,9 @@ fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId>
 }
 
 fn load_roboto_font_family(font_cache: &mut warpui::fonts::Cache) -> anyhow::Result<FamilyId> {
+    if let Some(family) = font_cache.family_id_for_name("Roboto") {
+        return Ok(family);
+    }
     font_cache.load_family_from_bytes(
         "Roboto",
         vec![
@@ -369,6 +378,16 @@ fn get_or_load_font_family(font_name: &str, ctx: &mut AppContext) -> Option<Fami
     })
 }
 
+fn load_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
+    let name = FontSettings::as_ref(ctx).ui_font_name.value().clone();
+    if !name.is_empty()
+        && let Some(family) = get_or_load_font_family(&name, ctx)
+    {
+        return Ok(family);
+    }
+    load_default_ui_font_family(ctx)
+}
+
 fn build_appearance(ctx: &mut AppContext) -> Appearance {
     let default_monospace_font_family = load_default_monospace_font_family(ctx)
         .expect("unable to load default monospace font family");
@@ -379,8 +398,7 @@ fn build_appearance(ctx: &mut AppContext) -> Appearance {
 
     let monospace_font_family_from_settings = get_or_load_font_family(&monospace_font_name, ctx);
 
-    let ui_font_family =
-        load_default_ui_font_family(ctx).expect("unable to load default ui font family");
+    let ui_font_family = load_ui_font_family(ctx).expect("unable to load default ui font family");
 
     let password_font_family =
         load_password_font_family(ctx).expect("unable to load password font family");

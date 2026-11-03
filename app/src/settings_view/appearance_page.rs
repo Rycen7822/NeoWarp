@@ -402,6 +402,7 @@ impl FontType {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AppearancePageAction {
     SetLanguage(Language),
+    SetUiFontFamily(String),
     LineHeightEditorResetRatio,
     SetNewWindowsCustomColumns,
     SetNewWindowsCustomRows,
@@ -469,6 +470,7 @@ pub struct AppearanceSettingsPageView {
     opacity_state: SliderStateHandle,
     blur_state: SliderStateHandle,
     font_family_dropdown: ViewHandle<FilterableDropdown<AppearancePageAction>>,
+    ui_font_family_dropdown: ViewHandle<FilterableDropdown<AppearancePageAction>>,
     font_weight_dropdown: ViewHandle<Dropdown<AppearancePageAction>>,
     #[allow(dead_code)]
     thin_strokes_dropdown: ViewHandle<Dropdown<AppearancePageAction>>,
@@ -511,6 +513,11 @@ impl TypedActionView for AppearanceSettingsPageView {
             SetLanguage(language) => {
                 GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.ui_language.set_value(*language, ctx));
+                });
+            }
+            SetUiFontFamily(name) => {
+                FontSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.ui_font_name.set_value(name.clone(), ctx));
                 });
             }
             LineHeightEditorResetRatio => self.reset_line_height_ratio(ctx),
@@ -743,6 +750,9 @@ impl AppearanceSettingsPageView {
                     });
                     ctx.notify();
                 }
+                FontSettingsChangedEvent::UiFontName { .. } => {
+                    me.update_ui_font_dropdown(ctx);
+                }
                 _ => {}
             },
         );
@@ -922,6 +932,26 @@ impl AppearanceSettingsPageView {
             // Initialize dropdown with the default font in case system fonts failed to load.
             dropdown.add_items(vec![Self::default_font_item(ctx)], ctx);
             dropdown.set_selected_by_index(0, ctx);
+            dropdown
+        });
+
+        let ui_font_family_dropdown = ctx.add_typed_action_view(|ctx| {
+            let mut dropdown = FilterableDropdown::new(ctx);
+            dropdown.set_top_bar_max_width(FONT_FAMILY_DROPDOWN_WIDTH);
+            dropdown.set_menu_width(FONT_FAMILY_DROPDOWN_WIDTH, ctx);
+            let selected = FontSettings::as_ref(ctx).ui_font_name.value().clone();
+            let mut items = vec![DropdownItem::localized(
+                "System default",
+                AppearancePageAction::SetUiFontFamily(String::new()),
+            )];
+            if !selected.is_empty() {
+                items.push(DropdownItem::new(
+                    selected.clone(),
+                    AppearancePageAction::SetUiFontFamily(selected.clone()),
+                ));
+            }
+            dropdown.set_items(items, ctx);
+            dropdown.set_selected_by_action(AppearancePageAction::SetUiFontFamily(selected), ctx);
             dropdown
         });
 
@@ -1142,6 +1172,7 @@ impl AppearanceSettingsPageView {
                 crate::terminal::general_settings::GeneralSettingsChangedEvent::UiLanguage { .. }
             ) {
                 me.update_font_dropdown(ctx);
+                me.update_ui_font_dropdown(ctx);
             }
             ctx.notify();
         });
@@ -1159,6 +1190,7 @@ impl AppearanceSettingsPageView {
             opacity_state: Default::default(),
             blur_state: Default::default(),
             font_family_dropdown,
+            ui_font_family_dropdown,
             font_weight_dropdown,
             thin_strokes_dropdown,
             input_mode_dropdown,
@@ -1266,8 +1298,10 @@ impl AppearanceSettingsPageView {
         categories.push(Category::new("Blocks", block_settings_widgets));
 
         let font_settings = FontSettings::as_ref(ctx);
-        let mut text_settings_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
-            vec![Box::new(TerminalFontWidget::default())];
+        let mut text_settings_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
+            Box::new(UiFontWidget),
+            Box::new(TerminalFontWidget::default()),
+        ];
         if font_settings
             .use_thin_strokes
             .is_supported_on_current_platform()
@@ -1811,6 +1845,27 @@ impl AppearanceSettingsPageView {
 
         ctx.notify();
     }
+
+    fn update_ui_font_dropdown(&mut self, ctx: &mut ViewContext<Self>) {
+        let selected = FontSettings::as_ref(ctx).ui_font_name.value().clone();
+        let mut names = self.available_families.keys().cloned().collect::<Vec<_>>();
+        if !selected.is_empty() && !names.contains(&selected) {
+            names.push(selected.clone());
+        }
+        names.sort();
+        let mut items = vec![DropdownItem::localized(
+            "System default",
+            AppearancePageAction::SetUiFontFamily(String::new()),
+        )];
+        items.extend(names.into_iter().map(|name| {
+            DropdownItem::new(name.clone(), AppearancePageAction::SetUiFontFamily(name))
+        }));
+        self.ui_font_family_dropdown.update(ctx, |dropdown, ctx| {
+            dropdown.set_items(items, ctx);
+            dropdown.set_selected_by_action(AppearancePageAction::SetUiFontFamily(selected), ctx);
+        });
+    }
+
     pub fn set_system_fonts(
         &mut self,
         available_families: Vec<(Option<FamilyId>, FontInfo)>,
@@ -1840,6 +1895,7 @@ impl AppearanceSettingsPageView {
         }
 
         self.update_font_dropdown(ctx);
+        self.update_ui_font_dropdown(ctx);
     }
 
     pub fn set_font_family(&mut self, name: &str, ctx: &mut ViewContext<Self>) {
@@ -2327,7 +2383,7 @@ impl SettingsWidget for LanguageWidget {
     type View = AppearanceSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "language locale english chinese 语言 中文 汉化 英文"
+        "interface language locale english chinese 语言 中文 汉化 英文"
     }
 
     fn render(
@@ -3339,6 +3395,35 @@ impl SettingsWidget for ShowBlockDividersWidget {
 struct TerminalFontWidget {
     line_height_button_state: MouseStateHandle,
     fonts_checkbox_state: MouseStateHandle,
+}
+
+struct UiFontWidget;
+
+impl SettingsWidget for UiFontWidget {
+    type View = AppearanceSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "interface ui font family 界面 字体 中文"
+    }
+
+    fn render(
+        &self,
+        view: &Self::View,
+        appearance: &Appearance,
+        _app: &AppContext,
+    ) -> Box<dyn Element> {
+        render_body_item::<AppearancePageAction>(
+            "Interface font".to_owned(),
+            None,
+            ToggleState::Enabled,
+            appearance,
+            ChildView::new(&view.ui_font_family_dropdown).finish(),
+            Some(
+                "Used by menus, settings and sidebars. Missing characters use system fallback."
+                    .to_owned(),
+            ),
+        )
+    }
 }
 
 impl TerminalFontWidget {

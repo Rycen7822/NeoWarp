@@ -874,11 +874,10 @@ impl SettingsView {
             me.handle_privacy_page_event(event, ctx);
         });
 
-        let font_family = Appearance::as_ref(ctx).ui_font_family();
         let search_editor = ctx.add_typed_action_view(|ctx| {
             let options = SingleLineEditorOptions {
                 text: TextOptions {
-                    font_family_override: Some(font_family),
+                    use_ui_font_family: true,
                     ..Default::default()
                 },
                 // We want "up" and "down" to cycle settings pages.

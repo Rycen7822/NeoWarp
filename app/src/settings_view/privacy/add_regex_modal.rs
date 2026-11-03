@@ -40,12 +40,10 @@ pub enum AddRegexModalEvent {
 
 impl AddRegexModal {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let font_family = Appearance::as_ref(ctx).ui_font_family();
-
         let name_editor = ctx.add_typed_action_view(|ctx| {
             let options = SingleLineEditorOptions {
                 text: TextOptions {
-                    font_family_override: Some(font_family),
+                    use_ui_font_family: true,
                     ..Default::default()
                 },
                 propagate_and_no_op_vertical_navigation_keys:
@@ -60,7 +58,7 @@ impl AddRegexModal {
         let pattern_editor = ctx.add_typed_action_view(|ctx| {
             let options = SingleLineEditorOptions {
                 text: TextOptions {
-                    font_family_override: Some(font_family),
+                    use_ui_font_family: true,
                     ..Default::default()
                 },
                 propagate_and_no_op_vertical_navigation_keys:
