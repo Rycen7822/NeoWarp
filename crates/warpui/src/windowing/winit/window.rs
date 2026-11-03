@@ -800,6 +800,9 @@ impl RenderingResources {
 }
 
 struct Inner {
+    // Remove the native caption hook before dropping the winit HWND or accessibility hook.
+    #[cfg(windows)]
+    maximize_button: Option<super::windows::MaximizeButton>,
     #[cfg(windows)]
     accessibility: Option<super::windows::plugin::WindowPlugin>,
     window: Arc<winit::window::Window>,
@@ -931,6 +934,8 @@ impl Window {
             }
         }
         self.inner.replace(Some(Inner {
+            #[cfg(windows)]
+            maximize_button: None,
             #[cfg(windows)]
             accessibility,
             window,
@@ -1845,12 +1850,15 @@ impl platform::WindowContext for Window {
         self.scene.borrow_mut().replace(scene);
         if let Some(inner) = self.inner.borrow_mut().as_mut() {
             #[cfg(windows)]
-            if let Err(error) =
-                super::windows::set_maximize_button_rect(&inner.window, maximize_button)
-            {
-                report_error!(
-                    anyhow::Error::new(error).context("Failed to update maximize button bounds")
-                );
+            if let Some(button) = inner.maximize_button.as_ref() {
+                button.set_bounds(maximize_button);
+            } else if let Some(bounds) = maximize_button {
+                match super::windows::MaximizeButton::new(&inner.window, bounds) {
+                    Ok(button) => inner.maximize_button = Some(button),
+                    Err(error) => report_error!(
+                        anyhow::Error::new(error).context("Failed to attach maximize button hook")
+                    ),
+                }
             }
             inner.window.request_redraw();
         }

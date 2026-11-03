@@ -1,12 +1,12 @@
+use std::cell::Cell;
+
 use pathfinder_geometry::rect::RectF;
 use windows::Win32::Foundation::{E_FAIL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent,
 };
-use windows::Win32::UI::Shell::{
-    DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass,
-};
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     HTCLIENT, HTMAXBUTTON, SendMessageW, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
     WM_MOUSEMOVE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP,
@@ -21,47 +21,70 @@ const MAXIMIZE_BUTTON_SUBCLASS: usize = 1;
 const WM_MOUSELEAVE: u32 = 0x02a3;
 const MK_LBUTTON: usize = 1;
 
-/// Bounds are physical client pixels. Only the HWND's UI thread updates or reads this state.
-pub fn set_maximize_button_rect(
-    window: &WinitWindow,
-    bounds: Option<RectF>,
-) -> Result<(), WindowAttributeErr> {
-    let hwnd = to_hwnd(window)?;
-    let rect = bounds.map(|bounds| RECT {
+/// The window owns its hook and state. Only its creating UI thread reads or updates the Cells.
+pub struct MaximizeButton {
+    state: Box<MaximizeButtonState>,
+}
+
+struct MaximizeButtonState {
+    window: Cell<HWND>,
+    bounds: Cell<RECT>,
+}
+
+fn physical_rect(bounds: RectF) -> RECT {
+    RECT {
         left: bounds.min_x().ceil() as i32,
         top: bounds.min_y().ceil() as i32,
         right: bounds.max_x().floor() as i32,
         bottom: bounds.max_y().floor() as i32,
-    });
-    let mut state = 0;
-    // SAFETY: winit renders and dispatches window messages on the creating UI thread. The
-    // subclass owns its boxed RECT until WM_NCDESTROY; no reference is kept across message calls.
-    unsafe {
-        if GetWindowSubclass(
-            hwnd,
-            Some(maximize_button_proc),
-            MAXIMIZE_BUTTON_SUBCLASS,
-            Some(&mut state),
-        )
-        .as_bool()
-        {
-            *(state as *mut RECT) = rect.unwrap_or_default();
-        } else if let Some(rect) = rect {
-            let state = Box::into_raw(Box::new(rect));
-            if !SetWindowSubclass(
+    }
+}
+
+impl MaximizeButton {
+    pub fn new(window: &WinitWindow, bounds: RectF) -> Result<Self, WindowAttributeErr> {
+        let hwnd = to_hwnd(window)?;
+        let state = Box::new(MaximizeButtonState {
+            window: Cell::new(hwnd),
+            bounds: Cell::new(physical_rect(bounds)),
+        });
+        // SAFETY: Box keeps the callback address stable. Drop removes the hook before freeing
+        // the state; WM_NCDESTROY clears the HWND to avoid removing a hook from a reused handle.
+        if !unsafe {
+            SetWindowSubclass(
                 hwnd,
                 Some(maximize_button_proc),
                 MAXIMIZE_BUTTON_SUBCLASS,
-                state as usize,
+                state.as_ref() as *const MaximizeButtonState as usize,
             )
-            .as_bool()
-            {
-                drop(Box::from_raw(state));
-                return Err(windows::core::Error::new(E_FAIL, "SetWindowSubclass failed").into());
+        }
+        .as_bool()
+        {
+            return Err(windows::core::Error::new(E_FAIL, "SetWindowSubclass failed").into());
+        }
+        Ok(Self { state })
+    }
+
+    pub fn set_bounds(&self, bounds: Option<RectF>) {
+        self.state
+            .bounds
+            .set(bounds.map(physical_rect).unwrap_or_default());
+    }
+}
+
+impl Drop for MaximizeButton {
+    fn drop(&mut self) {
+        let hwnd = self.state.window.get();
+        if !hwnd.is_invalid() {
+            // SAFETY: this hook belongs to this window and is removed on its UI thread.
+            unsafe {
+                let _ = RemoveWindowSubclass(
+                    hwnd,
+                    Some(maximize_button_proc),
+                    MAXIMIZE_BUTTON_SUBCLASS,
+                );
             }
         }
     }
-    Ok(())
 }
 
 /// Convert signed screen coordinates (including monitors left/above the primary) to client pixels.
@@ -88,9 +111,9 @@ unsafe extern "system" fn maximize_button_proc(
     _id: usize,
     state: usize,
 ) -> LRESULT {
-    // SAFETY: SetWindowSubclass owns a live RECT for this callback, released on WM_NCDESTROY.
-    // Copy it before forwarding messages: forwarding may re-enter this callback or destroy hwnd.
-    let rect = unsafe { *(state as *const RECT) };
+    // SAFETY: MaximizeButton keeps its state alive while the hook is installed. Copy bounds
+    // before forwarding: a forwarded message may re-enter the hook or drop the owning window.
+    let rect = unsafe { (*(state as *const MaximizeButtonState)).bounds.get() };
     match message {
         WM_NCHITTEST => {
             let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
@@ -151,9 +174,11 @@ unsafe extern "system" fn maximize_button_proc(
             }
         }
         WM_NCDESTROY => unsafe {
+            (*(state as *const MaximizeButtonState))
+                .window
+                .set(HWND::default());
             let _ =
                 RemoveWindowSubclass(hwnd, Some(maximize_button_proc), MAXIMIZE_BUTTON_SUBCLASS);
-            drop(Box::from_raw(state as *mut RECT));
         },
         _ => {}
     }
