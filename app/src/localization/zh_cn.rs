@@ -470,6 +470,20 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "View" => "视图",
         "Help" => "帮助",
         "Tab" => "标签页",
+        "Current theme" => "当前主题",
+        "Light" => "浅色",
+        "Dark" => "深色",
+        "Automatically switch between light and dark themes when your system does." => {
+            "跟随系统自动切换浅色和深色主题。"
+        }
+        "Pin to the bottom (Warp mode)" => "固定在底部（NeoWarp 模式）",
+        "Pin to the top (Reverse mode)" => "固定在顶部（反向模式）",
+        "Start at the top (Classic mode)" => "从顶部开始（经典模式）",
+        "On low-DPI displays" => "在低 DPI 显示器上",
+        "On high-DPI displays" => "在高 DPI 显示器上",
+        "Only for named colors" => "仅命名颜色",
+        "When windowed" => "窗口模式下",
+        "Only on hover" => "仅悬停时",
         _ => return None,
     })
 }

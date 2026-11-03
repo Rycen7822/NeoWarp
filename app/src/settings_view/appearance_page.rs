@@ -1434,11 +1434,11 @@ impl AppearanceSettingsPageView {
     }
 
     fn input_mode_dropdown_item_label(val: InputMode) -> &'static str {
-        match val {
+        tr(match val {
             InputMode::PinnedToBottom => "Pin to the bottom (Warp mode)",
             InputMode::PinnedToTop => "Pin to the top (Reverse mode)",
             InputMode::Waterfall => "Start at the top (Classic mode)",
-        }
+        })
     }
 
     fn app_icon_dropdown_item_label(val: AppIcon) -> &'static str {
@@ -1464,39 +1464,39 @@ impl AppearanceSettingsPageView {
     }
 
     fn thin_strokes_dropdown_item_label(val: ThinStrokes) -> &'static str {
-        match val {
+        tr(match val {
             ThinStrokes::Never => "Never",
             ThinStrokes::OnLowDpiDisplays => "On low-DPI displays",
             ThinStrokes::OnHighDpiDisplays => "On high-DPI displays",
             ThinStrokes::Always => "Always",
-        }
+        })
     }
 
     fn enforce_minimum_contrast_dropdown_item_label(val: EnforceMinimumContrast) -> &'static str {
-        match val {
+        tr(match val {
             EnforceMinimumContrast::Always => "Always",
             EnforceMinimumContrast::OnlyNamedColors => "Only for named colors",
             EnforceMinimumContrast::Never => "Never",
-        }
+        })
     }
 
     fn workspace_decoration_visibility_dropdown_item_label(
         value: WorkspaceDecorationVisibility,
     ) -> &'static str {
-        match value {
+        tr(match value {
             WorkspaceDecorationVisibility::AlwaysShow => "Always",
             WorkspaceDecorationVisibility::HideFullscreen => "When windowed",
             WorkspaceDecorationVisibility::OnHover => "Only on hover",
-        }
+        })
     }
 
     fn tab_close_button_position_dropdown_item_label(
         value: TabCloseButtonPosition,
     ) -> &'static str {
-        match value {
+        tr(match value {
             TabCloseButtonPosition::Right => "Right",
             TabCloseButtonPosition::Left => "Left",
-        }
+        })
     }
 
     fn handle_alt_screen_padding_editor_event(
@@ -2354,11 +2354,11 @@ impl ThemeSelectWidget {
         app: &AppContext,
     ) -> Box<dyn Element> {
         let theme: WarpTheme = WarpConfig::as_ref(app).theme_config().theme(&theme_kind);
-        let mode_ui_label = match theme_chooser_mode {
+        let mode_ui_label = tr(match theme_chooser_mode {
             ThemeChooserMode::SystemLight => "Light",
             ThemeChooserMode::SystemDark => "Dark",
             ThemeChooserMode::SystemAgnostic => "Current theme",
-        };
+        });
 
         ConstrainedBox::new(
             Hoverable::new(state, |hover_state| {
@@ -2498,7 +2498,7 @@ impl SettingsWidget for ThemeSelectWidget {
                 appearance
                     .ui_builder()
                     .span(
-                        "Automatically switch between light and dark themes when your system does."
+                        tr("Automatically switch between light and dark themes when your system does.")
                             .to_string(),
                     )
                     .with_style(
