@@ -10,9 +10,9 @@ use warpui::r#async::SpawnedFutureHandle;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
-    Expanded, Flex, List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement,
-    Radius, ScrollStateHandle, Shrinkable, Text,
+    Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Empty, Expanded, Flex, List,
+    ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
+    Shrinkable, Text,
 };
 use warpui::ui_components::components::UiComponent;
 use warpui::units::Pixels;
@@ -372,11 +372,6 @@ impl GitReviewView {
             .with_child(
                 Container::new(header.finish())
                     .with_background(theme.surface_2())
-                    .with_corner_radius(if card.expanded {
-                        CornerRadius::with_top(Radius::Pixels(8.))
-                    } else {
-                        CornerRadius::with_all(Radius::Pixels(8.))
-                    })
                     .with_padding(Padding::uniform(8.))
                     .finish(),
             );
@@ -402,7 +397,6 @@ impl GitReviewView {
         Container::new(column.finish())
             .with_background(theme.background())
             .with_border(Border::all(1.).with_border_fill(theme.outline()))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
             .with_margin_bottom(12.)
             .finish()
     }
