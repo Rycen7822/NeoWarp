@@ -1010,6 +1010,26 @@ impl Window {
             return Ok(());
         };
 
+        #[cfg(windows)]
+        {
+            let maximize_button = scene.window_maximize_button.map(|bounds| {
+                RectF::new(
+                    bounds.origin() * scene.scale_factor(),
+                    bounds.size() * scene.scale_factor(),
+                )
+            });
+            if let Some(button) = inner.maximize_button.as_ref() {
+                button.set_bounds(maximize_button);
+            } else if let Some(bounds) = maximize_button {
+                match super::windows::MaximizeButton::new(&inner.window, bounds) {
+                    Ok(button) => inner.maximize_button = Some(button),
+                    Err(error) => report_error!(
+                        anyhow::Error::new(error).context("Failed to attach maximize button hook")
+                    ),
+                }
+            }
+        }
+
         let Some(rendering_resources) = inner.rendering_resources.as_mut() else {
             return Ok(());
         };
@@ -1840,26 +1860,8 @@ impl platform::WindowContext for Window {
     }
 
     fn render_scene(&self, scene: Rc<Scene>) {
-        #[cfg(windows)]
-        let maximize_button = scene.window_maximize_button.map(|bounds| {
-            RectF::new(
-                bounds.origin() * scene.scale_factor(),
-                bounds.size() * scene.scale_factor(),
-            )
-        });
         self.scene.borrow_mut().replace(scene);
         if let Some(inner) = self.inner.borrow_mut().as_mut() {
-            #[cfg(windows)]
-            if let Some(button) = inner.maximize_button.as_ref() {
-                button.set_bounds(maximize_button);
-            } else if let Some(bounds) = maximize_button {
-                match super::windows::MaximizeButton::new(&inner.window, bounds) {
-                    Ok(button) => inner.maximize_button = Some(button),
-                    Err(error) => report_error!(
-                        anyhow::Error::new(error).context("Failed to attach maximize button hook")
-                    ),
-                }
-            }
             inner.window.request_redraw();
         }
     }
