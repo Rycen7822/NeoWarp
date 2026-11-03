@@ -12,6 +12,7 @@ use warp_core::settings::macros::define_settings_group;
 pub use working_directory_config::*;
 
 use crate::context_chips::prompt::PromptSelection;
+use crate::terminal::cli_toolbelt_config::CLIAgentToolbarChipSelection;
 
 lazy_static! {
     pub static ref DEFAULT_THRESHOLD_FOR_LONG_RUNNING_NOTIFICATION: Duration =
@@ -129,6 +130,14 @@ impl GithubPrPromptChipDefaultValidation {
 }
 
 define_settings_group!(SessionSettings, settings: [
+    cli_agent_footer_chip_selection: CLIAgentToolbarChipSelectionSetting {
+        type: CLIAgentToolbarChipSelection,
+        default: CLIAgentToolbarChipSelection::default(),
+        supported_platforms: SupportedPlatforms::ALL,
+        private: false,
+        toml_path: "agents.third_party.cli_agent_toolbar_chip_selection_setting",
+        description: "Controls the local CLI agent toolbelt layout.",
+    },
     working_directory_config: WorkingDirectoryConfig,
     startup_shell_override: StartupShellOverride {
         type: StartupShell,

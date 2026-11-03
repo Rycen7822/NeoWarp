@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use settings::Setting;
 use warpui::{App, TypedActionView, View};
 
 use super::*;
@@ -23,7 +24,7 @@ fn cli_toolbelt_preserves_draft_and_submits_codex_text_without_running_a_shell_c
                 }
             })
         });
-        terminal.update(&mut app, |view, ctx| {
+        let block = terminal.update(&mut app, |view, ctx| {
             assert!(view.cli_toolbelt.is_none());
             assert!(
                 crate::project_sessions::command::parse(
@@ -48,6 +49,23 @@ fn cli_toolbelt_preserves_draft_and_submits_codex_text_without_running_a_shell_c
             assert!(view.cli_toolbelt.as_ref().unwrap().editor.is_none());
             assert!(view.should_subscribe_to_git_status(ctx));
             assert!(view.keymap_context(ctx).set.contains("CliAgentToolbelt"));
+            view.show_cli_toolbelt_menu(warpui::geometry::vector::vec2f(10., 10.), ctx);
+            assert!(matches!(
+                view.context_menu_state
+                    .as_ref()
+                    .map(|state| state.menu_type),
+                Some(ContextMenuType::CliToolbelt { .. })
+            ));
+            assert!(matches!(
+                view.context_menu
+                    .as_ref(ctx)
+                    .items()
+                    .last()
+                    .unwrap()
+                    .item_on_select_action(),
+                Some(TerminalAction::EditCliToolbelt)
+            ));
+            view.close_context_menu(ctx, false);
             view.handle_action(&TerminalAction::ToggleCliRichInput, ctx);
             let editor = view.cli_toolbelt.as_ref().unwrap().editor.clone().unwrap();
             editor.update(ctx, |editor, ctx| {
@@ -59,6 +77,23 @@ fn cli_toolbelt_preserves_draft_and_submits_codex_text_without_running_a_shell_c
             let editor = view.cli_toolbelt.as_ref().unwrap().editor.as_ref().unwrap();
             assert_eq!(editor.as_ref(ctx).buffer_text(ctx), "first\nsecond");
             view.submit_cli_rich_input(ctx);
+            block
+        });
+        SessionSettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .cli_agent_footer_chip_selection
+                .set_value(
+                    crate::terminal::cli_toolbelt_config::CLIAgentToolbarChipSelection::Custom {
+                        left: vec![Item::ContextChip(ContextChipKind::WorkingDirectory)],
+                        right: vec![],
+                    },
+                    ctx,
+                )
+                .unwrap();
+        });
+        terminal.update(&mut app, |view, ctx| {
+            assert!(view.cli_toolbelt.as_ref().unwrap().editor.is_none());
+            assert!(!view.keymap_context(ctx).set.contains("CliAgentToolbelt"));
             view.end_cli_toolbelt(Some(&block), ctx);
             assert!(view.cli_toolbelt.is_none());
         });

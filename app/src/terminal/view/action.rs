@@ -62,6 +62,14 @@ impl RememberForWarpification {
 pub enum TerminalAction {
     #[cfg(feature = "local_fs")]
     ToggleCliRichInput,
+    #[cfg(feature = "local_fs")]
+    ShowCliToolbeltMenu {
+        position: Vector2F,
+    },
+    #[cfg(feature = "local_fs")]
+    EditCliToolbelt,
+    #[cfg(feature = "local_fs")]
+    CliToolbeltItem(crate::terminal::cli_toolbelt_config::CliToolbeltItem),
     Scroll {
         delta: Lines,
     },
@@ -238,6 +246,12 @@ impl fmt::Debug for TerminalAction {
         match self {
             #[cfg(feature = "local_fs")]
             ToggleCliRichInput => f.write_str("ToggleCliRichInput"),
+            #[cfg(feature = "local_fs")]
+            ShowCliToolbeltMenu { .. } => f.write_str("ShowCliToolbeltMenu"),
+            #[cfg(feature = "local_fs")]
+            EditCliToolbelt => f.write_str("EditCliToolbelt"),
+            #[cfg(feature = "local_fs")]
+            CliToolbeltItem(item) => write!(f, "CliToolbeltItem({item:?})"),
             Scroll { delta } => write!(f, "Scroll {{ delta: {delta} }}"),
             AltScroll { delta, .. } => write!(f, "AltScroll {{ delta: {delta} }}"),
             ScrollToTopOfBlock { topmost_block } => write!(

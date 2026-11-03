@@ -380,6 +380,8 @@ pub enum WorkspaceAction {
         id: uuid::Uuid,
         position: Vector2F,
     },
+    #[cfg(feature = "local_fs")]
+    OpenCliToolbeltEditor,
     /// Acknowledges and dismisses the local Wayland crash recovery warning.
     #[cfg(target_os = "linux")]
     DismissWaylandCrashRecoveryBanner,
@@ -459,6 +461,7 @@ impl WorkspaceAction {
             SelectSidebarTab(_) => false,
             #[cfg(feature = "local_fs")]
             CreateProjectSession(_)
+            | OpenCliToolbeltEditor
             | EditProjectSession(_)
             | ToggleProjectPin(_)
             | ToggleProjectSessionPin(_)

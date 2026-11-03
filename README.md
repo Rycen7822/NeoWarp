@@ -52,6 +52,9 @@ While a recognized Codex, Pi, Claude Code or Hermes command runs, a local toolbe
 **Rich Input** (`Ctrl+G`), the working directory and live Git statistics linked to Review.
 Rich Input sends text directly to the CLI: `Enter` submits, `Shift+Enter` inserts a newline and
 `Escape` hides the editor. Drafts survive toggling within that command; the toolbelt closes when it exits.
+Right-click the toolbelt to copy prompt details or choose **Edit CLI agent toolbelt**. Drag local information
+chips and controls between the available bank and left/right zones; **Save changes** applies the layout immediately.
+**Cancel** discards edits, and **Restore default** restores the original arrangement before saving.
 
 ## Local Data
 

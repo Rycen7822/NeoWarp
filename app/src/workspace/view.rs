@@ -514,6 +514,9 @@ pub struct Workspace {
         Option<ViewHandle<Modal<crate::project_sessions::editor::SessionEditor>>>,
     #[cfg(feature = "local_fs")]
     file_operation: Option<ViewHandle<Modal<crate::file_browser::operation::FileOperationView>>>,
+    #[cfg(feature = "local_fs")]
+    cli_toolbelt_editor:
+        Option<ViewHandle<crate::terminal::cli_toolbelt_editor::CliToolbeltEditor>>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
     settings_error_banner_dismissed: bool,
@@ -1457,6 +1460,8 @@ impl Workspace {
             project_session_editor: None,
             #[cfg(feature = "local_fs")]
             file_operation: None,
+            #[cfg(feature = "local_fs")]
+            cli_toolbelt_editor: None,
             command_search_view,
             settings_file_error,
             settings_error_banner_dismissed: false,
@@ -4397,6 +4402,28 @@ impl Workspace {
     }
 
     #[cfg(feature = "local_fs")]
+    fn open_cli_toolbelt_editor(&mut self, ctx: &mut ViewContext<Self>) {
+        use crate::terminal::cli_toolbelt_editor::{CliToolbeltEditor, Event};
+        let editor = ctx.add_typed_action_view(CliToolbeltEditor::new);
+        ctx.subscribe_to_view(&editor, |me, _, event, ctx| {
+            match event {
+                Event::Close => {
+                    me.cli_toolbelt_editor = None;
+                    ctx.focus_self();
+                }
+                Event::Error(error) => me.toast_stack.update(ctx, |stack, ctx| {
+                    stack.add_ephemeral_toast(DismissibleToast::error(error.clone()), ctx);
+                }),
+            }
+            ctx.notify();
+        });
+        self.close_all_overlays(ctx);
+        ctx.focus(&editor);
+        self.cli_toolbelt_editor = Some(editor);
+        ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
     fn show_project_session_editor(
         &mut self,
         session: Option<uuid::Uuid>,
@@ -6843,6 +6870,7 @@ impl Workspace {
     fn close_all_overlays(&mut self, ctx: &mut ViewContext<Self>) {
         #[cfg(feature = "local_fs")]
         {
+            self.cli_toolbelt_editor = None;
             self.project_session_editor = None;
         }
         self.current_workspace_state.close_all_modals();
@@ -11437,6 +11465,8 @@ impl TypedActionView for Workspace {
             OpenHeaderToolbarEditor => {
                 self.open_header_toolbar_editor(ctx);
             }
+            #[cfg(feature = "local_fs")]
+            OpenCliToolbeltEditor => self.open_cli_toolbelt_editor(ctx),
             ShowHeaderToolbarContextMenu { position } => {
                 self.show_header_toolbar_context_menu(*position, ctx);
             }
@@ -12343,6 +12373,10 @@ impl View for Workspace {
         #[cfg(feature = "local_fs")]
         if let Some(operation) = &self.file_operation {
             stack.add_child(ChildView::new(operation).finish());
+        }
+        #[cfg(feature = "local_fs")]
+        if let Some(editor) = &self.cli_toolbelt_editor {
+            stack.add_child(ChildView::new(editor).finish());
         }
 
         if self.session_config_modal.is_open() {

@@ -1170,6 +1170,8 @@ pub enum ContextMenuType {
     Prompt { position: Vector2F },
     /// Opened via right-clicking on the input box.
     Input { position: Vector2F },
+    #[cfg(feature = "local_fs")]
+    CliToolbelt { position: Vector2F },
 }
 
 impl ContextMenuType {
@@ -1199,6 +1201,8 @@ impl ContextMenuType {
             ContextMenuType::AltScreen { position } => Some(*position),
             ContextMenuType::Prompt { position } => Some(*position),
             ContextMenuType::Input { position } => Some(*position),
+            #[cfg(feature = "local_fs")]
+            ContextMenuType::CliToolbelt { position } => Some(*position),
         }
     }
 }
@@ -2425,6 +2429,12 @@ impl TerminalView {
             });
         }
 
+        #[cfg(feature = "local_fs")]
+        ctx.observe(&terminal_view.current_prompt, |me, _, ctx| {
+            if me.cli_toolbelt.is_some() {
+                ctx.notify();
+            }
+        });
         terminal_view
     }
 
@@ -2517,7 +2527,13 @@ impl TerminalView {
     /// Returns whether this terminal view should subscribe to git status updates.
     fn should_subscribe_to_git_status(&self, ctx: &AppContext) -> bool {
         #[cfg(feature = "local_fs")]
-        if self.cli_toolbelt.is_some() {
+        if self.cli_toolbelt.is_some()
+            && Self::uses_git_status_chips(
+                SessionSettings::as_ref(ctx)
+                    .cli_agent_footer_chip_selection
+                    .context_chips(),
+            )
+        {
             return true;
         }
         self.needs_git_status_for_chip_ui(ctx)
@@ -2525,6 +2541,15 @@ impl TerminalView {
 
     /// Whether the terminal's prompt/footer chips need PR info.
     fn needs_pr_info_for_chip_ui(&self, ctx: &AppContext) -> bool {
+        #[cfg(feature = "local_fs")]
+        if self.cli_toolbelt.is_some()
+            && SessionSettings::as_ref(ctx)
+                .cli_agent_footer_chip_selection
+                .context_chips()
+                .contains(&ContextChipKind::GithubPullRequest)
+        {
+            return true;
+        }
         let is_using_warp_prompt = !*SessionSettings::as_ref(ctx).honor_ps1
             || InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
         is_using_warp_prompt
@@ -10101,6 +10126,10 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         match evt {
+            #[cfg(feature = "local_fs")]
+            SessionSettingsChangedEvent::CLIAgentToolbarChipSelectionSetting { .. } => {
+                self.sync_cli_toolbelt_layout(ctx)
+            }
             SessionSettingsChangedEvent::HonorPS1 { .. } => {
                 let session = self
                     .active_block_session_id()
@@ -12152,6 +12181,10 @@ impl TypedActionView for TerminalView {
             OpenCodeInWarp { .. } => ActionAccessibilityContent::from_debug(),
             #[cfg(feature = "local_fs")]
             ToggleCliRichInput => ActionAccessibilityContent::from_debug(),
+            #[cfg(feature = "local_fs")]
+            ShowCliToolbeltMenu { .. } | EditCliToolbelt | CliToolbeltItem(_) => {
+                ActionAccessibilityContent::from_debug()
+            }
             OpenInWarpBanner(action) => self.open_in_warp_banner_accessibility_content(*action),
             PickRepoToOpen => Custom(AccessibilityContent::new_without_help(
                 "Use file picker to select a git repository".to_owned(),
@@ -12190,6 +12223,15 @@ impl TypedActionView for TerminalView {
         match action {
             #[cfg(feature = "local_fs")]
             ToggleCliRichInput => self.toggle_cli_rich_input(ctx),
+            #[cfg(feature = "local_fs")]
+            ShowCliToolbeltMenu { position } => self.show_cli_toolbelt_menu(*position, ctx),
+            #[cfg(feature = "local_fs")]
+            EditCliToolbelt => {
+                self.close_context_menu(ctx, false);
+                ctx.dispatch_typed_action(&WorkspaceAction::OpenCliToolbeltEditor);
+            }
+            #[cfg(feature = "local_fs")]
+            CliToolbeltItem(item) => self.handle_cli_toolbelt_item(item, ctx),
             Scroll { delta } => self.scroll(*delta, ctx),
             AltScroll { delta, point } => self.alt_scroll(*delta, *point, ctx),
             ScrollToTopOfBlock { topmost_block } => {
@@ -12671,6 +12713,16 @@ impl View for TerminalView {
                     ChildAnchor::TopLeft,
                 ),
             ),
+            #[cfg(feature = "local_fs")]
+            Some(ContextMenuType::CliToolbelt { position }) => stack.add_positioned_overlay_child(
+                ChildView::new(&self.context_menu).finish(),
+                OffsetPositioning::offset_from_parent(
+                    *position,
+                    ParentOffsetBounds::WindowByPosition,
+                    ParentAnchor::TopLeft,
+                    ChildAnchor::BottomLeft,
+                ),
+            ),
             Some(ContextMenuType::Input { position }) => stack.add_positioned_overlay_child(
                 ChildView::new(&self.context_menu).finish(),
                 match input_mode {
@@ -12870,7 +12922,11 @@ impl View for TerminalView {
     fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
         let mut context = Self::default_keymap_context();
         #[cfg(feature = "local_fs")]
-        if self.cli_toolbelt.is_some() {
+        if self
+            .cli_toolbelt
+            .as_ref()
+            .is_some_and(|state| state.has_rich_input())
+        {
             context.set.insert("CliAgentToolbelt");
         }
         context.map.insert(

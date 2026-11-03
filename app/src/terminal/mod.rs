@@ -25,6 +25,9 @@ pub mod block_list_viewport;
 pub mod blockgrid_element;
 mod blockgrid_renderer;
 mod bootstrap;
+pub mod cli_toolbelt_config;
+#[cfg(feature = "local_fs")]
+pub(crate) mod cli_toolbelt_editor;
 pub mod color;
 pub mod event;
 pub mod event_listener;

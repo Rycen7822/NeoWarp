@@ -510,8 +510,21 @@ fn test_chips_to_run_only_includes_active_surface_configurations() {
 
             assert!(chips_for(ActiveChipSurfaces::default()).is_empty());
             assert_eq!(
-                chips_for(ActiveChipSurfaces { prompt: true }),
+                chips_for(ActiveChipSurfaces {
+                    prompt: true,
+                    ..Default::default()
+                }),
                 vec![ContextChipKind::Username]
+            );
+            assert_eq!(
+                chips_for(ActiveChipSurfaces {
+                    cli_toolbelt: true,
+                    ..Default::default()
+                }),
+                vec![
+                    ContextChipKind::WorkingDirectory,
+                    ContextChipKind::GitDiffStats
+                ]
             );
         });
     });

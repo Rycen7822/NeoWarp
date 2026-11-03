@@ -144,6 +144,7 @@ impl ChipState {
 /// stores the states for each chip and manages the refreshing logic.
 #[derive(Clone)]
 pub struct CurrentPrompt {
+    cli_toolbelt_active: bool,
     states: HashMap<ContextChipKind, ChipState>,
     renderable_chips: HashSet<ContextChipKind>,
 
@@ -181,11 +182,12 @@ struct PromptContext {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ActiveChipSurfaces {
     prompt: bool,
+    cli_toolbelt: bool,
 }
 
 impl ActiveChipSurfaces {
     fn any(self) -> bool {
-        self.prompt
+        self.prompt || self.cli_toolbelt
     }
 }
 
@@ -252,6 +254,7 @@ impl CurrentPrompt {
             |_, _| {},
         );
         Self {
+            cli_toolbelt_active: false,
             states: Default::default(),
             renderable_chips: Default::default(),
             sessions,
@@ -1085,7 +1088,10 @@ impl CurrentPrompt {
     fn active_surfaces(&self, ctx: &AppContext) -> ActiveChipSurfaces {
         let prompt = !*SessionSettings::as_ref(ctx).honor_ps1
             || InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
-        ActiveChipSurfaces { prompt }
+        ActiveChipSurfaces {
+            prompt,
+            cli_toolbelt: self.cli_toolbelt_active,
+        }
     }
 
     fn chips_to_run_for_surfaces(
@@ -1093,10 +1099,29 @@ impl CurrentPrompt {
         surfaces: ActiveChipSurfaces,
         ctx: &AppContext,
     ) -> Vec<ContextChipKind> {
-        if surfaces.prompt {
+        let mut chips = if surfaces.prompt {
             self.configured_chips(ctx)
         } else {
             Vec::new()
+        };
+        if surfaces.cli_toolbelt {
+            for kind in SessionSettings::as_ref(ctx)
+                .cli_agent_footer_chip_selection
+                .context_chips()
+            {
+                if !chips.contains(&kind) {
+                    chips.push(kind);
+                }
+            }
+        }
+        chips
+    }
+
+    pub(crate) fn set_cli_toolbelt_active(&mut self, active: bool, ctx: &mut ModelContext<Self>) {
+        if self.cli_toolbelt_active != active {
+            self.cli_toolbelt_active = active;
+            self.update_states_with_new_context(ctx);
+            ctx.notify();
         }
     }
     /// Chips whose values we should actively maintain in state.
@@ -1153,6 +1178,13 @@ impl CurrentPrompt {
         event: &SessionSettingsChangedEvent,
         ctx: &mut ModelContext<Self>,
     ) {
+        if matches!(
+            event,
+            SessionSettingsChangedEvent::CLIAgentToolbarChipSelectionSetting { .. }
+        ) && self.cli_toolbelt_active
+        {
+            self.update_states_with_new_context(ctx);
+        }
         if let SessionSettingsChangedEvent::HonorPS1 { .. } = event {
             if self.active(ctx) {
                 // If switching from PS1 to context chips, we'll need to restart the chip-updating

@@ -70,6 +70,8 @@ pub fn init(app: &mut AppContext) {
     crate::tab_configs::remove_confirmation_dialog::init(app);
     tab_configs::session_config_modal::init(app);
     header_toolbar_editor::init(app);
+    #[cfg(feature = "local_fs")]
+    crate::terminal::cli_toolbelt_editor::init(app);
 
     settings_view::init_actions_from_parent_view(app, &id!("Workspace"), |settings_action| {
         WorkspaceAction::DispatchToSettingsTab(settings_action)

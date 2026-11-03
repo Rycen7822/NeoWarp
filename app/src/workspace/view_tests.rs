@@ -1227,6 +1227,95 @@ fn test_switch_focus_panels() {
 
 #[test]
 #[cfg(feature = "local_fs")]
+fn test_cli_toolbelt_editor_saves_layout_and_restores_defaults() {
+    use crate::chip_configurator::{ChipConfiguratorAction, ChipLocation};
+    use crate::context_chips::ContextChipKind;
+    use crate::terminal::cli_toolbelt_config::{CLIAgentToolbarChipSelection, CliToolbeltItem};
+    use crate::terminal::cli_toolbelt_editor::Action;
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let editor = workspace.update(&mut app, |view, ctx| {
+            view.handle_action(&WorkspaceAction::OpenCliToolbeltEditor, ctx);
+            view.cli_toolbelt_editor.clone().unwrap()
+        });
+        editor.update(&mut app, |editor, ctx| {
+            editor.handle_action(
+                &Action::Chip(ChipConfiguratorAction::RemoveFromUsed {
+                    location: ChipLocation::Left { index: 0 },
+                }),
+                ctx,
+            );
+            editor.handle_action(&Action::Save, ctx);
+        });
+        app.read(|ctx| {
+            assert!(workspace.as_ref(ctx).cli_toolbelt_editor.is_none());
+            let (left, right) = SessionSettings::as_ref(ctx)
+                .cli_agent_footer_chip_selection
+                .items();
+            assert_eq!(
+                left,
+                vec![
+                    CliToolbeltItem::RichInput,
+                    CliToolbeltItem::ContextChip(ContextChipKind::WorkingDirectory)
+                ]
+            );
+            assert_eq!(
+                right,
+                vec![CliToolbeltItem::ContextChip(ContextChipKind::GitDiffStats)]
+            );
+        });
+        let editor = workspace.update(&mut app, |view, ctx| {
+            view.open_cli_toolbelt_editor(ctx);
+            view.cli_toolbelt_editor.clone().unwrap()
+        });
+        editor.update(&mut app, |editor, ctx| {
+            editor.handle_action(&Action::Reset, ctx);
+            editor.handle_action(&Action::Save, ctx);
+        });
+        app.read(|ctx| {
+            assert_eq!(
+                *SessionSettings::as_ref(ctx).cli_agent_footer_chip_selection,
+                CLIAgentToolbarChipSelection::Default
+            )
+        });
+    });
+}
+
+#[test]
+#[cfg(feature = "local_fs")]
+fn test_cli_toolbelt_editor_cancel_does_not_change_the_saved_layout() {
+    use crate::chip_configurator::{ChipConfiguratorAction, ChipLocation};
+    use crate::terminal::cli_toolbelt_config::CLIAgentToolbarChipSelection;
+    use crate::terminal::cli_toolbelt_editor::Action;
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let editor = workspace.update(&mut app, |view, ctx| {
+            view.open_cli_toolbelt_editor(ctx);
+            view.cli_toolbelt_editor.clone().unwrap()
+        });
+        editor.update(&mut app, |editor, ctx| {
+            editor.handle_action(
+                &Action::Chip(ChipConfiguratorAction::RemoveFromUsed {
+                    location: ChipLocation::Right { index: 0 },
+                }),
+                ctx,
+            );
+            editor.handle_action(&Action::Cancel, ctx);
+        });
+        app.read(|ctx| {
+            assert!(workspace.as_ref(ctx).cli_toolbelt_editor.is_none());
+            assert_eq!(
+                *SessionSettings::as_ref(ctx).cli_agent_footer_chip_selection,
+                CLIAgentToolbarChipSelection::Default
+            );
+        });
+    });
+}
+
+#[test]
+#[cfg(feature = "local_fs")]
 fn test_file_browser_reuses_editor_without_replacing_terminal() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
