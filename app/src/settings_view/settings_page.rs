@@ -32,6 +32,7 @@ use super::keybindings::KeybindingsView;
 use super::privacy_page::PrivacyPageView;
 use super::warpify_page::WarpifyPageView;
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::themes::theme::Fill;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
@@ -182,10 +183,14 @@ pub fn build_sub_header(
     let color = color_override.unwrap_or(appearance.theme().active_ui_text_color());
     Container::new(
         Align::new(
-            Text::new_inline(text_name, appearance.ui_font_family(), SUBHEADER_FONT_SIZE)
-                .with_style(Properties::default().weight(Weight::Bold))
-                .with_color(color.into())
-                .finish(),
+            Text::new_inline(
+                crate::localization::localize(text_name),
+                appearance.ui_font_family(),
+                SUBHEADER_FONT_SIZE,
+            )
+            .with_style(Properties::default().weight(Weight::Bold))
+            .with_color(color.into())
+            .finish(),
         )
         .left()
         .finish(),
@@ -203,9 +208,13 @@ pub fn render_sub_header_with_description(
             .with_child(build_sub_header(appearance, text_name, None).finish())
             .with_child(
                 Align::new(
-                    Text::new(description, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                        .with_color(appearance.theme().nonactive_ui_text_color().into())
-                        .finish(),
+                    Text::new(
+                        crate::localization::localize(description),
+                        appearance.ui_font_family(),
+                        CONTENT_FONT_SIZE,
+                    )
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .finish(),
                 )
                 .left()
                 .finish(),
@@ -289,7 +298,7 @@ pub fn render_info_icon<T: Clone + Action>(
             let tool_tip = ConstrainedBox::new(
                 appearance
                     .ui_builder()
-                    .tool_tip(tooltip_text)
+                    .tool_tip(crate::localization::localize(tooltip_text).into_owned())
                     .build()
                     .finish(),
             )
@@ -352,8 +361,12 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
             ToggleState::Disabled => appearance.theme().disabled_ui_text_color(),
         },
     };
-    let label_text = Text::new_inline(label_text, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-        .with_color(label_color.into());
+    let label_text = Text::new_inline(
+        crate::localization::localize(label_text),
+        appearance.ui_font_family(),
+        CONTENT_FONT_SIZE,
+    )
+    .with_color(label_color.into());
     if let Some(icon) = label_icon {
         label.add_child(
             Container::new(
@@ -378,7 +391,7 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
                 Some(
                     appearance
                         .ui_builder()
-                        .span(secondary_text)
+                        .span(crate::localization::localize(secondary_text))
                         .with_style(UiComponentStyles {
                             font_color: Some(
                                 warp_theme
@@ -413,7 +426,7 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
 
 fn render_title_text(text: &str, size: f32, appearance: &Appearance) -> Box<dyn Element> {
     Align::new(
-        Text::new_inline(text.to_string(), appearance.ui_font_family(), size)
+        Text::new_inline(tr(text).to_string(), appearance.ui_font_family(), size)
             .with_style(Properties::default().weight(Weight::Bold))
             .with_color(appearance.theme().active_ui_text_color().into())
             .finish(),
@@ -439,13 +452,7 @@ pub fn render_body_item<T: Clone + Action>(
     description_text: Option<String>,
 ) -> Box<dyn Element> {
     build_toggle_element(
-        render_body_item_label(
-            crate::localization::localize(label_text).into_owned(),
-            None,
-            additional_info,
-            toggle_state,
-            appearance,
-        ),
+        render_body_item_label(label_text, None, additional_info, toggle_state, appearance),
         child_element,
         appearance,
         description_text,
@@ -483,7 +490,7 @@ pub fn build_toggle_element(
     if let Some(description_text) = description_text {
         let description = appearance
             .ui_builder()
-            .paragraph(description_text)
+            .paragraph(crate::localization::localize(description_text))
             .with_style(UiComponentStyles {
                 font_color: Some(blended_colors::text_sub(
                     appearance.theme(),
@@ -516,18 +523,22 @@ pub fn render_dropdown_item_label(
     color_override: Option<Fill>,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
-    let label = Text::new(label_text, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-        .with_color(
-            color_override
-                .unwrap_or(appearance.theme().active_ui_text_color())
-                .into(),
-        )
-        .finish();
+    let label = Text::new(
+        crate::localization::localize(label_text),
+        appearance.ui_font_family(),
+        CONTENT_FONT_SIZE,
+    )
+    .with_color(
+        color_override
+            .unwrap_or(appearance.theme().active_ui_text_color())
+            .into(),
+    )
+    .finish();
     if let Some(secondary_text) = secondary_text {
         let warp_theme = appearance.theme();
         let secondary_text_child = appearance
             .ui_builder()
-            .span(secondary_text)
+            .span(crate::localization::localize(secondary_text))
             .with_style(UiComponentStyles {
                 font_color: Some(
                     color_override
@@ -920,7 +931,14 @@ pub(super) fn search_terms_match(terms: &str, query: &str) -> bool {
     if query.is_empty() {
         return true;
     }
-    let terms_lower = terms.to_lowercase();
+    let mut terms_lower = terms.to_lowercase();
+    for word in terms.split_whitespace() {
+        let chinese = crate::localization::Language::ZhCn.translate(word);
+        if chinese != word {
+            terms_lower.push(' ');
+            terms_lower.push_str(chinese);
+        }
+    }
     query
         .to_lowercase()
         .split_whitespace()
@@ -1630,5 +1648,5 @@ pub(super) fn build_reset_button(
             font_size: Some(appearance.ui_font_size() * 0.8),
             ..Default::default()
         })
-        .with_text_label("Reset to default".to_owned())
+        .with_text_label(tr("Reset to default").to_owned())
 }

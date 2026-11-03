@@ -7,6 +7,7 @@ use warpui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContex
 
 use crate::appearance::Appearance;
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
+use crate::localization::tr;
 use crate::settings_view::features_page::render_group;
 use crate::terminal::session_settings::*;
 use crate::view_components::dropdown::TOP_MENU_BAR_HEIGHT;
@@ -141,21 +142,21 @@ impl View for WorkingDirectoryView {
             let items = Flex::column()
                 .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .with_children([
-                    ui_builder.label("New window").build().finish(),
+                    ui_builder.label(tr("New window")).build().finish(),
                     render_row(
                         &self.new_window_working_directory_dropdown,
                         &self.new_window_working_directory_editor,
                         config.new_window.mode == WorkingDirectoryMode::CustomDir,
                         appearance,
                     ),
-                    ui_builder.label("New tab").build().finish(),
+                    ui_builder.label(tr("New tab")).build().finish(),
                     render_row(
                         &self.new_tab_working_directory_dropdown,
                         &self.new_tab_working_directory_editor,
                         config.new_tab.mode == WorkingDirectoryMode::CustomDir,
                         appearance,
                     ),
-                    ui_builder.label("Split pane").build().finish(),
+                    ui_builder.label(tr("Split pane")).build().finish(),
                     render_row(
                         &self.split_pane_working_directory_dropdown,
                         &self.split_pane_working_directory_editor,
@@ -300,7 +301,7 @@ fn init_top_level_dropdown(
     })
     .collect_vec();
     items.push(DropdownItem::new(
-        "Advanced".to_string(),
+        tr("Advanced").to_string(),
         WorkingDirectoryAction::SetGlobalWorkingDirectoryMode(None),
     ));
     let advanced_item_index = items.len() - 1;

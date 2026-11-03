@@ -32,6 +32,7 @@ use super::settings_page::{
 };
 use super::{SettingsAction, SettingsSection, ToggleSettingActionPair, flags};
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::modal::{Modal, ModalEvent, ModalViewState};
 use crate::settings::{CustomSecretRegex, PrivacySettings, RegexDisplayInfo};
 use crate::settings_view::privacy::AddRegexModalViewState;
@@ -857,7 +858,10 @@ impl SettingsWidget for SecretRedactionWidget {
                     Container::new(
                         ui_builder
                             .paragraph(
-                                "Choose how secrets are visually presented in the block list while keeping them searchable. This setting only affects what you see in the block list.",
+                                tr(concat!(
+                                    "Choose how secrets are visually presented in the block list while keeping them searchable. ",
+                                    "This setting only affects what you see in the block list."
+                                )),
                             )
                             .with_style(UiComponentStyles {
                                 font_color: Some(description_text_color),

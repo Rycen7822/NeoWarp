@@ -24,6 +24,19 @@ where
 {
     type RichTextAction: RichTextAction<Self> + Action;
 
+    /// UI chrome supplied by the host; it must not depend on the edited file's language.
+    fn hidden_section_label(lines: usize) -> String {
+        if lines == 1 {
+            "1 unmodified line".into()
+        } else {
+            format!("{lines} unmodified lines")
+        }
+    }
+
+    fn expand_all_lines_label() -> &'static str {
+        "Expand all lines"
+    }
+
     /// Returns text decorations (e.g., syntax highlighting, underlines) for the given viewport ranges.
     ///
     /// The lifetime `'a` must be tied to both `&'a self` and `&'a AppContext` because:

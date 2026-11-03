@@ -6,6 +6,7 @@ use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use super::SettingsSection;
 use super::settings_page::{MatchData, NAV_ITEM_LEFT_MARGIN};
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::ui_components::icons::Icon;
 
 /// The font size for subpage items inside an umbrella.
@@ -73,7 +74,7 @@ impl SettingsUmbrella {
             .button(ButtonVariant::Text, self.button_state_handle.clone())
             .with_text_and_icon_label(TextAndIcon::new(
                 TextAndIconAlignment::TextFirst,
-                self.label.to_string(),
+                tr(self.label).to_string(),
                 chevron_icon.to_warpui_icon(text_color),
                 MainAxisSize::Max,
                 MainAxisAlignment::SpaceBetween,

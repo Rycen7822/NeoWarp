@@ -25,6 +25,7 @@ use warpui::{
 use super::ProjectSessions;
 use super::config::{Entry as Row, Host, Provider};
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
 use crate::workspace::{ActiveSession, SidebarTab, WorkspaceAction};
@@ -265,12 +266,12 @@ impl ProjectsView {
                     terminal.and_then(|id| store.running_directory(id))
                     && (host != &folder.host || !host.same_path(directory, &folder.directory))
                 {
-                    format!("Running in {directory}")
+                    format!("{} {directory}", tr("Running in"))
                 } else if terminal.is_none()
                     && session.identity.is_none()
                     && session.resume_command.is_none()
                 {
-                    format!("{} · Needs session ID", session.provider.name())
+                    format!("{} · {}", session.provider.name(), tr("Needs session ID"))
                 } else if session.title.eq_ignore_ascii_case(session.provider.name()) {
                     format!("{:?}", session.shell.kind)
                 } else {
@@ -292,7 +293,7 @@ impl ProjectsView {
                     .with_child(
                         Text::new_inline(
                             if terminal.is_some() {
-                                "Running".to_owned()
+                                tr("Running").to_owned()
                             } else {
                                 relative_time(session.last_used)
                             },
@@ -393,7 +394,8 @@ impl ProjectsView {
                     app,
                     Semantics::new(
                         state.pin_semantics,
-                        &format!("Pin {}", semantic_label.as_deref().unwrap_or_default()),
+                        &tr("Pin {name}")
+                            .replace("{name}", semantic_label.as_deref().unwrap_or_default()),
                     )
                     .checked(pinned),
                     action,
@@ -542,9 +544,9 @@ impl View for ProjectsView {
                     1.,
                     Text::new_inline(
                         if self.show_older {
-                            "All projects"
+                            tr("All projects")
                         } else {
-                            "Recent projects"
+                            tr("Recent projects")
                         },
                         appearance.ui_font_family(),
                         12.,
@@ -578,7 +580,7 @@ impl View for ProjectsView {
         ] {
             let tooltip = appearance
                 .ui_builder()
-                .tool_tip(label.to_owned())
+                .tool_tip(tr(label).to_owned())
                 .build()
                 .finish();
             let semantic_action = action.clone();
@@ -591,7 +593,7 @@ impl View for ProjectsView {
                     })
                     .finish(),
                 app,
-                Semantics::new(id, label),
+                Semantics::new(id, tr(label)),
                 semantic_action,
             ));
         }
@@ -613,7 +615,7 @@ impl View for ProjectsView {
         if let Some(message) = message {
             column.add_child(
                 Container::new(
-                    Text::new(message.to_owned(), appearance.ui_font_family(), 12.)
+                    Text::new(tr(message).to_owned(), appearance.ui_font_family(), 12.)
                         .with_color(theme.sub_text_color(theme.background()).into())
                         .finish(),
                 )
@@ -683,9 +685,9 @@ fn selection_corners(card: Box<dyn Element>) -> Box<dyn Element> {
 fn relative_time(last_used: i64) -> String {
     let minutes = (chrono::Utc::now().timestamp_millis() - last_used).max(0) / 60_000;
     match minutes {
-        0 => "Just now".to_owned(),
-        1..60 => format!("{minutes}m ago"),
-        60..1440 => format!("{}h ago", minutes / 60),
-        _ => format!("{}d ago", minutes / 1440),
+        0 => tr("Just now").to_owned(),
+        1..60 => tr("{count}m ago").replace("{count}", &minutes.to_string()),
+        60..1440 => tr("{count}h ago").replace("{count}", &(minutes / 60).to_string()),
+        _ => tr("{count}d ago").replace("{count}", &(minutes / 1440).to_string()),
     }
 }

@@ -19,6 +19,7 @@ use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
     TextOptions,
 };
+use crate::localization::tr;
 use crate::workspace::ActiveSession;
 
 #[derive(Clone, Copy)]
@@ -51,7 +52,7 @@ impl Field {
         Self::Resume,
     ];
     fn label(self) -> &'static str {
-        match self {
+        tr(match self {
             Self::Name => "Name",
             Self::Directory => "Working directory",
             Self::Distro => "WSL distribution (blank for local)",
@@ -63,7 +64,7 @@ impl Field {
             Self::Command => "Startup command",
             Self::Identity => "Session ID (Pi: session file)",
             Self::Resume => "Explicit resume command (optional)",
-        }
+        })
     }
 }
 
@@ -362,7 +363,7 @@ impl View for SessionEditor {
         let mut form = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
         form.add_child(
             Text::new_inline(
-                "Changes apply on the next launch; the active terminal stays unchanged.",
+                tr("Changes apply on the next launch; the active terminal stays unchanged."),
                 appearance.ui_font_family(),
                 12.,
             )
@@ -423,7 +424,7 @@ impl View for SessionEditor {
             buttons.add_child(
                 EventHandler::new(
                     Container::new(
-                        Text::new_inline(label, appearance.ui_font_family(), 13.)
+                        Text::new_inline(tr(label), appearance.ui_font_family(), 13.)
                             .with_color(theme.main_text_color(theme.background()).into())
                             .finish(),
                     )

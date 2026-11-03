@@ -15,6 +15,7 @@ use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
     TextOptions,
 };
+use crate::localization::tr;
 use crate::modal::{Modal, ModalViewState};
 
 const LABEL_FONT_SIZE: f32 = 12.;
@@ -191,7 +192,7 @@ impl View for AddRegexModal {
         let is_submit_enabled = !pattern_text.trim().is_empty() && is_valid_regex;
 
         let name_label = Text::new(
-            "Name (optional)",
+            tr("Name (optional)"),
             appearance.ui_font_family(),
             LABEL_FONT_SIZE,
         )
@@ -199,7 +200,7 @@ impl View for AddRegexModal {
         .finish();
 
         let regex_label = Text::new(
-            "Regex pattern",
+            tr("Regex pattern"),
             appearance.ui_font_family(),
             LABEL_FONT_SIZE,
         )
@@ -218,7 +219,7 @@ impl View for AddRegexModal {
                 ButtonVariant::Accent,
                 self.submit_button_mouse_state.clone(),
             )
-            .with_text_label("Add regex".to_string())
+            .with_text_label(tr("Add regex").to_string())
             .with_style(button_style);
 
         if !is_submit_enabled {
@@ -233,7 +234,7 @@ impl View for AddRegexModal {
                     1.,
                     Container::new(if !is_valid_regex && !pattern_text.trim().is_empty() {
                         Text::new(
-                            "Invalid regex",
+                            tr("Invalid regex"),
                             appearance.ui_font_family(),
                             LABEL_FONT_SIZE,
                         )
@@ -259,7 +260,7 @@ impl View for AddRegexModal {
                         ButtonVariant::Secondary,
                         self.cancel_button_mouse_state.clone(),
                     )
-                    .with_text_label("Cancel".to_string())
+                    .with_text_label(tr("Cancel").to_string())
                     .with_style(button_style)
                     .build()
                     .on_click(move |ctx, _, _| {

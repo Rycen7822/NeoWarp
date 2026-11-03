@@ -6,6 +6,7 @@ use warpui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContex
 
 use crate::appearance::Appearance;
 use crate::editor::{EditorView, Event, SingleLineEditorOptions, TextOptions};
+use crate::localization::tr;
 use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::local_tty::shell::is_valid_path_or_command_for_supported_shell;
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
@@ -129,7 +130,7 @@ impl StartupShellView {
             });
 
             items.push(DropdownItem::new(
-                "Custom",
+                tr("Custom"),
                 NewSessionShellAction::ShowCustomPathInput,
             ));
             let custom_index = items.len() - 1;

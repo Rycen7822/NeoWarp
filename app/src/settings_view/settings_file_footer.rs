@@ -21,6 +21,7 @@ use warpui::platform::Cursor;
 
 use crate::WorkspaceAction;
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::settings::SettingsFileError;
 use crate::ui_components::icons::Icon;
 
@@ -109,7 +110,7 @@ pub fn render_open_settings_file_button(
             .with_height(FOOTER_ICON_SIZE)
             .finish();
 
-        let label = Text::new_inline("Open settings file", ui_font_family, FOOTER_FONT_SIZE)
+        let label = Text::new_inline(tr("Open settings file"), ui_font_family, FOOTER_FONT_SIZE)
             .with_color(text_color)
             .with_style(Properties {
                 weight: Weight::Semibold,

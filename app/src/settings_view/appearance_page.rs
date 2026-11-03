@@ -103,7 +103,7 @@ const MIN_NEW_WINDOW_ROWS_OR_COLS: u16 = 5;
 const MAX_NEW_WINDOW_ROWS_OR_COLS: u16 = 2000;
 
 fn default_font_label() -> String {
-    format!("{} (default)", MonospaceFontName::default_value())
+    format!("{} ({})", MonospaceFontName::default_value(), tr("default"))
 }
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
@@ -2109,12 +2109,12 @@ impl AppearanceSettingsPageView {
     }
 
     fn window_backdrop_dropdown_item_label(backdrop: WindowBackdrop) -> &'static str {
-        match backdrop {
+        tr(match backdrop {
             WindowBackdrop::None => "No material",
             WindowBackdrop::Mica => "Mica",
             WindowBackdrop::Acrylic => "Acrylic",
             WindowBackdrop::MicaAlt => "Mica Alt",
-        }
+        })
     }
     fn build_workspace_decoration_visibility_dropdown(
         ctx: &mut ViewContext<Self>,
@@ -2772,7 +2772,7 @@ impl SettingsWidget for WindowOpacityWidget {
                 .with_child(
                     Container::new(
                         FormattedTextElement::from_str(
-                            "Transparency is not supported with your graphics drivers.",
+                            tr("Transparency is not supported with your graphics drivers."),
                             appearance.ui_font_family(),
                             appearance.ui_font_size(),
                         )
@@ -2787,7 +2787,7 @@ impl SettingsWidget for WindowOpacityWidget {
 
         let opacity_value = *window_settings.background_opacity;
         let mut col = Flex::column().with_child(render_body_item::<AppearancePageAction>(
-            format!("Window Opacity: {opacity_value}"),
+            format!("{} {opacity_value}", tr("Window Opacity:")),
             // TODO(CORE-3384) add AdditionalInfo here.
             None,
             ToggleState::Enabled,
@@ -2876,7 +2876,7 @@ impl SettingsWidget for WindowBlurWidget {
         let blur_value = *window_settings.background_blur_radius;
         Flex::column()
             .with_child(render_body_item::<AppearancePageAction>(
-                format!("Window Blur Radius: {blur_value}"),
+                format!("{} {blur_value}", tr("Window Blur Radius:")),
                 None,
                 ToggleState::Enabled,
                 appearance,
@@ -2937,7 +2937,7 @@ impl SettingsWidget for WindowBackdropWidget {
             col.add_child(
                 Container::new(
                     FormattedTextElement::from_str(
-                        "The selected hardware may not support rendering transparent windows.",
+                        tr("The selected hardware may not support rendering transparent windows."),
                         appearance.ui_font_family(),
                         appearance.ui_font_size(),
                     )
@@ -3340,7 +3340,7 @@ impl TerminalFontWidget {
         line_height.add_child(
             appearance
                 .ui_builder()
-                .label("Line height".to_string())
+                .label(tr("Line height").to_string())
                 .with_style(UiComponentStyles {
                     margin: Some(Coords {
                         left: 12.,
@@ -3407,7 +3407,7 @@ impl TerminalFontWidget {
                     font_size: Some(appearance.ui_font_size() * 0.8),
                     ..Default::default()
                 })
-                .with_text_label("Reset to default".to_string());
+                .with_text_label(tr("Reset to default").to_string());
 
             button
                 .build()
@@ -3475,7 +3475,7 @@ impl SettingsWidget for TerminalFontWidget {
                             1.,
                             appearance
                                 .ui_builder()
-                                .span("View all available system fonts".to_string())
+                                .span(tr("View all available system fonts").to_string())
                                 .build()
                                 .with_margin_left(2.)
                                 .finish(),
@@ -3496,7 +3496,7 @@ impl SettingsWidget for TerminalFontWidget {
         font_weight.add_child(
             appearance
                 .ui_builder()
-                .label("Font weight".to_string())
+                .label(tr("Font weight").to_string())
                 .with_style(UiComponentStyles {
                     font_size: Some(CONTENT_FONT_SIZE),
                     ..Default::default()
@@ -3519,7 +3519,7 @@ impl SettingsWidget for TerminalFontWidget {
         font_size.add_child(
             appearance
                 .ui_builder()
-                .label("Font size (px)".to_string())
+                .label(tr("Font size (px)").to_string())
                 .with_style(UiComponentStyles {
                     margin: Some(Coords {
                         left: 2.,
@@ -3720,7 +3720,7 @@ impl SettingsWidget for CursorTypeWidget {
                     .with_child(
                         appearance
                             .ui_builder()
-                            .span("Cursor type is disabled in Vim mode".to_string())
+                            .span(tr("Cursor type is disabled in Vim mode").to_string())
                             .build()
                             .finish(),
                     )
@@ -4146,7 +4146,7 @@ impl SettingsWidget for DirectoryTabColorsWidget {
             .with_spacing(4.)
             .with_child(
                 Text::new(
-                    "Directory tab colors",
+                    tr("Directory tab colors"),
                     appearance.ui_font_family(),
                     appearance.ui_font_size(),
                 )
@@ -4156,7 +4156,7 @@ impl SettingsWidget for DirectoryTabColorsWidget {
             )
             .with_child(
                 Text::new(
-                    "Automatically color tabs based on the directory or repo you're working in.",
+                    tr("Automatically color tabs based on the directory or repo you're working in."),
                     appearance.ui_font_family(),
                     appearance.ui_font_size(),
                 )
@@ -4374,7 +4374,7 @@ impl SettingsWidget for AltScreenPaddingWidget {
                     Container::new(
                         Align::new(
                             Text::new(
-                                "Uniform padding (px)",
+                                tr("Uniform padding (px)"),
                                 appearance.ui_font_family(),
                                 appearance.ui_font_size(),
                             )

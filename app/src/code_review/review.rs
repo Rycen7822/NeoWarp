@@ -29,6 +29,7 @@ use crate::code::editor::view::{
     CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView, ReviewEditorState,
 };
 use crate::code::editor::{add_color, remove_color};
+use crate::localization::tr;
 use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
 use crate::util::git::FileChangeEntry;
@@ -56,7 +57,7 @@ impl FileCard {
             base: None,
             expanded: true,
             dirty: true,
-            message: "Loading changes…".into(),
+            message: tr("Loading changes…").into(),
             toggle_mouse: Default::default(),
             copy_mouse: Default::default(),
             open_mouse: Default::default(),
@@ -105,7 +106,7 @@ impl GitReviewView {
         ctx.subscribe_to_model(&status, |me, _, event, ctx| match event {
             GitRepoStatusEvent::MetadataChanged => {
                 if me.status.as_ref(ctx).metadata(ctx).is_none() {
-                    me.message = "Unable to read repository changes".into();
+                    me.message = tr("Unable to read repository changes").into();
                     ctx.notify();
                 } else {
                     me.update_files(ctx);
@@ -130,7 +131,7 @@ impl GitReviewView {
             root,
             status,
             files: Vec::new(),
-            message: "Loading changes…".into(),
+            message: tr("Loading changes…").into(),
             loading: None,
             list,
             scroll: Default::default(),
@@ -183,7 +184,7 @@ impl GitReviewView {
             self.cancel_loading();
         }
         self.message = if self.files.is_empty() {
-            "No uncommitted changes".into()
+            tr("No uncommitted changes").into()
         } else {
             String::new()
         };
@@ -212,7 +213,7 @@ impl GitReviewView {
             return;
         }
         card.dirty = false;
-        card.message = "Updating…".into();
+        card.message = tr("Updating…").into();
         let path = card.entry.path.clone();
         let root = self.root.clone();
         // Keep the cached snapshot available if an edit supersedes this cancellable read.
@@ -291,11 +292,12 @@ impl GitReviewView {
                         }
                         Ok(None) => {
                             me.files[index].editor = None;
-                            me.files[index].message = "No text diff to display".into();
+                            me.files[index].message = tr("No text diff to display").into();
                         }
                         Err(error) => {
                             me.files[index].editor = None;
-                            me.files[index].message = format!("Unable to load diff: {error:#}");
+                            me.files[index].message =
+                                format!("{}: {error:#}", tr("Unable to load diff"));
                         }
                     }
                     me.list.invalidate_height_for_index(index);
@@ -583,7 +585,7 @@ impl View for GitReviewView {
         summary.add_child(
             Shrinkable::new(
                 1.,
-                Text::new_inline("⇄  Uncommitted changes", font, 13.)
+                Text::new_inline(tr("⇄  Uncommitted changes"), font, 13.)
                     .with_color(theme.main_text_color(theme.background()).into())
                     .finish(),
             )

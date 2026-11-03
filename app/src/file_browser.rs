@@ -26,6 +26,7 @@ use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 use crate::appearance::Appearance;
 #[cfg(windows)]
 use crate::file_watcher::wsl;
+use crate::localization::tr;
 use crate::ui_components::icons::Icon;
 use crate::workspace::ActiveSession;
 
@@ -583,7 +584,7 @@ impl View for FileBrowserView {
         };
         if let Some(message) = message {
             column.add_child(
-                Text::new_inline(message.to_owned(), appearance.ui_font_family(), 12.)
+                Text::new_inline(tr(message).to_owned(), appearance.ui_font_family(), 12.)
                     .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
             );

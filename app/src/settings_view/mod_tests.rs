@@ -592,6 +592,10 @@ fn visible_widget_count<V: View>(page: &PageType<V>) -> usize {
 
 #[test]
 fn search_terms_match_direct_unit_checks() {
+    assert!(search_terms_match("font size monospace", "字体"));
+    assert!(search_terms_match("themes", "主题"));
+    assert!(search_terms_match("font size", "font 字体"));
+    assert!(!search_terms_match("font size", "目录"));
     // Empty query matches everything (mirrors PageType::update_filter's guard).
     assert!(search_terms_match("warp agent global ai toggle", ""));
     // All-words, case-insensitive, non-contiguous.

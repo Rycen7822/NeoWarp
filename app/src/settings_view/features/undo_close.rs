@@ -13,6 +13,7 @@ use warpui::{
 
 use crate::appearance::Appearance;
 use crate::editor::{self, EditorView, SingleLineEditorOptions, TextOptions};
+use crate::localization::tr;
 use crate::settings_view::features_page::render_group;
 use crate::settings_view::settings_page::{ToggleState, render_body_item};
 use crate::undo_close::UndoCloseSettings;
@@ -127,7 +128,7 @@ impl UndoCloseView {
             .with_child(
                 Container::new(
                     Text::new_inline(
-                        "Grace period (seconds)",
+                        tr("Grace period (seconds)"),
                         appearance.ui_font_family(),
                         appearance.ui_font_size(),
                     )

@@ -93,7 +93,7 @@ fn default_name(action: CustomAction, ctx: &AppContext) -> String {
 
 fn non_updateable_custom_item(action: CustomAction, ctx: &AppContext) -> MenuItem {
     MenuItem::Custom(CustomMenuItem::new(
-        &default_name(action, ctx),
+        crate::localization::tr(&default_name(action, ctx)),
         custom_action_dispatcher(action),
         no_updates,
         custom_shortcut(action),
@@ -109,7 +109,7 @@ fn updateable_custom_item_with_checkmark(
     should_be_checked: Box<CheckmarkStatusGetter>,
 ) -> MenuItem {
     MenuItem::Custom(CustomMenuItem::new(
-        &default_name(action, ctx),
+        crate::localization::tr(&default_name(action, ctx)),
         custom_action_dispatcher(action),
         custom_action_updater(action, should_be_checked),
         custom_shortcut(action),
@@ -141,7 +141,7 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
     ];
 
     menu_items.push(MenuItem::Custom(CustomMenuItem::new_with_submenu(
-        "Preferences",
+        crate::localization::tr("Preferences"),
         |_| (),
         no_updates,
         None,
@@ -170,7 +170,7 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
     menu_items.push(MenuItem::Standard(StandardAction::ShowAllApps));
     menu_items.push(MenuItem::Separator);
     menu_items.push(MenuItem::Custom(CustomMenuItem::new(
-        "Set Warp as Default Terminal",
+        crate::localization::tr("Set Warp as Default Terminal"),
         move |ctx| {
             DefaultTerminal::handle(ctx).update(ctx, |default_terminal, ctx| {
                 default_terminal.make_warp_default(ctx)
@@ -190,7 +190,7 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
     )));
     menu_items.push(MenuItem::Separator);
     menu_items.push(MenuItem::Standard(StandardAction::Quit));
-    Menu::new("Warp", menu_items)
+    Menu::new(crate::localization::tr("Warp"), menu_items)
 }
 
 fn make_new_file_menu(ctx: &AppContext) -> Menu {
@@ -203,7 +203,7 @@ fn make_new_file_menu(ctx: &AppContext) -> Menu {
         updateable_custom_item_without_checkmark(CustomAction::CloseWindow, ctx),
     ]);
 
-    Menu::new("File", file_menu_options)
+    Menu::new(crate::localization::tr("File"), file_menu_options)
 }
 
 fn make_new_edit_menu(ctx: &AppContext) -> Menu {
@@ -301,7 +301,7 @@ fn make_new_edit_menu(ctx: &AppContext) -> Menu {
 
     edit_menu_items.extend(group_5);
 
-    Menu::new("Edit", edit_menu_items)
+    Menu::new(crate::localization::tr("Edit"), edit_menu_items)
 }
 
 fn make_new_view_menu(ctx: &AppContext) -> Menu {
@@ -410,7 +410,7 @@ fn make_new_view_menu(ctx: &AppContext) -> Menu {
         ]);
     }
 
-    Menu::new("View", items)
+    Menu::new(crate::localization::tr("View"), items)
 }
 
 fn make_new_tab_menu(ctx: &AppContext) -> Menu {
@@ -437,7 +437,7 @@ fn make_new_tab_menu(ctx: &AppContext) -> Menu {
         updateable_custom_item_without_checkmark(CustomAction::CloseOtherTabs, ctx),
         updateable_custom_item_without_checkmark(CustomAction::CloseTabsRight, ctx),
     ];
-    Menu::new("Tab", items)
+    Menu::new(crate::localization::tr("Tab"), items)
 }
 
 fn make_new_blocks_menu(ctx: &AppContext) -> Menu {
@@ -473,7 +473,7 @@ fn make_new_blocks_menu(ctx: &AppContext) -> Menu {
         items.extend(debug_items);
     }
 
-    Menu::new("Blocks", items)
+    Menu::new(crate::localization::tr("Blocks"), items)
 }
 
 /// Returns [`MenuItem`]s that aid debugging to be included in the Block menu.
@@ -588,7 +588,7 @@ fn toggle_bootstrap_block_menu_item() -> MenuItem {
 
 fn make_new_window_menu() -> Menu {
     Menu::new(
-        "Window",
+        crate::localization::tr("Window"),
         vec![
             MenuItem::Standard(StandardAction::Minimize),
             MenuItem::Standard(StandardAction::Zoom),
@@ -738,7 +738,7 @@ fn debug_menu_items() -> Vec<MenuItem> {
 
 fn make_new_help_menu(ctx: &AppContext) -> Menu {
     Menu::new(
-        "Help",
+        crate::localization::tr("Help"),
         vec![updateable_custom_item_without_checkmark(
             CustomAction::ToggleKeybindingsPage,
             ctx,

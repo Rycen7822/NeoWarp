@@ -29,6 +29,7 @@ use crate::editor::{
     TextOptions,
 };
 use crate::keyboard::{UserDefinedKeybinding, write_custom_keybinding};
+use crate::localization::tr;
 use crate::search_bar::SearchBar;
 use crate::themes;
 use crate::util::bindings::{
@@ -505,7 +506,7 @@ impl KeybindingsView {
 
         search_editor.update(ctx, |editor, ctx| {
             editor.clear_buffer_and_reset_undo_stack(ctx);
-            editor.set_placeholder_text(SEARCH_PLACEHOLDER, ctx);
+            editor.set_placeholder_text(tr(SEARCH_PLACEHOLDER), ctx);
         });
 
         let search_bar = ctx.add_typed_action_view(|_| SearchBar::new(search_editor.clone()));
@@ -781,7 +782,7 @@ impl SettingsPageMeta for KeybindingsView {
 
         self.search_editor.update(ctx, |editor, ctx| {
             editor.clear_buffer_and_reset_undo_stack(ctx);
-            editor.set_placeholder_text(SEARCH_PLACEHOLDER, ctx);
+            editor.set_placeholder_text(tr(SEARCH_PLACEHOLDER), ctx);
         });
 
         if allow_steal_focus {
@@ -879,9 +880,13 @@ fn render_button(
     line_color: themes::theme::Fill,
 ) -> Box<dyn Element> {
     Container::new(
-        Text::new_inline(text, appearance.ui_font_family(), appearance.ui_font_size())
-            .with_color(line_color.into())
-            .finish(),
+        Text::new_inline(
+            tr(text),
+            appearance.ui_font_family(),
+            appearance.ui_font_size(),
+        )
+        .with_color(line_color.into())
+        .finish(),
     )
     .with_uniform_padding(4.0)
     .with_corner_radius(CornerRadius::with_all(Radius::Pixels(
@@ -898,7 +903,7 @@ fn render_text(
 ) -> Box<dyn Element> {
     let mut text = appearance
         .ui_builder()
-        .wrappable_text(text.to_string(), true);
+        .wrappable_text(tr(text).to_string(), true);
 
     if let Some(styles) = styles {
         text = text.with_style(styles);

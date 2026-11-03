@@ -1,3 +1,4 @@
+use crate::localization::tr;
 use crate::palette::PaletteSource;
 mod action;
 mod block_banner;
@@ -6903,7 +6904,7 @@ impl TerminalView {
                         url_content
                             .map(|url_content| {
                                 vec![
-                                    MenuItemFields::new("Copy URL")
+                                    MenuItemFields::new(tr("Copy URL"))
                                         .with_on_select_action(TerminalAction::ContextMenu(
                                             ContextMenuAction::CopyUrl { url_content },
                                         ))
@@ -6922,14 +6923,14 @@ impl TerminalView {
                         };
                         path.map(|path| {
                             let mut items = vec![
-                                MenuItemFields::new("Copy path")
+                                MenuItemFields::new(tr("Copy path"))
                                     .with_on_select_action(TerminalAction::ContextMenu(
                                         ContextMenuAction::CopyUrl {
                                             url_content: path.to_string_lossy().into(),
                                         },
                                     ))
                                     .into_item(),
-                                MenuItemFields::new(show_in_file_explorer_menu_item_label)
+                                MenuItemFields::new(tr(show_in_file_explorer_menu_item_label))
                                     .with_on_select_action(TerminalAction::ShowInFileExplorer(
                                         path.clone(),
                                     ))
@@ -6937,7 +6938,7 @@ impl TerminalView {
                             ];
 
                             items.push(
-                                MenuItemFields::new("Open file")
+                                MenuItemFields::new(tr("Open file"))
                                     .with_on_select_action(TerminalAction::OpenGridLink(
                                         highlighted_link.clone(),
                                     ))
@@ -6953,12 +6954,12 @@ impl TerminalView {
                         // URI verbatim; "Open link" dispatches through
                         // `OpenGridLink`.
                         vec![
-                            MenuItemFields::new("Open link")
+                            MenuItemFields::new(tr("Open link"))
                                 .with_on_select_action(TerminalAction::OpenGridLink(
                                     highlighted_link.clone(),
                                 ))
                                 .into_item(),
-                            MenuItemFields::new("Copy link")
+                            MenuItemFields::new(tr("Copy link"))
                                 .with_on_select_action(TerminalAction::ContextMenu(
                                     ContextMenuAction::CopyUrl {
                                         url_content: uri.clone(),
@@ -6983,7 +6984,7 @@ impl TerminalView {
                 true,
             ) => {
                 let fields = vec![
-                    MenuItemFields::new("Copy")
+                    MenuItemFields::new(tr("Copy"))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::CopySelectedText,
                         ))
@@ -6992,7 +6993,7 @@ impl TerminalView {
                             ctx,
                         ))
                         .into_item(),
-                    MenuItemFields::new("Insert into input")
+                    MenuItemFields::new(tr("Insert into input"))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::InsertSelectedText,
                         ))
@@ -7057,7 +7058,7 @@ impl TerminalView {
                 );
 
                 let mut items = vec![
-                    MenuItemFields::new(copy_str)
+                    MenuItemFields::new(tr(copy_str))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::CopyBlocks,
                         ))
@@ -7067,7 +7068,7 @@ impl TerminalView {
                         ))
                         .with_disabled(is_copy_both_disabled)
                         .into_item(),
-                    MenuItemFields::new(copy_commands_str)
+                    MenuItemFields::new(tr(copy_commands_str))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::CopyBlockCommands,
                         ))
@@ -7080,7 +7081,7 @@ impl TerminalView {
                 ];
 
                 if is_single_selection {
-                    let mut copy_output_menu_item = MenuItemFields::new("Copy output")
+                    let mut copy_output_menu_item = MenuItemFields::new(tr("Copy output"))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::CopyBlockOutputs,
                         ))
@@ -7091,7 +7092,7 @@ impl TerminalView {
                     if tail_block.has_active_filter() {
                         items.insert(
                             1,
-                            MenuItemFields::new("Copy filtered output")
+                            MenuItemFields::new(tr("Copy filtered output"))
                                 .with_on_select_action(TerminalAction::ContextMenu(
                                     ContextMenuAction::CopyBlockFilteredOutputs,
                                 ))
@@ -7125,7 +7126,7 @@ impl TerminalView {
 
                 items.append(&mut vec![
                     MenuItem::Separator,
-                    MenuItemFields::new(find_str)
+                    MenuItemFields::new(tr(find_str))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::FindWithinBlock,
                         ))
@@ -7136,7 +7137,7 @@ impl TerminalView {
                         .into_item(),
                 ]);
                 items.append(&mut vec![
-                    MenuItemFields::new("Toggle block filter")
+                    MenuItemFields::new(tr("Toggle block filter"))
                         .with_on_select_action(
                             TerminalAction::ToggleBlockFilterOnSelectedOrLastBlock,
                         )
@@ -7147,7 +7148,7 @@ impl TerminalView {
                         .into_item(),
                 ]);
                 items.append(&mut vec![
-                    MenuItemFields::new("Toggle bookmark")
+                    MenuItemFields::new(tr("Toggle bookmark"))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::ToggleBookmark,
                         ))
@@ -7160,7 +7161,7 @@ impl TerminalView {
 
                 items.append(&mut vec![
                     MenuItem::Separator,
-                    MenuItemFields::new(scroll_to_top_str)
+                    MenuItemFields::new(tr(scroll_to_top_str))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::ScrollToTopOfBlock,
                         ))
@@ -7171,7 +7172,7 @@ impl TerminalView {
                         .into_item(),
                 ]);
                 items.append(&mut vec![
-                    MenuItemFields::new(scroll_to_bottom_str)
+                    MenuItemFields::new(tr(scroll_to_bottom_str))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::ScrollToBottomOfBlock,
                         ))
@@ -7232,7 +7233,7 @@ impl TerminalView {
 
     fn paste_menu_item(&self, ctx: &mut ViewContext<Self>) -> MenuItem<TerminalAction> {
         let is_clipboard_empty = ctx.clipboard().read().is_empty();
-        MenuItemFields::new("Paste")
+        MenuItemFields::new(tr("Paste"))
             .with_on_select_action(TerminalAction::Paste)
             .with_key_shortcut_label(keybinding_name_to_display_string("terminal:paste", ctx))
             .with_disabled(is_clipboard_empty)
@@ -7252,7 +7253,7 @@ impl TerminalView {
             return None;
         }
         Some(
-            MenuItemFields::new("Clear Blocks")
+            MenuItemFields::new(tr("Clear Blocks"))
                 .with_on_select_action(TerminalAction::ClearBuffer)
                 .with_key_shortcut_label(keybinding_name_to_display_string(
                     "terminal:clear_blocks",
@@ -7269,7 +7270,7 @@ impl TerminalView {
         position: PromptPosition,
     ) -> Vec<MenuItem<TerminalAction>> {
         let mut items = vec![
-            MenuItemFields::new("Copy prompt")
+            MenuItemFields::new(tr("Copy prompt"))
                 .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::CopyPrompt {
                     position,
                     part: PromptPart::EntirePrompt,
@@ -7279,7 +7280,7 @@ impl TerminalView {
 
         if is_rprompt_shown {
             items.push(
-                MenuItemFields::new("Copy right prompt")
+                MenuItemFields::new(tr("Copy right prompt"))
                     .with_on_select_action(TerminalAction::ContextMenu(
                         ContextMenuAction::CopyRprompt,
                     ))
@@ -7288,7 +7289,7 @@ impl TerminalView {
         }
 
         items.push(
-            MenuItemFields::new("Copy working directory")
+            MenuItemFields::new(tr("Copy working directory"))
                 .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::CopyPrompt {
                     position,
                     part: PromptPart::Pwd,
@@ -7298,7 +7299,7 @@ impl TerminalView {
 
         if is_on_git_branch {
             items.push(
-                MenuItemFields::new("Copy git branch")
+                MenuItemFields::new(tr("Copy git branch"))
                     .with_on_select_action(TerminalAction::ContextMenu(
                         ContextMenuAction::CopyPrompt {
                             position,
@@ -7365,7 +7366,7 @@ impl TerminalView {
             );
 
             items.push(
-                MenuItemFields::new("Close pane")
+                MenuItemFields::new(tr("Close pane"))
                     .with_on_select_action(TerminalAction::Close)
                     .with_key_shortcut_label(
                         custom_tag_to_keystroke(CustomAction::CloseCurrentSession.into())
@@ -7405,14 +7406,14 @@ impl TerminalView {
     }
 
     fn prompt_context_menu_items(&self, ctx: &AppContext) -> Vec<MenuItem<TerminalAction>> {
-        let copy_prompt = MenuItemFields::new("Copy prompt")
+        let copy_prompt = MenuItemFields::new(tr("Copy prompt"))
             .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::CopyPrompt {
                 position: PromptPosition::Input,
                 part: PromptPart::EntirePrompt,
             }))
             .into_item();
 
-        let edit_menu_item = MenuItemFields::new("Edit prompt")
+        let edit_menu_item = MenuItemFields::new(tr("Edit prompt"))
             .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::EditPrompt))
             .into_item();
 
@@ -7420,7 +7421,7 @@ impl TerminalView {
             let mut items = vec![copy_prompt];
             if self.is_rprompt_shown(&self.model.lock()) {
                 items.push(
-                    MenuItemFields::new("Copy right prompt")
+                    MenuItemFields::new(tr("Copy right prompt"))
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::CopyRprompt,
                         ))
@@ -7471,12 +7472,12 @@ impl TerminalView {
 
         if !selected_input_text.is_empty() {
             items.extend([
-                MenuItemFields::new("Cut")
+                MenuItemFields::new(tr("Cut"))
                     .with_on_select_action(TerminalAction::InputContextMenuItem(
                         InputContextMenuAction::CutSelectedText,
                     ))
                     .into_item(),
-                MenuItemFields::new("Copy")
+                MenuItemFields::new(tr("Copy"))
                     .with_on_select_action(TerminalAction::InputContextMenuItem(
                         InputContextMenuAction::CopySelectedText,
                     ))
@@ -7490,7 +7491,7 @@ impl TerminalView {
 
         if !all_current_input_text.is_empty() & selected_input_text.is_empty() {
             items.push(
-                MenuItemFields::new("Select all")
+                MenuItemFields::new(tr("Select all"))
                     .with_on_select_action(TerminalAction::InputContextMenuItem(
                         InputContextMenuAction::SelectAll,
                     ))
@@ -7503,7 +7504,7 @@ impl TerminalView {
         }
 
         items.push(
-            MenuItemFields::new("Paste")
+            MenuItemFields::new(tr("Paste"))
                 .with_on_select_action(TerminalAction::InputContextMenuItem(
                     InputContextMenuAction::Paste,
                 ))
@@ -7514,7 +7515,7 @@ impl TerminalView {
         // Section 2: Command Search
         items.extend([
             MenuItem::Separator,
-            MenuItemFields::new("Command search")
+            MenuItemFields::new(tr("Command search"))
                 .with_on_select_action(TerminalAction::InputContextMenuItem(
                     InputContextMenuAction::ShowCommandSearch,
                 ))
@@ -7595,7 +7596,7 @@ impl TerminalView {
             model.selection_to_string(semantic_selection, self.is_inverted_blocklist(ctx), ctx);
         if selection_string.is_some() {
             menu_items.push(
-                MenuItemFields::new("Copy")
+                MenuItemFields::new(tr("Copy"))
                     .with_on_select_action(TerminalAction::ContextMenu(
                         ContextMenuAction::CopySelectedText,
                     ))

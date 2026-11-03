@@ -9,6 +9,7 @@ use warpui::{AppContext, Element, SingletonEntity, ViewHandle};
 use super::WorkspaceAction;
 use crate::appearance::Appearance;
 use crate::file_browser::FileBrowserView;
+use crate::localization::tr;
 use crate::project_sessions::view::ProjectsView;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::{close_button, icon_button};
@@ -65,14 +66,14 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
     for (target, label, icon, mouse, id) in [
         (
             SidebarTab::Files,
-            "Files",
+            tr("Files"),
             Icon::FileCopy,
             &state.files,
             state.files_id,
         ),
         (
             SidebarTab::Projects,
-            "Projects",
+            tr("Projects"),
             Icon::Folder,
             &state.projects,
             state.projects_id,
@@ -111,8 +112,8 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
         Container::new(
             Text::new_inline(
                 match tab {
-                    SidebarTab::Files => "Files",
-                    SidebarTab::Projects => "Projects",
+                    SidebarTab::Files => tr("Files"),
+                    SidebarTab::Projects => tr("Projects"),
                 },
                 appearance.ui_font_family(),
                 13.,

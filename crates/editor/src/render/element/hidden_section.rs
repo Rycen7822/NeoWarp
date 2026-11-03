@@ -60,11 +60,7 @@ impl RenderableHiddenSection {
             let mouse_over = state.is_mouse_over_element();
 
             let lines = line_count.as_usize();
-            let text_content = if lines == 1 {
-                "1 unmodified line".to_string()
-            } else {
-                format!("{lines} unmodified lines")
-            };
+            let text_content = V::hidden_section_label(lines);
             let char_count = text_content.chars().count();
 
             let mut text = Text::new_inline(text_content, font_family, LABEL_FONT_SIZE)
@@ -86,7 +82,7 @@ impl RenderableHiddenSection {
             if state.is_hovered() {
                 let tooltip = appearance
                     .ui_builder()
-                    .tool_tip("Expand all lines".to_string())
+                    .tool_tip(V::expand_all_lines_label().to_string())
                     .build()
                     .finish();
                 stack.add_positioned_overlay_child(

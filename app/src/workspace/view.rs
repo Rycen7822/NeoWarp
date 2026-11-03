@@ -1,3 +1,4 @@
+use crate::localization::tr;
 use crate::palette::PaletteSource;
 #[cfg(enable_crash_recovery)]
 mod crash_recovery;
@@ -3049,7 +3050,7 @@ impl Workspace {
             #[cfg(target_os = "windows")]
             {
                 let is_terminal_default = effective_default == DefaultSessionMode::Terminal;
-                let mut terminal_item = MenuItemFields::new("Terminal")
+                let mut terminal_item = MenuItemFields::new(tr("Terminal"))
                     .with_on_select_action(WorkspaceAction::AddTerminalTab {
                         hide_homepage: false,
                     })
@@ -3085,7 +3086,7 @@ impl Workspace {
             // On other platforms, Terminal is a regular item.
             #[cfg(not(target_os = "windows"))]
             {
-                let mut terminal_item = MenuItemFields::new("Terminal")
+                let mut terminal_item = MenuItemFields::new(tr("Terminal"))
                     .with_on_select_action(WorkspaceAction::AddTerminalTab {
                         hide_homepage: false,
                     })
@@ -3149,7 +3150,7 @@ impl Workspace {
             menu_items.push(MenuItem::Separator);
             // 6. New tab config — V0: opens the TOML template.
             menu_items.push(
-                MenuItemFields::new("New tab config")
+                MenuItemFields::new(tr("New tab config"))
                     .with_on_select_action(WorkspaceAction::SelectNewSessionMenuItem(
                         NewSessionMenuItem::CreateNewTabConfig,
                     ))
@@ -3163,7 +3164,7 @@ impl Workspace {
         if FeatureFlag::GroupedTabs.is_enabled() {
             menu_items.push(MenuItem::Separator);
             menu_items.push(
-                MenuItemFields::new("New tab group")
+                MenuItemFields::new(tr("New tab group"))
                     .with_on_select_action(WorkspaceAction::SelectNewSessionMenuItem(
                         NewSessionMenuItem::CreateNewTabGroup,
                     ))
@@ -3174,7 +3175,7 @@ impl Workspace {
 
         menu_items.push(MenuItem::Separator);
         menu_items.push(
-            MenuItemFields::new("Reopen closed session")
+            MenuItemFields::new(tr("Reopen closed session"))
                 .with_on_select_action(WorkspaceAction::ReopenClosedSession)
                 .with_key_shortcut_label(reopen_closed_session_shortcut_label)
                 .with_disabled(UndoCloseStack::handle(ctx).as_ref(ctx).is_empty())
@@ -4376,7 +4377,7 @@ impl Workspace {
             ctx.notify();
         });
         let modal = ctx.add_typed_action_view(|ctx| {
-            Modal::new(Some("CLI session".into()), body, ctx)
+            Modal::new(Some(tr("CLI session").into()), body, ctx)
                 .with_modal_style(UiComponentStyles {
                     width: Some(560.),
                     height: Some(620.),
@@ -4417,7 +4418,7 @@ impl Workspace {
         let Some(pinned) = pinned else {
             return;
         };
-        let pin = MenuItemFields::new(if pinned { "Unpin" } else { "Pin" })
+        let pin = MenuItemFields::new(tr(if pinned { "Unpin" } else { "Pin" }))
             .with_on_select_action(if session {
                 WorkspaceAction::ToggleProjectSessionPin(id)
             } else {
@@ -4426,14 +4427,14 @@ impl Workspace {
             .into_item();
         let items = if session {
             vec![
-                MenuItemFields::new("Modify")
+                MenuItemFields::new(tr("Modify"))
                     .with_on_select_action(WorkspaceAction::EditProjectSession(id))
                     .into_item(),
                 pin,
             ]
         } else {
             vec![
-                MenuItemFields::new("New session here")
+                MenuItemFields::new(tr("New session here"))
                     .with_on_select_action(WorkspaceAction::CreateProjectSession(Some(id)))
                     .into_item(),
                 pin,
@@ -4810,7 +4811,7 @@ impl Workspace {
             ];
             if has_tabs_outside {
                 items.push(
-                    MenuItemFields::new("Close other tabs")
+                    MenuItemFields::new(tr("Close other tabs"))
                         .with_on_select_action(WorkspaceAction::CloseTabsOutsideGroup(group_id))
                         .into_item(),
                 );
@@ -4884,7 +4885,7 @@ impl Workspace {
             ],
             move_section,
             vec![
-                MenuItemFields::new("Rename")
+                MenuItemFields::new(tr("Rename"))
                     .with_on_select_action(WorkspaceAction::RenameTabGroup(group_id))
                     .into_item(),
             ],
@@ -9035,7 +9036,7 @@ impl Workspace {
                         Shrinkable::new(
                             1.,
                             Text::new_inline(
-                                "Search sessions, agents, files...",
+                                tr("Search sessions, agents, files..."),
                                 appearance.ui_font_family(),
                                 14.,
                             )
@@ -11338,8 +11339,9 @@ impl TypedActionView for Workspace {
                 self.process_updated_sync_state(ctx);
 
                 self.toast_stack.update(ctx, |view, ctx| {
-                    let new_toast =
-                        DismissibleToast::success("Disabled all synchronized inputs.".to_string());
+                    let new_toast = DismissibleToast::success(
+                        tr("Disabled all synchronized inputs.").to_string(),
+                    );
                     view.add_ephemeral_toast(new_toast, ctx);
                 });
             }
