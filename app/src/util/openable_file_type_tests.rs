@@ -56,10 +56,12 @@ fn test_resolve_file_target_warp_uses_default_layout() {
 #[cfg(feature = "local_fs")]
 fn test_basic_editor_routes_documents_externally() {
     use crate::util::file::external_editor::settings::{
-        OpenCodePanelsFileEditor, OpenFileEditor, OpenFileLayout, PreferTabbedEditorView,
+        OpenCodePanelsFileEditor, OpenFileEditor, OpenFileLayout, OpenSidebarFilesExternally,
+        PreferTabbedEditorView,
     };
 
     let settings = EditorSettings {
+        open_sidebar_files_externally: OpenSidebarFilesExternally::new(None),
         open_file_editor: OpenFileEditor::new(Some(EditorChoice::ExternalEditor(Editor::VSCode))),
         open_code_panels_file_editor: OpenCodePanelsFileEditor::new(Some(
             EditorChoice::ExternalEditor(Editor::VSCode),

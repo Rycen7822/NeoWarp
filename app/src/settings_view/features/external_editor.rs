@@ -21,6 +21,7 @@ pub enum ExternalEditorAction {
     SetCodePanelsEditor(EditorChoice),
     SetLayout(EditorLayout),
     ToggleTabbedEditorView,
+    ToggleSidebarFilesExternally,
 }
 
 pub struct ExternalEditorView {
@@ -28,6 +29,7 @@ pub struct ExternalEditorView {
     code_panels_editor_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     layout_dropdown: ViewHandle<Dropdown<ExternalEditorAction>>,
     tabbed_editor_view_mouse_state: SwitchStateHandle,
+    sidebar_files_mouse_state: SwitchStateHandle,
 }
 
 impl ExternalEditorView {
@@ -92,6 +94,7 @@ impl ExternalEditorView {
             code_panels_editor_dropdown,
             layout_dropdown,
             tabbed_editor_view_mouse_state: Default::default(),
+            sidebar_files_mouse_state: Default::default(),
         }
     }
 
@@ -237,6 +240,24 @@ impl View for ExternalEditorView {
         );
 
         let mut column = Flex::column()
+            .with_child(render_body_item::<ExternalEditorAction>(
+                "Open Files sidebar items with the system default app".into(),
+                None,
+                ToggleState::Enabled,
+                appearance,
+                appearance
+                    .ui_builder()
+                    .switch(self.sidebar_files_mouse_state.clone())
+                    .check(*EditorSettings::as_ref(app).open_sidebar_files_externally)
+                    .build()
+                    .on_click(|ctx, _, _| {
+                        ctx.dispatch_typed_action(
+                            ExternalEditorAction::ToggleSidebarFilesExternally,
+                        );
+                    })
+                    .finish(),
+                Some("When off, files open in an editor pane to the right of the terminal.".into()),
+            ))
             .with_child(default_editor)
             .with_child(code_panels_editor)
             .with_child(default_layout);
@@ -280,6 +301,15 @@ impl TypedActionView for ExternalEditorView {
             ExternalEditorAction::SetLayout(layout) => self.set_layout(layout, ctx),
             ExternalEditorAction::ToggleTabbedEditorView => {
                 self.toggle_prefer_tabbed_editor_view(ctx);
+            }
+            ExternalEditorAction::ToggleSidebarFilesExternally => {
+                EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(
+                        settings
+                            .open_sidebar_files_externally
+                            .toggle_and_save_value(ctx)
+                    );
+                });
             }
         }
     }

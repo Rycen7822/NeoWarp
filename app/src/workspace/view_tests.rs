@@ -1242,6 +1242,28 @@ fn test_file_browser_reuses_editor_without_replacing_terminal() {
         std::fs::write(&second, "second").unwrap();
 
         workspace.update(&mut app, |workspace, ctx| {
+            let settings = EditorSettings::handle(ctx);
+            assert!(!*settings.as_ref(ctx).open_sidebar_files_externally);
+            settings.update(ctx, |settings, ctx| {
+                settings
+                    .open_sidebar_files_externally
+                    .set_value(true, ctx)
+                    .unwrap();
+            });
+            workspace.open_sidebar_file(first.clone(), ctx);
+        });
+        // The test platform's system opener is a no-op; external mode must leave the terminal alone.
+        group.read(&app, |group, ctx| {
+            assert_eq!(group.code_panes(ctx).count(), 0);
+            assert_eq!(group.active_session_id(ctx), terminal);
+        });
+        workspace.update(&mut app, |workspace, ctx| {
+            EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
+                settings
+                    .open_sidebar_files_externally
+                    .set_value(false, ctx)
+                    .unwrap();
+            });
             workspace.toggle_file_browser(ctx);
             assert!(matches!(
                 workspace.sidebar,

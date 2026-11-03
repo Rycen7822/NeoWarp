@@ -193,7 +193,7 @@ impl SettingsWidget for ExternalEditorCodeWidget {
     type View = EditorAndCodeReviewPageView;
 
     fn search_terms(&self) -> &str {
-        "code editor open files markdown notebook configuration layout pane tab"
+        "code editor open files markdown notebook configuration layout pane tab sidebar system default application preview right"
     }
 
     fn render(

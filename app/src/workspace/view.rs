@@ -4492,6 +4492,10 @@ impl Workspace {
 
     #[cfg(feature = "local_fs")]
     fn open_sidebar_file(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
+        if *EditorSettings::as_ref(ctx).open_sidebar_files_externally {
+            ctx.open_file_path(&path);
+            return;
+        }
         let group = self.active_tab_pane_group().clone();
         let existing = group
             .as_ref(ctx)

@@ -68,6 +68,14 @@ impl<'de> Deserialize<'de> for EditorChoice {
 }
 
 define_settings_group!(EditorSettings, settings: [
+    open_sidebar_files_externally: OpenSidebarFilesExternally {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        private: false,
+        toml_path: "code.editor.open_sidebar_files_externally",
+        description: "Open files from the Files sidebar using the system default application instead of a right pane.",
+    },
     open_file_editor: OpenFileEditor {
         type: EditorChoice,
         default: EditorChoice::SystemDefault,
