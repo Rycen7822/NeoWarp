@@ -19,6 +19,7 @@ use warpui::{Action, Element};
 
 use super::{ChipConfigurator, ChipConfiguratorAction};
 use crate::Appearance;
+use crate::localization::tr;
 
 const MODAL_WIDTH: f32 = 700.;
 const BORDER_WIDTH: f32 = 1.;
@@ -146,7 +147,7 @@ fn render_restore_default_button<A: Action + Clone + Copy + 'static>(
     let button = Hoverable::new(mouse_handle.clone(), |_state| {
         appearance
             .ui_builder()
-            .span(RESTORE_DEFAULT_LABEL.to_string())
+            .span(tr(RESTORE_DEFAULT_LABEL).to_owned())
             .with_style(UiComponentStyles {
                 font_size: Some(MODAL_CONTENT_FONT_SIZE),
                 ..Default::default()
@@ -167,7 +168,7 @@ fn render_restore_default_button<A: Action + Clone + Copy + 'static>(
 fn render_section_label(label: &str, appearance: &Appearance) -> Box<dyn Element> {
     appearance
         .ui_builder()
-        .span(label.to_string())
+        .span(tr(label).to_owned())
         .with_style(UiComponentStyles {
             font_size: Some(MODAL_CONTENT_FONT_SIZE),
             font_weight: Some(warpui::fonts::Weight::Semibold),

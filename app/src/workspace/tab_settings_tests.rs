@@ -63,6 +63,8 @@ fn hide_title_bar_search_bar_in_vertical_tabs_uses_vertical_tabs_path() {
 fn header_toolbar_chip_selection_default_contains_tabs_panel() {
     let config = HeaderToolbarChipSelection::Default;
     assert!(config.contains_item(&HeaderToolbarItemKind::TabsPanel));
+    assert!(config.contains_item(&HeaderToolbarItemKind::Files));
+    assert!(config.contains_item(&HeaderToolbarItemKind::CodeReview));
 }
 
 #[test]

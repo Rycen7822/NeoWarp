@@ -9084,31 +9084,6 @@ impl Workspace {
         ctx: &AppContext,
     ) -> Box<dyn Element> {
         let mut tab_bar = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
-        #[cfg(feature = "local_fs")]
-        tab_bar.add_child(warpui::accessibility::accessible(
-            self.render_tab_bar_icon_button(
-                appearance,
-                if self.sidebar.is_open() {
-                    icons::Icon::LeftSidebarClose
-                } else {
-                    icons::Icon::LeftSidebarOpen
-                },
-                &self.mouse_states.file_browser_icon,
-                WorkspaceAction::ToggleFileBrowser,
-                tr("Sidebar").to_owned(),
-                None,
-                self.sidebar.is_open(),
-                false,
-            )
-            .finish(),
-            ctx,
-            warpui::accessibility::Semantics::new(
-                self.mouse_states.sidebar_semantics,
-                tr("Sidebar"),
-            )
-            .selected(self.sidebar.is_open()),
-            WorkspaceAction::ToggleFileBrowser,
-        ));
 
         // Check if vertical tabs mode is active
         let vertical_tabs_active =
@@ -9344,6 +9319,60 @@ impl Workspace {
             HeaderToolbarItemKind::TabsPanel => {
                 self.render_vertical_tabs_toggle_button(appearance, ctx)
             }
+            #[cfg(feature = "local_fs")]
+            HeaderToolbarItemKind::Files => warpui::accessibility::accessible(
+                self.render_tab_bar_icon_button(
+                    appearance,
+                    if self.sidebar.is_open() {
+                        icons::Icon::LeftSidebarClose
+                    } else {
+                        icons::Icon::LeftSidebarOpen
+                    },
+                    &self.mouse_states.file_browser_icon,
+                    WorkspaceAction::ToggleFileBrowser,
+                    tr("Files / Projects").to_owned(),
+                    None,
+                    self.sidebar.is_open(),
+                    false,
+                )
+                .finish(),
+                ctx,
+                warpui::accessibility::Semantics::new(
+                    self.mouse_states.sidebar_semantics,
+                    tr("Sidebar"),
+                )
+                .selected(self.sidebar.is_open()),
+                WorkspaceAction::ToggleFileBrowser,
+            ),
+            #[cfg(feature = "local_fs")]
+            HeaderToolbarItemKind::CodeReview => {
+                let is_open = self.git_review_view.is_some();
+                let has_repo = self
+                    .read_from_active_terminal_view(ctx, |terminal| {
+                        matches!(
+                            terminal.current_repo_path(),
+                            Some(crate::code::buffer_location::LocalOrRemotePath::Local(_))
+                        )
+                    })
+                    .unwrap_or(false);
+                self.render_tab_bar_icon_button(
+                    appearance,
+                    icons::Icon::Diff,
+                    &self.mouse_states.git_review_icon,
+                    if is_open {
+                        WorkspaceAction::CloseGitReview
+                    } else {
+                        WorkspaceAction::OpenGitReview(None)
+                    },
+                    tr("Code Review").to_owned(),
+                    None,
+                    is_open,
+                    !is_open && !has_repo,
+                )
+                .finish()
+            }
+            #[cfg(not(feature = "local_fs"))]
+            HeaderToolbarItemKind::Files | HeaderToolbarItemKind::CodeReview => return None,
         };
         Some(
             Container::new(
@@ -10306,6 +10335,7 @@ impl Workspace {
                     .finish(),
                 )
             }
+            HeaderToolbarItemKind::Files | HeaderToolbarItemKind::CodeReview => None,
         }
     }
 

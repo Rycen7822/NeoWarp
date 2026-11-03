@@ -9,6 +9,7 @@ use crate::chip_configurator::{
     ChipEditorMouseHandles, ChipEditorSectionsConfig, ConfigurableItem, ControlItemRenderer,
     render_chip_editor_modal, render_chip_editor_sections,
 };
+use crate::localization::tr;
 use crate::workspace::header_toolbar_item::HeaderToolbarItemKind;
 use crate::workspace::tab_settings::{
     HeaderToolbarChipSelection, TabSettings, TabSettingsChangedEvent,
@@ -173,6 +174,7 @@ impl HeaderToolbarInlineEditor {
             if matches!(
                 event,
                 TabSettingsChangedEvent::HeaderToolbarChipSelection { .. }
+                    | TabSettingsChangedEvent::UseVerticalTabs { .. }
             ) && me.chip_configurator.current_dragging_state.is_none()
             {
                 me.reset_from_settings(ctx);
@@ -341,9 +343,11 @@ impl View for HeaderToolbarEditorModal {
 
 fn build_configurable_item(kind: &HeaderToolbarItemKind) -> ConfigurableItem {
     let id = serde_json::to_string(kind).expect("HeaderToolbarItemKind is serializable");
-    let renderer =
-        ControlItemRenderer::new_with_label_and_icon(kind.display_label().to_string(), kind.icon())
-            .with_identifier(id);
+    let renderer = ControlItemRenderer::new_with_label_and_icon(
+        tr(kind.display_label()).to_owned(),
+        kind.icon(),
+    )
+    .with_identifier(id);
     let renderer = renderer.non_removable();
     ConfigurableItem::Control(renderer)
 }
@@ -357,3 +361,7 @@ fn header_toolbar_item_kind(item: &ConfigurableItem) -> Option<HeaderToolbarItem
         ConfigurableItem::ContextChip(_) => None,
     }
 }
+
+#[cfg(all(test, feature = "local_fs"))]
+#[path = "header_toolbar_editor_tests.rs"]
+mod tests;

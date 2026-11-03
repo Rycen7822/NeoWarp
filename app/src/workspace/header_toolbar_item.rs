@@ -7,9 +7,8 @@ use crate::workspace::tab_settings::TabSettings;
 
 /// A configurable item in the vertical tabs header toolbar.
 ///
-/// Each variant represents a panel toggle button that can be placed on either
-/// the left or right side of the toolbar. The side determines which side of the
-/// main content area the panel opens on.
+/// Buttons can be placed on either side of the toolbar. The tabs panel follows
+/// its button's side; Files and Git Review retain their existing panel positions.
 #[derive(
     Clone,
     Debug,
@@ -24,18 +23,24 @@ use crate::workspace::tab_settings::TabSettings;
 #[schemars(rename_all = "snake_case")]
 pub enum HeaderToolbarItemKind {
     TabsPanel,
+    Files,
+    CodeReview,
 }
 
 impl HeaderToolbarItemKind {
     pub fn display_label(&self) -> &'static str {
         match self {
             Self::TabsPanel => "Tabs Panel",
+            Self::Files => "Files / Projects",
+            Self::CodeReview => "Code Review",
         }
     }
 
     pub fn icon(&self) -> Icon {
         match self {
             Self::TabsPanel => Icon::Menu,
+            Self::Files => Icon::Folder,
+            Self::CodeReview => Icon::Diff,
         }
     }
 
@@ -48,19 +53,20 @@ impl HeaderToolbarItemKind {
                 FeatureFlag::VerticalTabs.is_enabled()
                     && *TabSettings::as_ref(app).use_vertical_tabs
             }
+            Self::Files | Self::CodeReview => cfg!(feature = "local_fs"),
         }
     }
 
     pub fn default_left() -> Vec<Self> {
-        vec![Self::TabsPanel]
+        vec![Self::TabsPanel, Self::Files]
     }
 
     pub fn default_right() -> Vec<Self> {
-        vec![]
+        vec![Self::CodeReview]
     }
 
     /// All toolbar item variants (availability filtering is done at the call site).
     pub fn all_items() -> Vec<Self> {
-        vec![Self::TabsPanel]
+        vec![Self::TabsPanel, Self::Files, Self::CodeReview]
     }
 }

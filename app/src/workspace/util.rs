@@ -26,6 +26,8 @@ pub(super) struct WorkspaceMouseStates {
     pub(super) more_info_banner_button: MouseStateHandle,
     pub(super) vertical_tabs_icon: MouseStateHandle,
     pub(super) file_browser_icon: MouseStateHandle,
+    #[cfg(feature = "local_fs")]
+    pub(super) git_review_icon: MouseStateHandle,
     pub(super) sidebar_semantics: warpui::accessibility::SemanticId,
     pub(super) settings_icon: MouseStateHandle,
     pub(super) dismiss_banner_button: MouseStateHandle,
