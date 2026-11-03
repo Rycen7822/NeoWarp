@@ -507,6 +507,19 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Only on hover" => "仅悬停时",
         "Sidebar" => "侧边栏",
         "Close sidebar" => "关闭侧边栏",
+        "Open in right pane" => "在右侧窗格打开",
+        "Open with system default app" => "使用系统默认软件打开",
+        "Open in" => "打开方式：",
+        "New file" => "新建文件",
+        "New folder" => "新建文件夹",
+        "Delete permanently" => "永久删除",
+        "Working…" => "处理中…",
+        "Permanently delete this item and its contents? This cannot be undone." => {
+            "永久删除此项及其全部内容？此操作无法撤销。"
+        }
+        "Enter a single file or folder name" => "请输入单个文件或文件夹名称",
+        "Enter a valid Windows file or folder name" => "请输入有效的 Windows 文件或文件夹名称",
+        "A file or folder with that name already exists" => "已存在同名文件或文件夹",
         _ => return None,
     })
 }

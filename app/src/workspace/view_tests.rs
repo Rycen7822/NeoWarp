@@ -1257,6 +1257,15 @@ fn test_file_browser_reuses_editor_without_replacing_terminal() {
             assert_eq!(group.code_panes(ctx).count(), 0);
             assert_eq!(group.active_session_id(ctx), terminal);
         });
+        // An explicit context-menu preview overrides the external left-click preference.
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.preview_sidebar_file(first.clone(), ctx);
+            assert!(*EditorSettings::as_ref(ctx).open_sidebar_files_externally);
+        });
+        group.read(&app, |group, ctx| {
+            assert_eq!(group.code_panes(ctx).count(), 1);
+            assert_eq!(group.active_session_id(ctx), terminal);
+        });
         workspace.update(&mut app, |workspace, ctx| {
             EditorSettings::handle(ctx).update(ctx, |settings, ctx| {
                 settings

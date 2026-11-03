@@ -1,25 +1,30 @@
 //! A lazy directory sidebar for the active local or WSL terminal.
 
+pub(crate) mod operation;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_lite::StreamExt;
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
+use pathfinder_geometry::vector::Vector2F;
 use warp_core::ui::theme::color::internal_colors;
 #[cfg(windows)]
 use warp_files::FileModel;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Hoverable, List,
-    ListState, MainAxisSize, MouseStateHandle, NewScrollable, ParentElement, Radius,
-    ScrollStateHandle, Shrinkable, Text,
+    ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
+    Flex, Hoverable, List, ListState, MainAxisSize, MouseStateHandle, NewScrollable,
+    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, ScrollStateHandle,
+    Shrinkable, Stack, Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::text_layout::ClipConfig;
 use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
 use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 
@@ -27,7 +32,9 @@ use crate::appearance::Appearance;
 #[cfg(windows)]
 use crate::file_watcher::wsl;
 use crate::localization::tr;
+use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::ui_components::icons::Icon;
+use crate::util::file::external_editor::{self, Editor, SUPPORTED_EDITORS};
 use crate::workspace::ActiveSession;
 
 struct Entry {
@@ -66,11 +73,25 @@ pub(crate) struct FileBrowserView {
     list: ListState<()>,
     scroll: ScrollStateHandle,
     header: crate::workspace::sidebar::HeaderState,
+    menu: ViewHandle<Menu<FileBrowserAction>>,
+    menu_position: Option<Vector2F>,
+}
+
+pub(crate) enum FileBrowserEvent {
+    Open(PathBuf),
+    Preview(PathBuf),
+    Edit(PathBuf, operation::Operation),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum FileBrowserAction {
     Select(PathBuf),
+    ShowMenu(PathBuf, Vector2F),
+    Preview(PathBuf),
+    OpenExternal(PathBuf, Option<Editor>),
+    Edit(PathBuf, operation::Operation),
+    CopyPath(PathBuf),
+    Refresh(PathBuf),
 }
 
 impl FileBrowserView {
@@ -83,6 +104,13 @@ impl FileBrowserView {
             view.as_ref(app).render_row(index, app)
         });
         ctx.observe(&ActiveSession::handle(ctx), |me, _, ctx| me.sync_root(ctx));
+        let menu = ctx.add_typed_action_view(|_| Menu::new().with_drop_shadow());
+        ctx.subscribe_to_view(&menu, |me, _, event, ctx| {
+            if let MenuEvent::Close { .. } = event {
+                me.menu_position = None;
+                ctx.notify();
+            }
+        });
         let mut view = Self {
             root: None,
             generation: 0,
@@ -94,6 +122,8 @@ impl FileBrowserView {
             list,
             scroll: Default::default(),
             header: Default::default(),
+            menu,
+            menu_position: None,
         };
         view.sync_root(ctx);
         view
@@ -111,6 +141,7 @@ impl FileBrowserView {
         self.watcher = None;
         self.root = root;
         self.selected = None;
+        self.menu_position = None;
         self.list.scroll_to(0);
         self.scroll = Default::default();
         if let Some(root) = &self.root {
@@ -255,7 +286,7 @@ impl FileBrowserView {
         );
     }
 
-    fn refresh(&mut self, path: &Path, ctx: &mut ViewContext<Self>) {
+    pub(crate) fn refresh(&mut self, path: &Path, ctx: &mut ViewContext<Self>) {
         let Some(directory) = self.directories.get_mut(path) else {
             return;
         };
@@ -396,6 +427,77 @@ impl FileBrowserView {
         }
     }
 
+    fn show_menu(&mut self, path: &Path, position: Vector2F, ctx: &mut ViewContext<Self>) {
+        let Some(row) = self.rows.iter().find(|row| row.path == path) else {
+            return;
+        };
+        let is_dir = row.is_dir;
+        self.selected = Some(path.to_path_buf());
+        let item = |label: &str, action| {
+            MenuItemFields::new(label)
+                .with_on_select_action(action)
+                .into_item()
+        };
+        let mut items = Vec::new();
+        if !is_dir {
+            items.push(item(
+                tr("Open in right pane"),
+                FileBrowserAction::Preview(path.into()),
+            ));
+        }
+        items.push(item(
+            tr("Open with system default app"),
+            FileBrowserAction::OpenExternal(path.into(), None),
+        ));
+        if !is_dir {
+            for &editor in SUPPORTED_EDITORS {
+                if editor.is_installed(ctx) {
+                    items.push(item(
+                        &format!("{} {editor}", tr("Open in")),
+                        FileBrowserAction::OpenExternal(path.into(), Some(editor)),
+                    ));
+                }
+            }
+        }
+        items.push(MenuItem::Separator);
+        if is_dir {
+            for operation in [
+                operation::Operation::NewFile,
+                operation::Operation::NewFolder,
+            ] {
+                items.push(item(
+                    tr(operation.title()),
+                    FileBrowserAction::Edit(path.into(), operation),
+                ));
+            }
+        }
+        if self.root.as_deref() != Some(path) {
+            for operation in [operation::Operation::Rename, operation::Operation::Delete] {
+                items.push(item(
+                    tr(operation.title()),
+                    FileBrowserAction::Edit(path.into(), operation),
+                ));
+            }
+        }
+        items.push(item(
+            tr("Copy path"),
+            FileBrowserAction::CopyPath(path.into()),
+        ));
+        items.push(item(
+            tr("Refresh"),
+            FileBrowserAction::Refresh(if is_dir {
+                path.into()
+            } else {
+                path.parent().unwrap_or(path).into()
+            }),
+        ));
+        self.menu
+            .update(ctx, |menu, ctx| menu.set_items(items, ctx));
+        self.menu_position = Some(position);
+        ctx.focus(&self.menu);
+        ctx.notify();
+    }
+
     fn render_row(&self, index: usize, app: &AppContext) -> Box<dyn Element> {
         let Some(row) = self.rows.get(index) else {
             return Empty::new().finish();
@@ -496,9 +598,13 @@ impl FileBrowserView {
                 .finish()
         });
         let path = row.path.clone();
+        let menu_path = path.clone();
         content
             .on_mouse_down(move |ctx, _, _| {
                 ctx.dispatch_typed_action(FileBrowserAction::Select(path.clone()));
+            })
+            .on_right_click(move |ctx, _, position| {
+                ctx.dispatch_typed_action(FileBrowserAction::ShowMenu(menu_path.clone(), position));
             })
             .finish()
     }
@@ -539,13 +645,58 @@ async fn read_directory(path: PathBuf) -> std::io::Result<Vec<Entry>> {
 }
 
 impl Entity for FileBrowserView {
-    type Event = PathBuf;
+    type Event = FileBrowserEvent;
 }
 
 impl TypedActionView for FileBrowserView {
     type Action = FileBrowserAction;
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
-        let FileBrowserAction::Select(path) = action;
+        let path = match action {
+            FileBrowserAction::Select(path) => path,
+            FileBrowserAction::ShowMenu(path, position) => {
+                self.show_menu(path, *position, ctx);
+                return;
+            }
+            FileBrowserAction::Preview(path) => {
+                ctx.emit(FileBrowserEvent::Preview(path.clone()));
+                return;
+            }
+            FileBrowserAction::OpenExternal(path, editor) => {
+                if let Some(editor) = editor {
+                    external_editor::open_file_path_with_editor(
+                        None,
+                        path.clone(),
+                        Some(*editor),
+                        ctx,
+                    );
+                } else {
+                    ctx.open_file_path(path);
+                }
+                return;
+            }
+            FileBrowserAction::Edit(path, operation) => {
+                if self.root.as_ref() != Some(path)
+                    || matches!(
+                        operation,
+                        operation::Operation::NewFile | operation::Operation::NewFolder
+                    )
+                {
+                    ctx.emit(FileBrowserEvent::Edit(path.clone(), *operation));
+                }
+                return;
+            }
+            FileBrowserAction::CopyPath(path) => {
+                ctx.clipboard()
+                    .write(warpui::clipboard::ClipboardContent::plain_text(
+                        path.to_string_lossy().into_owned(),
+                    ));
+                return;
+            }
+            FileBrowserAction::Refresh(path) => {
+                self.refresh(path, ctx);
+                return;
+            }
+        };
         let is_dir = self.rows.iter().any(|row| row.path == *path && row.is_dir);
         if is_dir {
             self.selected = Some(path.clone());
@@ -557,7 +708,7 @@ impl TypedActionView for FileBrowserView {
             self.update_rows(ctx);
         } else {
             self.selected = Some(path.clone());
-            ctx.emit(path.clone());
+            ctx.emit(FileBrowserEvent::Open(path.clone()));
             ctx.notify();
         }
     }
@@ -608,9 +759,22 @@ impl View for FileBrowserView {
         )
         .finish();
         column.add_child(Shrinkable::new(1., list).finish());
-        Container::new(column.finish())
+        let content = Container::new(column.finish())
             .with_uniform_padding(8.)
-            .finish()
+            .finish();
+        let mut stack = Stack::new().with_child(content);
+        if let Some(position) = self.menu_position {
+            stack.add_positioned_overlay_child(
+                ChildView::new(&self.menu).finish(),
+                OffsetPositioning::offset_from_parent(
+                    position,
+                    ParentOffsetBounds::WindowByPosition,
+                    ParentAnchor::TopLeft,
+                    ChildAnchor::TopLeft,
+                ),
+            );
+        }
+        stack.finish()
     }
 }
 

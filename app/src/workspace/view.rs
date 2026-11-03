@@ -512,6 +512,8 @@ pub struct Workspace {
     #[cfg(feature = "local_fs")]
     project_session_editor:
         Option<ViewHandle<Modal<crate::project_sessions::editor::SessionEditor>>>,
+    #[cfg(feature = "local_fs")]
+    file_operation: Option<ViewHandle<Modal<crate::file_browser::operation::FileOperationView>>>,
     command_search_view: ViewHandle<CommandSearchView>,
     settings_file_error: Option<crate::settings::SettingsFileError>,
     settings_error_banner_dismissed: bool,
@@ -1453,6 +1455,8 @@ impl Workspace {
             sidebar: super::sidebar::Sidebar::Closed(super::SidebarTab::Files),
             #[cfg(feature = "local_fs")]
             project_session_editor: None,
+            #[cfg(feature = "local_fs")]
+            file_operation: None,
             command_search_view,
             settings_file_error,
             settings_error_banner_dismissed: false,
@@ -4303,12 +4307,7 @@ impl Workspace {
                 search_query: search_query.map(|s| s.to_owned()),
             }),
         })));
-        self.add_tab_with_pane_layout(
-            panes_layout,
-            Arc::new(HashMap::new()),
-            None,
-            ctx,
-        );
+        self.add_tab_with_pane_layout(panes_layout, Arc::new(HashMap::new()), None, ctx);
     }
 
     #[cfg(feature = "local_fs")]
@@ -4332,8 +4331,17 @@ impl Workspace {
         self.sidebar = match tab {
             SidebarTab::Files => {
                 let browser = ctx.add_typed_action_view(crate::file_browser::FileBrowserView::new);
-                ctx.subscribe_to_view(&browser, |me, _, path, ctx| {
-                    me.open_sidebar_file(path.clone(), ctx)
+                ctx.subscribe_to_view(&browser, |me, _, event, ctx| {
+                    use crate::file_browser::FileBrowserEvent;
+                    match event {
+                        FileBrowserEvent::Open(path) => me.open_sidebar_file(path.clone(), ctx),
+                        FileBrowserEvent::Preview(path) => {
+                            me.preview_sidebar_file(path.clone(), ctx)
+                        }
+                        FileBrowserEvent::Edit(path, operation) => {
+                            me.show_file_operation(path.clone(), *operation, ctx)
+                        }
+                    }
                 });
                 Sidebar::Files(browser)
             }
@@ -4341,6 +4349,50 @@ impl Workspace {
                 ctx.add_typed_action_view(crate::project_sessions::view::ProjectsView::new),
             ),
         };
+        ctx.notify();
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn show_file_operation(
+        &mut self,
+        path: PathBuf,
+        operation: crate::file_browser::operation::Operation,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        use crate::file_browser::operation::{Event, FileOperationView};
+        let body = ctx.add_typed_action_view(|ctx| FileOperationView::new(path, operation, ctx));
+        ctx.subscribe_to_view(&body, |me, _, event, ctx| {
+            me.file_operation = None;
+            if let super::sidebar::Sidebar::Files(browser) = &me.sidebar {
+                if let Event::Changed(parent) = event {
+                    browser.update(ctx, |browser, ctx| browser.refresh(parent, ctx));
+                }
+                ctx.focus(browser);
+            } else {
+                ctx.focus_self();
+            }
+            ctx.notify();
+        });
+        let modal = ctx.add_typed_action_view(|ctx| {
+            Modal::new(Some(tr(operation.title()).into()), body, ctx)
+                .with_modal_style(UiComponentStyles {
+                    width: Some(560.),
+                    height: Some(340.),
+                    ..Default::default()
+                })
+                .with_body_style(UiComponentStyles {
+                    height: Some(240.),
+                    padding: Some(Coords::uniform(16.)),
+                    ..Default::default()
+                })
+        });
+        ctx.subscribe_to_view(&modal, |me, _, _, ctx| {
+            me.file_operation = None;
+            ctx.focus_self();
+            ctx.notify();
+        });
+        ctx.focus(&modal);
+        self.file_operation = Some(modal);
         ctx.notify();
     }
 
@@ -4493,6 +4545,11 @@ impl Workspace {
             ctx.open_file_path(&path);
             return;
         }
+        self.preview_sidebar_file(path, ctx);
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn preview_sidebar_file(&mut self, path: PathBuf, ctx: &mut ViewContext<Self>) {
         let group = self.active_tab_pane_group().clone();
         let existing = group
             .as_ref(ctx)
@@ -12281,6 +12338,11 @@ impl View for Workspace {
         #[cfg(feature = "local_fs")]
         if let Some(editor) = &self.project_session_editor {
             stack.add_child(ChildView::new(editor).finish());
+        }
+
+        #[cfg(feature = "local_fs")]
+        if let Some(operation) = &self.file_operation {
+            stack.add_child(ChildView::new(operation).finish());
         }
 
         if self.session_config_modal.is_open() {

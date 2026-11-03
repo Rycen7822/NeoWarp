@@ -8,6 +8,9 @@ terminal sessions and local data.
 Open the upper-left sidebar and select **Files** to browse the active terminal's directory. Expand folders on demand
 and select a file to open it beside the terminal, with basic editing and saving. On Windows, WSL
 directory changes arrive through the bundled Linux filesystem watcher, including ignored folders.
+Right-click files to choose the right pane, the system default app, or an installed editor such as VS Code or Zed.
+The menu also supports new files/folders, renaming, copying paths and refreshing. Deletion requires confirmation
+and permanently removes the selected item and its contents.
 
 - Terminal blocks, history, completion, tabs, splits, and basic text editing.
 - Ordinary SSH/WSL and advanced SSH daemon support without Warp account or cloud-service dependencies.
