@@ -4306,7 +4306,7 @@ impl Workspace {
         self.add_tab_with_pane_layout(
             panes_layout,
             Arc::new(HashMap::new()),
-            Some(tr("Settings").to_owned()),
+            None,
             ctx,
         );
     }
