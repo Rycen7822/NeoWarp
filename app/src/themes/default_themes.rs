@@ -259,6 +259,40 @@ pub(super) fn adeberry_colors() -> TerminalColors {
 }
 
 /// Default bundled themes
+pub fn windows_terminal_campbell() -> WarpTheme {
+    WarpTheme::new(
+        Fill::Solid(ColorU::from_u32(0x0C0C0CFF)),
+        ColorU::from_u32(0xCCCCCCFF),
+        Fill::Solid(ColorU::from_u32(0x3B78FFFF)),
+        Some(Fill::Solid(ColorU::white())),
+        Some(Details::Darker),
+        TerminalColors::new(
+            AnsiColors::new(
+                AnsiColor::from_u32(0x0C0C0CFF),
+                AnsiColor::from_u32(0xC50F1FFF),
+                AnsiColor::from_u32(0x13A10EFF),
+                AnsiColor::from_u32(0xC19C00FF),
+                AnsiColor::from_u32(0x0037DAFF),
+                AnsiColor::from_u32(0x881798FF),
+                AnsiColor::from_u32(0x3A96DDFF),
+                AnsiColor::from_u32(0xCCCCCCFF),
+            ),
+            AnsiColors::new(
+                AnsiColor::from_u32(0x767676FF),
+                AnsiColor::from_u32(0xE74856FF),
+                AnsiColor::from_u32(0x16C60CFF),
+                AnsiColor::from_u32(0xF9F1A5FF),
+                AnsiColor::from_u32(0x3B78FFFF),
+                AnsiColor::from_u32(0xB4009EFF),
+                AnsiColor::from_u32(0x61D6D6FF),
+                AnsiColor::from_u32(0xF2F2F2FF),
+            ),
+        ),
+        None,
+        Some("Windows Terminal Campbell".to_string()),
+    )
+}
+
 pub fn dark_theme() -> WarpTheme {
     WarpTheme::new(
         Fill::Solid(ColorU::from_u32(0x050505FF)),

@@ -38,11 +38,13 @@ const THUMBNAIL_MARGIN: f32 = 10.;
 )]
 #[schemars(description = "The color theme.", rename_all = "snake_case")]
 pub enum ThemeKind {
+    #[default]
+    #[schemars(description = "Windows Terminal Campbell")]
+    WindowsTerminalCampbell,
     #[schemars(description = "Adeberry")]
     Adeberry,
     #[schemars(description = "Phenomenon")]
     Phenomenon,
-    #[default]
     #[schemars(description = "Dark")]
     Dark,
     #[schemars(description = "Dracula")]
@@ -103,6 +105,7 @@ impl From<CustomTheme> for ThemeKind {
 impl std::fmt::Display for ThemeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match &self {
+            ThemeKind::WindowsTerminalCampbell => "Windows Terminal Campbell",
             ThemeKind::Light => "Light",
             ThemeKind::Dark => "Dark",
             ThemeKind::Dracula => "Dracula",
@@ -417,6 +420,10 @@ impl WarpThemeConfig {
     pub fn new() -> Self {
         // preload with built-in themes
         let theme_map: HashMap<ThemeKind, WarpTheme> = HashMap::from_iter([
+            (
+                ThemeKind::WindowsTerminalCampbell,
+                windows_terminal_campbell(),
+            ),
             (ThemeKind::Dark, dark_theme()),
             (ThemeKind::Light, light_theme()),
             (ThemeKind::SolarizedDark, solarized_dark()),
@@ -455,7 +462,10 @@ impl WarpThemeConfig {
     }
 
     pub fn theme(&self, name: &ThemeKind) -> WarpTheme {
-        self.theme_map.get(name).cloned().unwrap_or_else(dark_theme)
+        self.theme_map
+            .get(name)
+            .cloned()
+            .unwrap_or_else(windows_terminal_campbell)
     }
 }
 
@@ -503,7 +513,7 @@ impl Default for SelectedSystemThemes {
     fn default() -> Self {
         Self {
             light: ThemeKind::Light,
-            dark: ThemeKind::Dark,
+            dark: ThemeKind::WindowsTerminalCampbell,
         }
     }
 }

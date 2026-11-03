@@ -1,8 +1,32 @@
 use settings_value::SettingsValue as _;
+use warpui::color::ColorU;
 
 use super::*;
 use crate::user_config;
 use crate::util::color::OPAQUE;
+
+#[test]
+fn default_theme_is_windows_terminal_campbell() {
+    let kind = ThemeKind::default();
+    let config = WarpThemeConfig::new();
+    assert_eq!(kind.to_string(), "Windows Terminal Campbell");
+    assert_eq!(kind.to_file_value(), "windows_terminal_campbell");
+    assert_eq!(SelectedSystemThemes::default().dark, kind);
+    assert!(config.theme_items().any(|(name, _)| *name == kind));
+    let theme = config.theme(&kind);
+    assert_eq!(theme.name().as_deref(), Some("Windows Terminal Campbell"));
+    assert_eq!(theme.background(), ColorU::from_u32(0x0C0C0CFF).into());
+    assert_eq!(theme.foreground(), ColorU::from_u32(0xCCCCCCFF).into());
+    assert_eq!(theme.cursor(), ColorU::white().into());
+    assert_eq!(
+        theme.terminal_colors().normal.red,
+        AnsiColor::from_u32(0xC50F1FFF)
+    );
+    assert_eq!(
+        theme.terminal_colors().normal.green,
+        AnsiColor::from_u32(0x13A10EFF)
+    );
+}
 
 fn custom_theme_json(path: &str) -> serde_json::Value {
     serde_json::json!({
