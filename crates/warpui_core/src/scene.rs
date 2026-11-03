@@ -16,6 +16,9 @@ use crate::rendering;
 
 #[derive(Clone)]
 pub struct Scene {
+    /// Actual client-area bounds of a custom maximize/restore button, in scene units.
+    #[cfg(windows)]
+    pub window_maximize_button: Option<RectF>,
     scale_factor: f32,
     rendering_config: rendering::Config,
     active_layer_index_stack: Vec1<ZIndex>,
@@ -370,6 +373,8 @@ impl ZIndex {
 impl Scene {
     pub fn new(scale_factor: f32, rendering_config: rendering::Config) -> Self {
         Self {
+            #[cfg(windows)]
+            window_maximize_button: None,
             scale_factor,
             rendering_config,
             active_layer_index_stack: vec1![ZIndex::Normal(0)],

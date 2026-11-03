@@ -95,6 +95,7 @@ impl WindowsTrafficLightIcon {
                 icon
             }
         })
+        .with_native_maximize_button(action_name == "root_view:toggle_maximize_window")
         .on_click(move |evt, _, _| {
             evt.dispatch_action(action_name, ());
         })
@@ -210,6 +211,9 @@ impl TrafficLightData {
                             Arc::clone(&mouse_states.maximize_window_button),
                             Self::render_windows_maximize_button_icon(fg_color, fullscreen_state),
                             theme.surface_3().into(),
+                        )
+                        .with_native_maximize_button(
+                            fullscreen_state != FullscreenState::Fullscreen,
                         )
                         .on_click(move |evt, _, _| {
                             if fullscreen_state == FullscreenState::Fullscreen {

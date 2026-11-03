@@ -32,7 +32,7 @@ use winit::window::{CursorIcon, Fullscreen, ResizeDirection, UserAttentionType, 
 
 use super::app::CustomEvent;
 #[cfg(windows)]
-use super::windows::{WindowAttributeErr, get_system_caption_button_bounds, set_window_attribute};
+use super::windows::{WindowAttributeErr, set_window_attribute};
 use crate::platform::{
     self, Cursor, FullscreenState, GraphicsBackend, TerminationMode, WindowBackdrop, WindowBounds,
     WindowFocusBehavior, WindowOptions, WindowStyle,
@@ -1582,16 +1582,6 @@ fn create_window(
                     }
                 }
             }
-
-            let caption_button_result = get_system_caption_button_bounds(window);
-            match caption_button_result {
-                Ok(_caption_button_location) => {
-                    // TODO: use location to actually draw buttons
-                }
-                Err(err) => {
-                    log::warn!("Couldn't retrieve system caption button bounds: {err:?}");
-                }
-            };
         }
     }
 
@@ -1845,8 +1835,23 @@ impl platform::WindowContext for Window {
     }
 
     fn render_scene(&self, scene: Rc<Scene>) {
+        #[cfg(windows)]
+        let maximize_button = scene.window_maximize_button.map(|bounds| {
+            RectF::new(
+                bounds.origin() * scene.scale_factor(),
+                bounds.size() * scene.scale_factor(),
+            )
+        });
         self.scene.borrow_mut().replace(scene);
         if let Some(inner) = self.inner.borrow_mut().as_mut() {
+            #[cfg(windows)]
+            if let Err(error) =
+                super::windows::set_maximize_button_rect(&inner.window, maximize_button)
+            {
+                report_error!(
+                    anyhow::Error::new(error).context("Failed to update maximize button bounds")
+                );
+            }
             inner.window.request_redraw();
         }
     }

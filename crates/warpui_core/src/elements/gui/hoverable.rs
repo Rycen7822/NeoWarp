@@ -28,6 +28,8 @@ type MouseDownWithModifiersHandler =
     Box<dyn FnMut(&mut EventContext, &AppContext, Vector2F, ModifiersState)>;
 
 pub struct Hoverable {
+    #[cfg(windows)]
+    native_maximize_button: bool,
     child: Box<dyn Element>,
     state: MouseStateHandle,
     origin: Option<Point>,
@@ -203,6 +205,8 @@ impl Hoverable {
     {
         let child = build_child(&state.lock().unwrap());
         Self {
+            #[cfg(windows)]
+            native_maximize_button: false,
             child,
             state,
             origin: None,
@@ -226,6 +230,13 @@ impl Hoverable {
             suppress_drag: true,
             defer_events_to_children: false,
         }
+    }
+
+    /// Exposes this custom button to Windows' native maximize/restore hit testing.
+    #[cfg(windows)]
+    pub fn with_native_maximize_button(mut self, enabled: bool) -> Self {
+        self.native_maximize_button = enabled;
+        self
     }
 
     /// Adds additional behavior on hover to any existing hover handler, instead
@@ -590,6 +601,15 @@ impl Element for Hoverable {
     fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
         self.origin = Some(Point::from_vec2f(origin, ctx.scene.z_index()));
         self.child.paint(origin, ctx, app);
+
+        #[cfg(windows)]
+        if self.native_maximize_button && !self.disabled {
+            let bounds = RectF::new(origin, self.child.size().expect("paint follows layout"));
+            ctx.scene.window_maximize_button = ctx
+                .scene
+                .active_clip_bounds()
+                .map_or(Some(bounds), |clip| bounds.intersection(clip));
+        }
 
         self.child_max_z_index = Some(ctx.scene.max_active_z_index());
     }
