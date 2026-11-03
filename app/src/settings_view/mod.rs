@@ -170,11 +170,7 @@ use crate::util::bindings::custom_tag_to_keystroke;
 
 impl Display for SettingsSection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
-            SettingsSection::EditorAndCodeReview => write!(f, "Editor"),
-            _ => write!(f, "{self:?}"),
-        }
+        f.write_str(crate::localization::tr(self.slug()))
     }
 }
 

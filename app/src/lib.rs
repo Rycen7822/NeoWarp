@@ -26,6 +26,7 @@ mod file_watcher;
 mod global_resource_handles;
 mod gpu_state;
 mod interval_timer;
+pub(crate) mod localization;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod login_item;
 mod menu;
@@ -705,6 +706,7 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_ctx| SettingsManager::default());
 
     let user_defaults_on_startup = settings::init(startup_toml_parse_error, ctx);
+    localization::initialize(*GeneralSettings::as_ref(ctx).ui_language);
     ctx.set_accessibility_plugin_enabled(*GeneralSettings::as_ref(ctx).accessibility_plugin);
     window_settings::migrate_legacy_background_backdrop(ctx);
     timer.mark_interval_end("READ_USER_DEFAULTS_AND_INITIALIZE_SETTINGS");

@@ -31,7 +31,7 @@ fn file_defaults_validate_against_schema() {
         InputBoxType::Universal
     );
     assert!(!HonorPS1::default_value());
-    assert_eq!(Theme::default_value(), ThemeKind::Dark);
+    assert_eq!(Theme::default_value(), ThemeKind::WindowsTerminalCampbell);
 
     let mut failures = Vec::new();
 

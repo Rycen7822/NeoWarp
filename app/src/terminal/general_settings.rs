@@ -49,6 +49,14 @@ impl DefaultSessionMode {
 }
 
 define_settings_group!(GeneralSettings, settings: [
+    ui_language: UiLanguage {
+        type: crate::localization::Language,
+        default: crate::localization::Language::En,
+        supported_platforms: SupportedPlatforms::ALL,
+        private: false,
+        toml_path: "appearance.language",
+        description: "Software interface language. Restart NeoWarp to apply.",
+    },
     accessibility_plugin: AccessibilityPlugin {
         type: bool,
         default: false,

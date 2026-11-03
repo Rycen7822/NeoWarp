@@ -50,6 +50,7 @@ use crate::editor::{
 };
 use crate::features::FeatureFlag;
 use crate::gpu_state::{GPUState, GPUStateEvent};
+use crate::localization::{Language, tr};
 use crate::settings::app_icon::{AppIcon, AppIconSettings};
 use crate::settings::{
     AppEditorSettings, CursorBlink, CursorDisplayType, DEFAULT_MONOSPACE_FONT_NAME,
@@ -59,6 +60,7 @@ use crate::settings::{
 };
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::blockgrid_element::BlockGridElement;
+use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::ligature_settings::LigatureSettings;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::model::blockgrid::BlockGrid;
@@ -399,6 +401,7 @@ impl FontType {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AppearancePageAction {
+    SetLanguage(Language),
     LineHeightEditorResetRatio,
     SetNewWindowsCustomColumns,
     SetNewWindowsCustomRows,
@@ -454,6 +457,7 @@ pub enum AppearancePageAction {
 }
 
 pub struct AppearanceSettingsPageView {
+    language_dropdown: ViewHandle<Dropdown<AppearancePageAction>>,
     page: PageType<Self>,
     window_id: WindowId,
     font_size_editor: ViewHandle<EditorView>,
@@ -504,6 +508,11 @@ impl TypedActionView for AppearanceSettingsPageView {
         use AppearancePageAction::*;
 
         match action {
+            SetLanguage(language) => {
+                GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.ui_language.set_value(*language, ctx));
+                });
+            }
             LineHeightEditorResetRatio => self.reset_line_height_ratio(ctx),
             SetNewWindowsCustomColumns => self.update_new_windows_num_columns(true, ctx),
             SetNewWindowsCustomRows => self.update_new_windows_num_rows(true, ctx),
@@ -1103,7 +1112,36 @@ impl AppearanceSettingsPageView {
         let header_toolbar_inline_editor =
             ctx.add_typed_action_view(HeaderToolbarInlineEditor::new);
 
+        let language_dropdown = ctx.add_typed_action_view(|ctx| {
+            let mut dropdown = Dropdown::new(ctx);
+            dropdown.set_items(
+                [Language::En, Language::ZhCn]
+                    .into_iter()
+                    .map(|language| {
+                        DropdownItem::new(
+                            language.label(),
+                            AppearancePageAction::SetLanguage(language),
+                        )
+                    })
+                    .collect(),
+                ctx,
+            );
+            dropdown.set_selected_by_action(
+                AppearancePageAction::SetLanguage(*GeneralSettings::as_ref(ctx).ui_language),
+                ctx,
+            );
+            dropdown
+        });
+        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |me, _, _, ctx| {
+            let language = *GeneralSettings::as_ref(ctx).ui_language;
+            me.language_dropdown.update(ctx, |dropdown, ctx| {
+                dropdown.set_selected_by_action(AppearancePageAction::SetLanguage(language), ctx);
+            });
+            ctx.notify();
+        });
+
         AppearanceSettingsPageView {
+            language_dropdown,
             page: Self::build_page(ctx),
             window_id: ctx.window_id(),
             font_size_editor,
@@ -1146,10 +1184,10 @@ impl AppearanceSettingsPageView {
     }
 
     fn build_page(ctx: &mut ViewContext<Self>) -> PageType<Self> {
-        let mut categories = vec![Category::new(
-            "Themes",
-            vec![Box::new(ThemeSelectWidget::default())],
-        )];
+        let mut categories = vec![
+            Category::new("Language", vec![Box::new(LanguageWidget)]),
+            Category::new("Themes", vec![Box::new(ThemeSelectWidget::default())]),
+        ];
 
         if AppIconSettings::as_ref(ctx).is_supported_on_current_platform() {
             categories.push(Category::new(
@@ -2269,6 +2307,32 @@ fn render_group(
     .with_margin_top(-4.)
     .with_margin_bottom(HEADER_PADDING)
     .finish()
+}
+
+struct LanguageWidget;
+
+impl SettingsWidget for LanguageWidget {
+    type View = AppearanceSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "language locale english chinese 语言 中文 汉化 英文"
+    }
+
+    fn render(
+        &self,
+        view: &Self::View,
+        appearance: &Appearance,
+        _app: &AppContext,
+    ) -> Box<dyn Element> {
+        render_dropdown_item(
+            appearance,
+            tr("Interface language"),
+            Some("Restart NeoWarp to apply. 更改语言后，请重启 NeoWarp。"),
+            None,
+            None,
+            &view.language_dropdown,
+        )
+    }
 }
 
 #[derive(Default)]
