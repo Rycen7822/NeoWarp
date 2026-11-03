@@ -49,6 +49,13 @@ pub fn init(app: &mut AppContext) {
 
     init_overlapping_keybindings(app);
 
+    #[cfg(feature = "local_fs")]
+    app.register_fixed_bindings([FixedBinding::new(
+        "ctrl-g",
+        TerminalAction::ToggleCliRichInput,
+        id!("Terminal") & id!("CliAgentToolbelt") & !id!("IMEOpen"),
+    )]);
+
     app.register_fixed_bindings([
         FixedBinding::new("up", TerminalAction::Up, id!("Terminal") & !id!("IMEOpen")),
         FixedBinding::new(

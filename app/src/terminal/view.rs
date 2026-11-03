@@ -4,6 +4,8 @@ mod action;
 mod block_banner;
 pub mod block_onboarding;
 mod bookmarks;
+#[cfg(feature = "local_fs")]
+mod cli_toolbelt;
 mod context_menu;
 pub mod init;
 pub mod inline_banner;
@@ -1581,6 +1583,8 @@ pub struct TerminalView {
 
     /// Path to the current repository, or None if not currently in a repo.
     current_repo_path: Option<LocalOrRemotePath>,
+    #[cfg(feature = "local_fs")]
+    cli_toolbelt: Option<cli_toolbelt::CliToolbelt>,
 
     /// The title of the terminal view to show when there is no selected conversation.
     terminal_title: String,
@@ -2277,6 +2281,8 @@ impl TerminalView {
             git_repo_status: None,
             github_repo_model: None,
             current_repo_path: None,
+            #[cfg(feature = "local_fs")]
+            cli_toolbelt: None,
             terminal_title: Default::default(),
             warpify_footer,
             manual_pty_shutdown_requested: false,
@@ -2510,6 +2516,10 @@ impl TerminalView {
 
     /// Returns whether this terminal view should subscribe to git status updates.
     fn should_subscribe_to_git_status(&self, ctx: &AppContext) -> bool {
+        #[cfg(feature = "local_fs")]
+        if self.cli_toolbelt.is_some() {
+            return true;
+        }
         self.needs_git_status_for_chip_ui(ctx)
     }
 
@@ -2743,7 +2753,7 @@ impl TerminalView {
 
     #[cfg(feature = "local_fs")]
     fn observe_project_session(
-        &self,
+        &mut self,
         block: &BlockId,
         command: &str,
         environment: &HashMap<String, String>,
@@ -2764,6 +2774,16 @@ impl TerminalView {
         let launched = self.awaiting_pending_command_completion
             && ProjectSessions::as_ref(ctx).starting(ctx.view_id());
         let parsed = crate::project_sessions::command::parse(command, session.shell().shell_type());
+        let provider = parsed.as_ref().map(|parsed| parsed.provider).or_else(|| {
+            launched
+                .then(|| ProjectSessions::as_ref(ctx).provider_for_terminal(ctx.view_id()))
+                .flatten()
+        });
+        if let Some(provider) = provider
+            .filter(|provider| *provider != crate::project_sessions::config::Provider::Custom)
+        {
+            self.start_cli_toolbelt(block.clone(), provider, ctx);
+        }
         if parsed.is_none() && !launched {
             return;
         }
@@ -2817,7 +2837,8 @@ impl TerminalView {
     }
 
     #[cfg(feature = "local_fs")]
-    fn end_project_session(&self, block: Option<&BlockId>, ctx: &mut ViewContext<Self>) {
+    fn end_project_session(&mut self, block: Option<&BlockId>, ctx: &mut ViewContext<Self>) {
+        self.end_cli_toolbelt(block, ctx);
         use crate::project_sessions::ProjectSessions;
         if ctx.has_singleton_model::<ProjectSessions>() {
             let terminal = ctx.view_id();
@@ -2963,6 +2984,10 @@ impl TerminalView {
     }
 
     pub fn is_input_box_visible(&self, model: &TerminalModel, app: &AppContext) -> bool {
+        #[cfg(feature = "local_fs")]
+        if self.cli_toolbelt.is_some() {
+            return false;
+        }
         if model.is_read_only() {
             return false;
         }
@@ -12125,6 +12150,8 @@ impl TypedActionView for TerminalView {
             | ClearMarkedText => ActionAccessibilityContent::from_debug(),
             #[cfg(feature = "local_fs")]
             OpenCodeInWarp { .. } => ActionAccessibilityContent::from_debug(),
+            #[cfg(feature = "local_fs")]
+            ToggleCliRichInput => ActionAccessibilityContent::from_debug(),
             OpenInWarpBanner(action) => self.open_in_warp_banner_accessibility_content(*action),
             PickRepoToOpen => Custom(AccessibilityContent::new_without_help(
                 "Use file picker to select a git repository".to_owned(),
@@ -12161,6 +12188,8 @@ impl TypedActionView for TerminalView {
         let input_mode = *InputModeSettings::as_ref(ctx).input_mode.value();
 
         match action {
+            #[cfg(feature = "local_fs")]
+            ToggleCliRichInput => self.toggle_cli_rich_input(ctx),
             Scroll { delta } => self.scroll(*delta, ctx),
             AltScroll { delta, point } => self.alt_scroll(*delta, *point, ctx),
             ScrollToTopOfBlock { topmost_block } => {
@@ -12489,9 +12518,14 @@ impl View for TerminalView {
                 .is_active_and_long_running()
         };
 
-        let mut column = match input_mode {
-            InputMode::PinnedToTop => Flex::column().with_reverse_orientation(),
-            InputMode::PinnedToBottom | InputMode::Waterfall => Flex::column(),
+        #[cfg(feature = "local_fs")]
+        let has_cli_toolbelt = self.cli_toolbelt.is_some();
+        #[cfg(not(feature = "local_fs"))]
+        let has_cli_toolbelt = false;
+
+        let mut column = match (input_mode, has_cli_toolbelt) {
+            (InputMode::PinnedToTop, false) => Flex::column().with_reverse_orientation(),
+            _ => Flex::column(),
         };
 
         let mut did_wrap_terminal_size = false;
@@ -12508,7 +12542,7 @@ impl View for TerminalView {
             model.block_list().active_gap(),
             is_alt_screen_active,
         ) {
-            (InputMode::Waterfall, Some(active_gap), false) => {
+            (InputMode::Waterfall, Some(active_gap), false) if !has_cli_toolbelt => {
                 self.render_waterfall_gap_element(&model, &viewport, active_gap, appearance, app)
             }
             (input_mode, _, _) => {
@@ -12523,7 +12557,13 @@ impl View for TerminalView {
                         ),
                     )
                 } else {
-                    self.render_block_list_element(&model, input_mode, true, app)
+                    let output = self.render_block_list_element(&model, input_mode, true, app);
+                    if has_cli_toolbelt {
+                        did_wrap_terminal_size = true;
+                        wrap_in_terminal_size_element(&self.resize_tx, output)
+                    } else {
+                        output
+                    }
                 };
 
                 column.add_child(Shrinkable::new(1., output_area).finish());
@@ -12533,7 +12573,11 @@ impl View for TerminalView {
                 }
 
                 let input_box_visible = self.is_input_box_visible(&model, app);
-                if input_box_visible {
+                #[cfg(feature = "local_fs")]
+                if has_cli_toolbelt {
+                    column.add_child(self.render_cli_toolbelt(&model, app));
+                }
+                if input_box_visible && !has_cli_toolbelt {
                     column.add_child(self.render_input());
                 } else if self.show_remote_server_loading_footer(&model, app) {
                     column.add_child(
@@ -12798,6 +12842,8 @@ impl View for TerminalView {
 
     fn on_focus(&mut self, focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
         if focus_ctx.is_self_focused() {
+            #[cfg(feature = "local_fs")]
+            self.focus_cli_rich_input(ctx);
             self.maybe_report_focus_in(ctx);
             ctx.dispatch_typed_action(&PaneGroupAction::HandleFocusChange);
 
@@ -12823,6 +12869,10 @@ impl View for TerminalView {
 
     fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
         let mut context = Self::default_keymap_context();
+        #[cfg(feature = "local_fs")]
+        if self.cli_toolbelt.is_some() {
+            context.set.insert("CliAgentToolbelt");
+        }
         context.map.insert(
             "TerminalView_BlockSelectionCardinality",
             self.selected_blocks.cardinality().as_keymap_context_value(),

@@ -305,6 +305,13 @@ impl ProjectSessions {
             .is_some_and(|live| live.running.is_none())
     }
 
+    pub(crate) fn provider_for_terminal(&self, terminal: EntityId) -> Option<config::Provider> {
+        self.live
+            .get(&terminal)
+            .and_then(|live| self.entry(live.session_id))
+            .map(|(_, session)| session.provider)
+    }
+
     pub(crate) fn active_terminal(&self, id: Uuid, app: &warpui::AppContext) -> Option<EntityId> {
         self.live
             .values()

@@ -60,6 +60,8 @@ impl RememberForWarpification {
 
 #[derive(Clone)]
 pub enum TerminalAction {
+    #[cfg(feature = "local_fs")]
+    ToggleCliRichInput,
     Scroll {
         delta: Lines,
     },
@@ -234,6 +236,8 @@ impl fmt::Debug for TerminalAction {
         use TerminalAction::*;
 
         match self {
+            #[cfg(feature = "local_fs")]
+            ToggleCliRichInput => f.write_str("ToggleCliRichInput"),
             Scroll { delta } => write!(f, "Scroll {{ delta: {delta} }}"),
             AltScroll { delta, .. } => write!(f, "AltScroll {{ delta: {delta} }}"),
             ScrollToTopOfBlock { topmost_block } => write!(

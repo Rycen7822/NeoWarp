@@ -48,6 +48,11 @@ Right-click projects or sessions to **Pin** them, and drag their handles to reor
 level, project and pin group. Unpinned entries use recent activity until manually reordered.
 Launch records are stored locally in `project_sessions.json` inside NeoWarp's data directory.
 
+While a recognized Codex, Pi, Claude Code or Hermes command runs, a local toolbelt provides Files,
+**Rich Input** (`Ctrl+G`), the working directory and live Git statistics linked to Review.
+Rich Input sends text directly to the CLI: `Enter` submits, `Shift+Enter` inserts a newline and
+`Escape` hides the editor. Drafts survive toggling within that command; the toolbelt closes when it exits.
+
 ## Local Data
 
 NeoWarp uses its own application IDs, settings, history, caches, and `.neowarp*` configuration directories.
