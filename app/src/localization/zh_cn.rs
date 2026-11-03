@@ -12,14 +12,7 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Language" => "语言",
         "Interface language" => "界面语言",
         "Interface font" => "界面字体",
-        "Interface font size (px)" => "界面字号（像素）",
-        "8–32 px. Changes apply immediately; terminal text size stays independent." => {
-            "8–32 像素。更改立即生效，终端字号保持独立。"
-        }
         "System default" => "系统默认",
-        "Used by menus, settings and sidebars. Missing characters use system fallback." => {
-            "用于菜单、设置和侧边栏。缺少的字符使用系统回退字体。"
-        }
         "Changes apply immediately." => "更改立即生效。",
         "Files" => "文件",
         "Projects" => "项目",

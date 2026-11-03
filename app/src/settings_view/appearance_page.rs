@@ -3426,6 +3426,25 @@ struct TerminalFontWidget {
 
 struct UiFontWidget;
 
+fn font_size_input_style(appearance: &Appearance) -> UiComponentStyles {
+    UiComponentStyles {
+        width: Some(FONT_SIZE_INPUT_BOX_WIDTH),
+        padding: Some(Coords {
+            top: 7.,
+            bottom: 7.,
+            left: 12.,
+            right: 12.,
+        }),
+        margin: Some(Coords {
+            top: 2.,
+            left: 2.,
+            ..Default::default()
+        }),
+        background: Some(appearance.theme().surface_2().into()),
+        ..Default::default()
+    }
+}
+
 impl SettingsWidget for UiFontWidget {
     type View = AppearanceSettingsPageView;
 
@@ -3439,34 +3458,47 @@ impl SettingsWidget for UiFontWidget {
         appearance: &Appearance,
         _app: &AppContext,
     ) -> Box<dyn Element> {
-        let family = render_body_item::<AppearancePageAction>(
-            "Interface font".to_owned(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            ChildView::new(&view.ui_font_family_dropdown).finish(),
-            Some(
-                "Used by menus, settings and sidebars. Missing characters use system fallback."
-                    .to_owned(),
-            ),
-        );
-        let size = render_body_item::<AppearancePageAction>(
-            "Interface font size (px)".to_owned(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            appearance
-                .ui_builder()
-                .text_input(view.ui_font_size_editor.clone())
-                .with_style(UiComponentStyles::default().set_width(FONT_SIZE_INPUT_BOX_WIDTH))
-                .build()
+        let family = Flex::column()
+            .with_child(render_body_item_label::<AppearancePageAction>(
+                "Interface font".to_owned(),
+                None,
+                None,
+                ToggleState::Enabled,
+                appearance,
+            ))
+            .with_child(ChildView::new(&view.ui_font_family_dropdown).finish())
+            .finish();
+        let size = Flex::column()
+            .with_child(
+                appearance
+                    .ui_builder()
+                    .label(tr("Font size (px)").to_owned())
+                    .with_style(
+                        UiComponentStyles::default()
+                            .set_font_size(appearance.ui_font_size())
+                            .set_margin(Coords::default().left(2.)),
+                    )
+                    .build()
+                    .finish(),
+            )
+            .with_child(
+                Container::new(
+                    appearance
+                        .ui_builder()
+                        .text_input(view.ui_font_size_editor.clone())
+                        .with_style(font_size_input_style(appearance))
+                        .build()
+                        .finish(),
+                )
+                .with_padding_top(4.)
                 .finish(),
-            Some(
-                "8–32 px. Changes apply immediately; terminal text size stays independent."
-                    .to_owned(),
-            ),
-        );
-        Flex::column().with_child(family).with_child(size).finish()
+            )
+            .finish();
+        Flex::row()
+            .with_spacing(12.)
+            .with_child(Shrinkable::new(1., family).finish())
+            .with_child(size)
+            .finish()
     }
 }
 
@@ -3678,22 +3710,7 @@ impl SettingsWidget for TerminalFontWidget {
                     appearance
                         .ui_builder()
                         .text_input(view.font_size_editor.clone())
-                        .with_style(UiComponentStyles {
-                            width: Some(FONT_SIZE_INPUT_BOX_WIDTH),
-                            padding: Some(Coords {
-                                top: 7.,
-                                bottom: 7.,
-                                left: 12.,
-                                right: 12.,
-                            }),
-                            margin: Some(Coords {
-                                top: 2.,
-                                left: 2.,
-                                ..Default::default()
-                            }),
-                            background: Some(appearance.theme().surface_2().into()),
-                            ..Default::default()
-                        })
+                        .with_style(font_size_input_style(appearance))
                         .build()
                         .finish(),
                 )
