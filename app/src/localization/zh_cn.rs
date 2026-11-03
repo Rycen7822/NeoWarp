@@ -484,6 +484,8 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Only for named colors" => "仅命名颜色",
         "When windowed" => "窗口模式下",
         "Only on hover" => "仅悬停时",
+        "Sidebar" => "侧边栏",
+        "Close sidebar" => "关闭侧边栏",
         _ => return None,
     })
 }

@@ -4310,7 +4310,7 @@ impl Workspace {
         self.add_tab_with_pane_layout(
             panes_layout,
             Arc::new(HashMap::new()),
-            Some("Settings".to_owned()),
+            Some(tr("Settings").to_owned()),
             ctx,
         );
     }
@@ -9095,15 +9095,18 @@ impl Workspace {
                 },
                 &self.mouse_states.file_browser_icon,
                 WorkspaceAction::ToggleFileBrowser,
-                "Sidebar".to_owned(),
+                tr("Sidebar").to_owned(),
                 None,
                 self.sidebar.is_open(),
                 false,
             )
             .finish(),
             ctx,
-            warpui::accessibility::Semantics::new(self.mouse_states.sidebar_semantics, "Sidebar")
-                .selected(self.sidebar.is_open()),
+            warpui::accessibility::Semantics::new(
+                self.mouse_states.sidebar_semantics,
+                tr("Sidebar"),
+            )
+            .selected(self.sidebar.is_open()),
             WorkspaceAction::ToggleFileBrowser,
         ));
 
@@ -9652,7 +9655,7 @@ impl Workspace {
                 icons::Icon::Gear,
                 &self.mouse_states.settings_icon,
                 WorkspaceAction::ShowSettings,
-                "Settings".to_string(),
+                tr("Settings").to_string(),
                 self.cached_keybindings[SHOW_SETTINGS_KEYBINDING_NAME].clone(),
                 false,
                 false,

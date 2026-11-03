@@ -135,7 +135,7 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
                 })
                 .finish(),
             app,
-            Semantics::new(state.close_id, "Close sidebar"),
+            Semantics::new(state.close_id, tr("Close sidebar")),
             WorkspaceAction::ToggleFileBrowser,
         ))
         .finish();
