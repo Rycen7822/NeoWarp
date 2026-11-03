@@ -9428,6 +9428,11 @@ impl Workspace {
             #[cfg(feature = "local_fs")]
             HeaderToolbarItemKind::CodeReview => {
                 let is_open = self.git_review_view.is_some();
+                let action = if is_open {
+                    WorkspaceAction::CloseGitReview
+                } else {
+                    WorkspaceAction::OpenGitReview(None)
+                };
                 let has_repo = self
                     .read_from_active_terminal_view(ctx, |terminal| {
                         matches!(
@@ -9436,21 +9441,66 @@ impl Workspace {
                         )
                     })
                     .unwrap_or(false);
-                self.render_tab_bar_icon_button(
-                    appearance,
-                    icons::Icon::Diff,
-                    &self.mouse_states.git_review_icon,
+                let stats = self
+                    .read_from_active_terminal_view(ctx, |terminal| {
+                        terminal.current_diff_line_changes(ctx)
+                    })
+                    .flatten();
+                if let Some(stats) = stats.filter(|_| has_repo || is_open) {
+                    let content = Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_child(
+                            ConstrainedBox::new(
+                                icons::Icon::Diff
+                                    .to_warpui_icon(
+                                        appearance
+                                            .theme()
+                                            .sub_text_color(appearance.theme().background()),
+                                    )
+                                    .finish(),
+                            )
+                            .with_width(16.)
+                            .with_height(16.)
+                            .finish(),
+                        )
+                        .with_child(crate::code_review::review::diff_badge(
+                            stats.lines_added as usize,
+                            stats.lines_removed as usize,
+                            appearance,
+                        ))
+                        .finish();
+                    let mut button = appearance
+                        .ui_builder()
+                        .button(
+                            warpui::ui_components::button::ButtonVariant::Text,
+                            self.mouse_states.git_review_icon.clone(),
+                        )
+                        .with_custom_label(content);
                     if is_open {
-                        WorkspaceAction::CloseGitReview
-                    } else {
-                        WorkspaceAction::OpenGitReview(None)
-                    },
-                    tr("Code Review").to_owned(),
-                    None,
-                    is_open,
-                    !is_open && !has_repo,
-                )
-                .finish()
+                        button = button.active();
+                    }
+                    button
+                        .with_tooltip(self.render_tab_bar_icon_button_tooltip(
+                            appearance,
+                            tr("Code Review").to_owned(),
+                            None,
+                        ))
+                        .build()
+                        .on_click(move |ctx, _, _| ctx.dispatch_typed_action(action.clone()))
+                        .finish()
+                } else {
+                    self.render_tab_bar_icon_button(
+                        appearance,
+                        icons::Icon::Diff,
+                        &self.mouse_states.git_review_icon,
+                        action,
+                        tr("Code Review").to_owned(),
+                        None,
+                        is_open,
+                        !is_open && !has_repo,
+                    )
+                    .finish()
+                }
             }
             #[cfg(not(feature = "local_fs"))]
             HeaderToolbarItemKind::Files | HeaderToolbarItemKind::CodeReview => return None,

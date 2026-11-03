@@ -1,3 +1,5 @@
+#[cfg(feature = "local_fs")]
+mod diff_selector;
 pub mod diff_size_limits;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub mod diff_state;

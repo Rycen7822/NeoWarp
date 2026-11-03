@@ -293,6 +293,8 @@ use crate::util::repo_detection::{RepoDetectionSessionType, detect_possible_git_
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
 use crate::workspace::sync_inputs::SyncedInputState;
+#[cfg(feature = "local_fs")]
+use crate::workspace::tab_settings::{TabSettings, TabSettingsChangedEvent};
 use crate::workspace::{CommandSearchOptions, ToastStack, WorkspaceAction, WorkspaceRegistry};
 
 lazy_static! {
@@ -2435,6 +2437,16 @@ impl TerminalView {
                 ctx.notify();
             }
         });
+        #[cfg(feature = "local_fs")]
+        ctx.subscribe_to_model(&TabSettings::handle(ctx), |me, _, event, ctx| {
+            if matches!(
+                event,
+                TabSettingsChangedEvent::HeaderToolbarChipSelection { .. }
+            ) {
+                me.update_git_status_subscription(ctx);
+                ctx.notify();
+            }
+        });
         terminal_view
     }
 
@@ -2526,6 +2538,18 @@ impl TerminalView {
 
     /// Returns whether this terminal view should subscribe to git status updates.
     fn should_subscribe_to_git_status(&self, ctx: &AppContext) -> bool {
+        #[cfg(feature = "local_fs")]
+        if matches!(
+            self.current_repo_path.as_ref(),
+            Some(LocalOrRemotePath::Local(_))
+        ) && TabSettings::as_ref(ctx)
+            .header_toolbar_chip_selection
+            .contains_item(
+                &crate::workspace::header_toolbar_item::HeaderToolbarItemKind::CodeReview,
+            )
+        {
+            return true;
+        }
         #[cfg(feature = "local_fs")]
         if self.cli_toolbelt.is_some()
             && Self::uses_git_status_chips(

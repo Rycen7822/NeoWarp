@@ -21,6 +21,7 @@ use warpui::{
     ViewContext, ViewHandle,
 };
 
+use super::diff_selector::DiffSelector;
 use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
 use super::diff_state::{DiffMode, GitFileStatus, LocalDiffStateModel};
 use super::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
@@ -34,6 +35,10 @@ use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
 use crate::util::git::FileChangeEntry;
 use crate::workspace::WorkspaceAction;
+
+#[cfg(test)]
+#[path = "review_tests.rs"]
+mod tests;
 
 struct FileCard {
     entry: FileChangeEntry,
@@ -68,6 +73,11 @@ impl FileCard {
 pub struct GitReviewView {
     root: PathBuf,
     status: ModelHandle<GitRepoStatusModel>,
+    selector: ViewHandle<DiffSelector>,
+    mode: DiffMode,
+    merge_base: Option<String>,
+    refreshing: Option<SpawnedFutureHandle>,
+    refresh_pending: bool,
     files: Vec<FileCard>,
     message: String,
     loading: Option<(String, SpawnedFutureHandle)>,
@@ -82,6 +92,11 @@ impl GitReviewView {
         status: ModelHandle<GitRepoStatusModel>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
+        let selector =
+            ctx.add_typed_action_view(|ctx| DiffSelector::new(root.clone(), status.clone(), ctx));
+        ctx.subscribe_to_view(&selector, |me, _, mode, ctx| {
+            me.select_mode(mode.clone(), ctx);
+        });
         let weak = ctx.handle();
         let (visible_tx, visible_rx) = async_channel::unbounded();
         let list = ListState::new(move |index, _, app| {
@@ -113,6 +128,12 @@ impl GitReviewView {
                 }
             }
             GitRepoStatusEvent::FilesInvalidated(changes) => {
+                if me.refreshing.is_some() {
+                    me.refresh_pending = true;
+                }
+                if changes.git_changed {
+                    me.merge_base = None;
+                }
                 for card in &mut me.files {
                     if changes.git_changed {
                         card.base = None;
@@ -130,6 +151,11 @@ impl GitReviewView {
         let mut view = Self {
             root,
             status,
+            selector,
+            mode: DiffMode::Head,
+            merge_base: None,
+            refreshing: None,
+            refresh_pending: false,
             files: Vec::new(),
             message: tr("Loading changes…").into(),
             loading: None,
@@ -142,22 +168,31 @@ impl GitReviewView {
     }
 
     fn update_files(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.mode != DiffMode::Head {
+            self.refresh_comparison(ctx);
+            return;
+        }
         if self.status.as_ref(ctx).metadata(ctx).is_none() {
             return;
         }
+        let files = self
+            .status
+            .as_ref(ctx)
+            .files(ctx)
+            .unwrap_or_default()
+            .to_vec();
+        self.set_files(files, ctx);
+    }
+
+    fn set_files(&mut self, files: Vec<FileChangeEntry>, ctx: &mut ViewContext<Self>) {
         let old_len = self.files.len();
         let mut previous: HashMap<_, _> = self
             .files
             .drain(..)
             .map(|mut card| (std::mem::take(&mut card.entry.path), card))
             .collect();
-        self.files = self
-            .status
-            .as_ref(ctx)
-            .files(ctx)
-            .unwrap_or_default()
-            .iter()
-            .cloned()
+        self.files = files
+            .into_iter()
             .map(|entry| {
                 if let Some(mut card) = previous.remove(&entry.path) {
                     card.entry = entry;
@@ -184,11 +219,75 @@ impl GitReviewView {
             self.cancel_loading();
         }
         self.message = if self.files.is_empty() {
-            tr("No uncommitted changes").into()
+            tr(if self.mode == DiffMode::Head {
+                "No uncommitted changes"
+            } else {
+                "No changes against the selected branch"
+            })
+            .into()
         } else {
             String::new()
         };
         ctx.notify();
+    }
+
+    fn select_mode(&mut self, mode: DiffMode, ctx: &mut ViewContext<Self>) {
+        if self.mode == mode {
+            return;
+        }
+        if let Some(task) = self.refreshing.take() {
+            task.abort();
+        }
+        self.refresh_pending = false;
+        self.cancel_loading();
+        self.mode = mode;
+        self.selector.update(ctx, |selector, ctx| {
+            selector.set_mode(self.mode.clone(), ctx)
+        });
+        self.merge_base = None;
+        self.set_files(Vec::new(), ctx);
+        self.message = tr("Loading changes…").into();
+        self.update_files(ctx);
+    }
+
+    fn refresh_comparison(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.refreshing.is_some() {
+            self.refresh_pending = true;
+            return;
+        }
+        let root = self.root.clone();
+        let mode = self.mode.clone();
+        let base = self.merge_base.clone();
+        self.refreshing = Some(ctx.spawn(
+            async move { load_comparison(root, mode, base).await },
+            |me, result, ctx| {
+                me.refreshing = None;
+                // An invalidation during the read supersedes this summary too.
+                if std::mem::take(&mut me.refresh_pending) {
+                    me.refresh_comparison(ctx);
+                    return;
+                }
+                match result {
+                    Ok((base, files)) => {
+                        if me.merge_base.as_ref() != Some(&base) {
+                            me.cancel_loading();
+                            for card in &mut me.files {
+                                card.base = None;
+                                card.dirty = true;
+                            }
+                        }
+                        me.merge_base = Some(base);
+                        me.set_files(files, ctx);
+                    }
+                    Err(error) => {
+                        me.merge_base = None;
+                        me.set_files(Vec::new(), ctx);
+                        me.message = format!("{}: {error:#}", tr("Unable to compare branches"));
+                        ctx.notify();
+                    }
+                }
+            },
+        ));
     }
 
     fn cancel_loading(&mut self) {
@@ -200,6 +299,7 @@ impl GitReviewView {
     fn load_visible(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
         // The list may measure preceding items to estimate height; those are not load requests.
         if self.loading.is_some()
+            || (self.mode != DiffMode::Head && self.merge_base.is_none())
             || index >= self.files.len()
             || (index != self.list.get_scroll_index()
                 && !self
@@ -219,10 +319,12 @@ impl GitReviewView {
         // Keep the cached snapshot available if an edit supersedes this cancellable read.
         let base = card.base.clone();
         let result_path = path.clone();
+        let mode = self.mode.clone();
+        let revision = self.merge_base.clone();
         self.loading = Some((
             path.clone(),
             ctx.spawn(
-                async move { load_file(root, path, base).await },
+                async move { load_file(root, path, mode, revision, base).await },
                 move |me, result, ctx| {
                     me.loading = None;
                     let Some(index) = me
@@ -404,7 +506,11 @@ impl GitReviewView {
     }
 }
 
-fn diff_badge(additions: usize, deletions: usize, appearance: &Appearance) -> Box<dyn Element> {
+pub(crate) fn diff_badge(
+    additions: usize,
+    deletions: usize,
+    appearance: &Appearance,
+) -> Box<dyn Element> {
     let mut row = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
     row.add_child(
         Text::new_inline(format!("+{additions}"), appearance.ui_font_family(), 12.)
@@ -426,15 +532,30 @@ fn diff_badge(additions: usize, deletions: usize, appearance: &Appearance) -> Bo
         .finish()
 }
 
+async fn load_comparison(
+    root: PathBuf,
+    mode: DiffMode,
+    cached_base: Option<String>,
+) -> Result<(String, Vec<FileChangeEntry>)> {
+    let base = match cached_base {
+        Some(base) => base,
+        None => LocalDiffStateModel::compute_merge_base(&root, &mode).await?,
+    };
+    let metadata = LocalDiffStateModel::diff_metadata_against_base(&root, &base).await?;
+    Ok((base, metadata.files))
+}
+
 async fn load_file(
     root: PathBuf,
     path: String,
+    mode: DiffMode,
+    revision: Option<String>,
     cached_base: Option<Arc<String>>,
 ) -> Result<Option<(Arc<String>, String)>> {
     // The editor already computes and renders the diff. Querying a Git patch
     // and its binary numstat first repeats that work and adds WSL launches.
     let Some((_, status)) =
-        LocalDiffStateModel::file_status_for_path(&root, &path, &DiffMode::Head, None).await?
+        LocalDiffStateModel::file_status_for_path(&root, &path, &mode, revision.as_deref()).await?
     else {
         return Ok(None);
     };
@@ -449,9 +570,14 @@ async fn load_file(
                 _ => &path,
             };
             Arc::new(
-                warp_util::git::read_head_file(&root, base_path, MAX_DIFF_SIZE)
-                    .await
-                    .context("cannot read HEAD content")?,
+                warp_util::git::read_file_at_revision(
+                    &root,
+                    revision.as_deref().unwrap_or("HEAD"),
+                    base_path,
+                    MAX_DIFF_SIZE,
+                )
+                .await
+                .context("cannot read comparison base content")?,
             )
         }
     };
@@ -535,6 +661,7 @@ impl View for GitReviewView {
         self.files
             .iter()
             .filter_map(|card| card.editor.as_ref().map(ViewHandle::id))
+            .chain(std::iter::once(self.selector.id()))
             .collect()
     }
 
@@ -548,6 +675,7 @@ impl View for GitReviewView {
             .metadata(app)
             .map(|metadata| metadata.current_branch_name.as_str())
             .unwrap_or("");
+        let ready = self.mode == DiffMode::Head || self.merge_base.is_some();
         let mut header = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         header.add_child(
             Expanded::new(
@@ -560,19 +688,29 @@ impl View for GitReviewView {
         );
         header.add_child(
             Container::new(
-                Text::new_inline(format!("{branch}  ·  {}", self.files.len()), font, 12.)
-                    .with_color(theme.sub_text_color(theme.background()).into())
-                    .finish(),
+                Text::new_inline(
+                    if ready {
+                        format!("{branch}  ·  {}", self.files.len())
+                    } else {
+                        branch.to_owned()
+                    },
+                    font,
+                    12.,
+                )
+                .with_color(theme.sub_text_color(theme.background()).into())
+                .finish(),
             )
             .with_margin_left(8.)
             .with_margin_right(8.)
             .finish(),
         );
-        header.add_child(diff_badge(
-            self.files.iter().map(|card| card.entry.additions).sum(),
-            self.files.iter().map(|card| card.entry.deletions).sum(),
-            appearance,
-        ));
+        if ready {
+            header.add_child(diff_badge(
+                self.files.iter().map(|card| card.entry.additions).sum(),
+                self.files.iter().map(|card| card.entry.deletions).sum(),
+                appearance,
+            ));
+        }
         header.add_child(
             close_button(appearance, self.close_mouse.clone())
                 .build()
@@ -582,15 +720,7 @@ impl View for GitReviewView {
                 .finish(),
         );
         let mut summary = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
-        summary.add_child(
-            Shrinkable::new(
-                1.,
-                Text::new_inline(tr("⇄  Uncommitted changes"), font, 13.)
-                    .with_color(theme.main_text_color(theme.background()).into())
-                    .finish(),
-            )
-            .finish(),
-        );
+        summary.add_child(ChildView::new(&self.selector).finish());
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(
@@ -630,5 +760,8 @@ impl View for GitReviewView {
 impl Drop for GitReviewView {
     fn drop(&mut self) {
         self.cancel_loading();
+        if let Some(task) = self.refreshing.take() {
+            task.abort();
+        }
     }
 }

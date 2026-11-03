@@ -48,10 +48,15 @@ pub async fn run_git_command_with_env(
     }
 }
 
-/// Reads one HEAD blob with bounded stdout and diagnostic stderr (64 KiB).
+/// Reads one revision's blob with bounded stdout and diagnostic stderr (64 KiB).
 /// An oversized output or cancellation drops the child with kill/reaping enabled.
 /// The limit applies before lossy UTF-8 conversion, which may increase text size.
-pub async fn read_head_file(repo_path: &Path, path: &str, max_bytes: usize) -> Result<String> {
+pub async fn read_file_at_revision(
+    repo_path: &Path,
+    revision: &str,
+    path: &str,
+    max_bytes: usize,
+) -> Result<String> {
     use futures_util::io::{AsyncRead, AsyncReadExt};
     const MAX_STDERR_BYTES: usize = 64 * 1024;
 
@@ -67,7 +72,7 @@ pub async fn read_head_file(repo_path: &Path, path: &str, max_bytes: usize) -> R
 
     let mut cmd = git_command(
         repo_path,
-        &["show", &format!("HEAD:{path}")],
+        &["show", &format!("{revision}:{path}")],
         &[("GIT_OPTIONAL_LOCKS", "0")],
     );
     cmd.kill_on_drop(true);

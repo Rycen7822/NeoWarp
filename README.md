@@ -15,6 +15,8 @@ and permanently removes the selected item and its contents.
 - Terminal blocks, history, completion, tabs, splits, and basic text editing.
 - Ordinary SSH/WSL and advanced SSH daemon support without Warp account or cloud-service dependencies.
 - Git change statistics and a dedicated review panel with file lists and inline diffs.
+  Use its searchable comparison selector for uncommitted changes or changes against a branch's merge base;
+  counts and file cards follow the selected comparison without checking out a branch or fetching remotes.
 - English and Simplified Chinese interfaces. Choose **Appearance → Interface language** in settings,
   to apply the change immediately.
   Separate **Interface font** and size controls update menus, settings and sidebars immediately;

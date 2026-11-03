@@ -1640,13 +1640,23 @@ impl LocalDiffStateModel {
             log::warn!("Could not determine merge base against branch {branch}",);
             return Ok(DiffMetadataAgainstBase::default());
         };
+        Self::diff_metadata_against_base(repo_path, &merge_base).await
+    }
 
-        // Get the diff between working directory and merge base with full patch output
-        log::debug!(
-            "[GIT OPERATION] local.rs diff_metadata_against_specific_branch git diff --name-status -z {merge_base}"
-        );
-        let diff_output =
-            run_git_command(repo_path, &["diff", "--name-status", "-z", &merge_base]).await?;
+    /// Summary only; Review loads bounded file contents independently on demand.
+    pub(crate) async fn diff_metadata_against_base(
+        repo_path: &Path,
+        merge_base: &str,
+    ) -> Result<DiffMetadataAgainstBase> {
+        let diff_args = ["diff", "--name-status", "-z", merge_base];
+        let (diff_output, status_output, num_stat_metadata) = futures::try_join!(
+            run_git_command(repo_path, &diff_args),
+            run_git_command(
+                repo_path,
+                &["status", "--untracked-files=all", "--porcelain=2", "-z"],
+            ),
+            Self::get_diff_metadata_using_numstat(repo_path, merge_base),
+        )?;
 
         let mut changed_files = if diff_output.trim().is_empty() {
             // No tracked changes, but we might have untracked files
@@ -1655,16 +1665,7 @@ impl LocalDiffStateModel {
             Self::parse_git_diff_name_status(&diff_output)?
         };
 
-        // Also get untracked files, as they should be included in branch comparisons
-        log::debug!(
-            "[GIT OPERATION] local.rs diff_metadata_against_specific_branch git status --untracked-files=all --porcelain=2 -z"
-        );
-        let status_output = run_git_command(
-            repo_path,
-            &["status", "--untracked-files=all", "--porcelain=2", "-z"],
-        )
-        .await?;
-
+        // Untracked files are included in branch comparisons, as in Head mode.
         let status_files = Self::parse_git_status(&status_output)?;
 
         // Add untracked files to the changed files list
@@ -1678,9 +1679,6 @@ impl LocalDiffStateModel {
         if changed_files.is_empty() {
             return Ok(DiffMetadataAgainstBase::default());
         }
-
-        let num_stat_metadata =
-            Self::get_diff_metadata_using_numstat(repo_path, &merge_base).await?;
 
         let mut total_additions = 0;
         let mut total_deletions = 0;
