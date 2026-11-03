@@ -156,7 +156,7 @@ impl ControlItemRenderer {
     }
 
     pub(crate) fn display_label(&self) -> &str {
-        &self.custom_label
+        crate::localization::tr(&self.custom_label)
     }
 
     fn render_internal(

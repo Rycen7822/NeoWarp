@@ -1,7 +1,7 @@
 //! Software UI text only. User content, protocol values and configuration identifiers stay unchanged.
 
 use std::borrow::Cow;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 mod zh_cn;
 
@@ -18,6 +18,7 @@ mod zh_cn;
     settings_value::SettingsValue,
 )]
 #[serde(rename_all = "snake_case")]
+#[repr(u8)]
 pub enum Language {
     #[default]
     En,
@@ -40,25 +41,28 @@ impl Language {
     }
 }
 
-static LANGUAGE: OnceLock<Language> = OnceLock::new();
+static LANGUAGE: AtomicU8 = AtomicU8::new(Language::En as u8);
 
-/// Called after settings load, before constructing UI. Changes apply on the next launch.
+/// Applies the active language without rebuilding application state.
 pub fn initialize(language: Language) {
-    LANGUAGE.get_or_init(|| language);
+    LANGUAGE.store(language as u8, Ordering::Relaxed);
+}
+
+fn current() -> Language {
+    match LANGUAGE.load(Ordering::Relaxed) {
+        1 => Language::ZhCn,
+        _ => Language::En,
+    }
 }
 
 pub fn tr(english: &str) -> &str {
-    LANGUAGE
-        .get()
-        .copied()
-        .unwrap_or_default()
-        .translate(english)
+    current().translate(english)
 }
 
 /// Retains ownership on an untranslated dynamic label, without allocating on each render.
 pub fn localize(english: impl Into<Cow<'static, str>>) -> Cow<'static, str> {
     let english = english.into();
-    if LANGUAGE.get() == Some(&Language::ZhCn)
+    if current() == Language::ZhCn
         && let Some(chinese) = zh_cn::lookup(&english)
     {
         return Cow::Borrowed(chinese);

@@ -970,7 +970,7 @@ impl AppearanceSettingsPageView {
                 values
                     .into_iter()
                     .map(|val| {
-                        DropdownItem::new(
+                        DropdownItem::localized(
                             Self::thin_strokes_dropdown_item_label(val),
                             AppearancePageAction::SetThinStrokes(val),
                         )
@@ -1006,7 +1006,7 @@ impl AppearanceSettingsPageView {
                 values
                     .into_iter()
                     .map(|val| {
-                        DropdownItem::new(
+                        DropdownItem::localized(
                             Self::input_mode_dropdown_item_label(val),
                             AppearancePageAction::SetInputMode {
                                 new_mode: val,
@@ -1071,7 +1071,7 @@ impl AppearanceSettingsPageView {
 
             dropdown.add_items(
                 values.into_iter().map(|val| {
-                    DropdownItem::new(
+                    DropdownItem::localized(
                         Self::enforce_minimum_contrast_dropdown_item_label(val),
                         AppearancePageAction::SetEnforceMinimumContrast(val),
                     )
@@ -1132,11 +1132,17 @@ impl AppearanceSettingsPageView {
             );
             dropdown
         });
-        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |me, _, _, ctx| {
+        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |me, _, event, ctx| {
             let language = *GeneralSettings::as_ref(ctx).ui_language;
             me.language_dropdown.update(ctx, |dropdown, ctx| {
                 dropdown.set_selected_by_action(AppearancePageAction::SetLanguage(language), ctx);
             });
+            if matches!(
+                event,
+                crate::terminal::general_settings::GeneralSettingsChangedEvent::UiLanguage { .. }
+            ) {
+                me.update_font_dropdown(ctx);
+            }
             ctx.notify();
         });
 
@@ -1434,11 +1440,11 @@ impl AppearanceSettingsPageView {
     }
 
     fn input_mode_dropdown_item_label(val: InputMode) -> &'static str {
-        tr(match val {
+        match val {
             InputMode::PinnedToBottom => "Pin to the bottom (Warp mode)",
             InputMode::PinnedToTop => "Pin to the top (Reverse mode)",
             InputMode::Waterfall => "Start at the top (Classic mode)",
-        })
+        }
     }
 
     fn app_icon_dropdown_item_label(val: AppIcon) -> &'static str {
@@ -1464,39 +1470,39 @@ impl AppearanceSettingsPageView {
     }
 
     fn thin_strokes_dropdown_item_label(val: ThinStrokes) -> &'static str {
-        tr(match val {
+        match val {
             ThinStrokes::Never => "Never",
             ThinStrokes::OnLowDpiDisplays => "On low-DPI displays",
             ThinStrokes::OnHighDpiDisplays => "On high-DPI displays",
             ThinStrokes::Always => "Always",
-        })
+        }
     }
 
     fn enforce_minimum_contrast_dropdown_item_label(val: EnforceMinimumContrast) -> &'static str {
-        tr(match val {
+        match val {
             EnforceMinimumContrast::Always => "Always",
             EnforceMinimumContrast::OnlyNamedColors => "Only for named colors",
             EnforceMinimumContrast::Never => "Never",
-        })
+        }
     }
 
     fn workspace_decoration_visibility_dropdown_item_label(
         value: WorkspaceDecorationVisibility,
     ) -> &'static str {
-        tr(match value {
+        match value {
             WorkspaceDecorationVisibility::AlwaysShow => "Always",
             WorkspaceDecorationVisibility::HideFullscreen => "When windowed",
             WorkspaceDecorationVisibility::OnHover => "Only on hover",
-        })
+        }
     }
 
     fn tab_close_button_position_dropdown_item_label(
         value: TabCloseButtonPosition,
     ) -> &'static str {
-        tr(match value {
+        match value {
             TabCloseButtonPosition::Right => "Right",
             TabCloseButtonPosition::Left => "Left",
-        })
+        }
     }
 
     fn handle_alt_screen_padding_editor_event(
@@ -2090,7 +2096,7 @@ impl AppearanceSettingsPageView {
                 WindowBackdrop::ALL
                     .into_iter()
                     .map(|backdrop| {
-                        DropdownItem::new(
+                        DropdownItem::localized(
                             Self::window_backdrop_dropdown_item_label(backdrop),
                             AppearancePageAction::SetWindowBackdrop(backdrop),
                         )
@@ -2109,12 +2115,12 @@ impl AppearanceSettingsPageView {
     }
 
     fn window_backdrop_dropdown_item_label(backdrop: WindowBackdrop) -> &'static str {
-        tr(match backdrop {
+        match backdrop {
             WindowBackdrop::None => "No material",
             WindowBackdrop::Mica => "Mica",
             WindowBackdrop::Acrylic => "Acrylic",
             WindowBackdrop::MicaAlt => "Mica Alt",
-        })
+        }
     }
     fn build_workspace_decoration_visibility_dropdown(
         ctx: &mut ViewContext<Self>,
@@ -2135,7 +2141,10 @@ impl AppearanceSettingsPageView {
             });
 
             dropdown.set_items(values.into_iter().map(|value| {
-                DropdownItem::new(Self::workspace_decoration_visibility_dropdown_item_label(value), AppearancePageAction::SetWorkspaceDecorationVisibility(value))
+                DropdownItem::localized(
+                    Self::workspace_decoration_visibility_dropdown_item_label(value),
+                    AppearancePageAction::SetWorkspaceDecorationVisibility(value),
+                )
             }).collect(), ctx);
             dropdown.set_selected_by_index(selected_index, ctx);
 
@@ -2161,7 +2170,10 @@ impl AppearanceSettingsPageView {
             });
 
             dropdown.set_items(values.into_iter().map(|value| {
-                DropdownItem::new(Self::tab_close_button_position_dropdown_item_label(value), AppearancePageAction::SetTabCloseButtonPosition(value))
+                DropdownItem::localized(
+                    Self::tab_close_button_position_dropdown_item_label(value),
+                    AppearancePageAction::SetTabCloseButtonPosition(value),
+                )
             }).collect(), ctx);
             dropdown.set_selected_by_index(selected_index, ctx);
 
@@ -2327,7 +2339,7 @@ impl SettingsWidget for LanguageWidget {
         render_dropdown_item(
             appearance,
             tr("Interface language"),
-            Some("Restart NeoWarp to apply. 更改语言后，请重启 NeoWarp。"),
+            Some("Changes apply immediately."),
             None,
             None,
             &view.language_dropdown,

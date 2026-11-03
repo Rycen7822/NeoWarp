@@ -13,7 +13,7 @@ directory changes arrive through the bundled Linux filesystem watcher, including
 - Ordinary SSH/WSL and advanced SSH daemon support without Warp account or cloud-service dependencies.
 - Git change statistics and a dedicated review panel with file lists and inline diffs.
 - English and Simplified Chinese interfaces. Choose **Appearance → Interface language** in settings,
-  then restart NeoWarp to apply the change.
+  to apply the change immediately.
 - Windows 11 Snap Layouts when hovering over the maximize/restore button.
 - External Markdown and Notebook editing through VS Code or Zed, plus Typora for Markdown.
   When no application is selected, use the system file association.

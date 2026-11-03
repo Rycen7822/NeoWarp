@@ -31,6 +31,7 @@ use crate::editor::{
 use crate::keyboard::{UserDefinedKeybinding, write_custom_keybinding};
 use crate::localization::tr;
 use crate::search_bar::SearchBar;
+use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 use crate::themes;
 use crate::util::bindings::{
     CommandBinding, filter_bindings_including_keystroke, reset_keybinding_to_default,
@@ -502,6 +503,14 @@ impl KeybindingsView {
         };
         ctx.subscribe_to_view(&search_editor, move |me, _, event, ctx| {
             me.handle_search_editor_event(event, ctx);
+        });
+
+        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |me, _, event, ctx| {
+            if matches!(event, GeneralSettingsChangedEvent::UiLanguage { .. }) {
+                me.search_editor.update(ctx, |editor, ctx| {
+                    editor.set_placeholder_text(tr(SEARCH_PLACEHOLDER), ctx);
+                });
+            }
         });
 
         search_editor.update(ctx, |editor, ctx| {

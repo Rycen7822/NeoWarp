@@ -11,6 +11,7 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Code" => "代码",
         "Language" => "语言",
         "Interface language" => "界面语言",
+        "Changes apply immediately." => "更改立即生效。",
         "Files" => "文件",
         "Projects" => "项目",
         "Settings" => "设置",

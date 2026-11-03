@@ -9,7 +9,6 @@ use crate::chip_configurator::{
     ChipEditorMouseHandles, ChipEditorSectionsConfig, ConfigurableItem, ControlItemRenderer,
     render_chip_editor_modal, render_chip_editor_sections,
 };
-use crate::localization::tr;
 use crate::workspace::header_toolbar_item::HeaderToolbarItemKind;
 use crate::workspace::tab_settings::{
     HeaderToolbarChipSelection, TabSettings, TabSettingsChangedEvent,
@@ -343,11 +342,9 @@ impl View for HeaderToolbarEditorModal {
 
 fn build_configurable_item(kind: &HeaderToolbarItemKind) -> ConfigurableItem {
     let id = serde_json::to_string(kind).expect("HeaderToolbarItemKind is serializable");
-    let renderer = ControlItemRenderer::new_with_label_and_icon(
-        tr(kind.display_label()).to_owned(),
-        kind.icon(),
-    )
-    .with_identifier(id);
+    let renderer =
+        ControlItemRenderer::new_with_label_and_icon(kind.display_label().to_owned(), kind.icon())
+            .with_identifier(id);
     let renderer = renderer.non_removable();
     ConfigurableItem::Control(renderer)
 }

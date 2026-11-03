@@ -21,6 +21,7 @@ use crate::settings::{
     FontSettings, FontSettingsChangedEvent, MonospaceFontSize, Settings, ThemeSettings,
     active_theme_kind,
 };
+use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 use crate::themes::theme::{ThemeKind, WarpTheme};
 
 /// Manages the state of the app-wide Appearance settings, it is responsible
@@ -38,6 +39,13 @@ pub struct AppearanceManager {
 
 impl AppearanceManager {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
+        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |_, _, event, ctx| {
+            if matches!(event, GeneralSettingsChangedEvent::UiLanguage { .. }) {
+                crate::localization::initialize(*GeneralSettings::as_ref(ctx).ui_language);
+                ctx.invalidate_all_views();
+            }
+        });
+
         ctx.subscribe_to_model(&ThemeSettings::handle(ctx), move |me, _, _event, ctx| {
             me.refresh_theme_state(ctx);
         });

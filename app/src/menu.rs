@@ -28,6 +28,7 @@ use warpui::{
 };
 
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::safe_triangle::SafeTriangle;
 use crate::themes::theme::Fill;
 use crate::ui_components::buttons::icon_button_with_color;
@@ -161,6 +162,7 @@ pub type PinnedHeaderBuilder = dyn Fn(&AppContext) -> Box<dyn Element>;
 #[derive(Clone)]
 pub enum MenuItemLabel {
     Text(String),
+    LocalizedText(String),
     // A label that can take up multiple lines. Doesn't support submenus yet.
     MultilineText {
         label: String,
@@ -191,6 +193,7 @@ impl std::fmt::Debug for MenuItemLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
+            Self::LocalizedText(text) => f.debug_tuple("LocalizedText").field(text).finish(),
             Self::MultilineText { label, max_lines } => f
                 .debug_struct("MultilineText")
                 .field("label", label)
@@ -237,6 +240,7 @@ impl MenuItemLabel {
     fn label(&self) -> Option<&str> {
         match self {
             Self::Text(label) => Some(label),
+            Self::LocalizedText(label) => Some(tr(label)),
             Self::MultilineText { label, .. } => Some(label),
             Self::StackedText { primary_text, .. } => Some(primary_text),
             Self::Custom { label, .. } => label.as_deref(),
@@ -261,8 +265,9 @@ impl MenuItemLabel {
         app: &AppContext,
     ) -> Box<dyn Element> {
         match self {
-            Self::Text(label) => {
-                let mut text = Text::new_inline(label.clone(), font_family, font_size)
+            Self::Text(label) | Self::LocalizedText(label) => {
+                let label = self.label().unwrap_or(label);
+                let mut text = Text::new_inline(label.to_owned(), font_family, font_size)
                     .with_color(primary_color.into())
                     .autosize_text(MINIMUM_MENU_ITEM_FONT_SIZE);
                 if let Some(config) = clip_config {
@@ -476,6 +481,14 @@ impl<A: Action + Clone> std::fmt::Debug for MenuItemFields<A> {
 }
 
 impl<A: Action + Clone> MenuItemFields<A> {
+    /// Keeps software labels in their source language until they are displayed.
+    pub fn localized(label: impl Into<String>) -> Self {
+        Self {
+            element: MenuItemLabel::LocalizedText(label.into()),
+            ..Self::new(String::new())
+        }
+    }
+
     pub fn new<T: Into<String>>(label: T) -> Self {
         MenuItemFields {
             element: MenuItemLabel::Text(label.into()),
@@ -913,6 +926,7 @@ impl<A: Action + Clone> MenuItemFields<A> {
 
     pub fn get_a11y_text(&self) -> &str {
         match &self.element {
+            MenuItemLabel::LocalizedText(label) => tr(label),
             MenuItemLabel::Text(label) | MenuItemLabel::MultilineText { label, .. } => label,
             MenuItemLabel::Icon { alt_text, .. } => alt_text,
             MenuItemLabel::LabeledText { primary_text, .. } => primary_text,
@@ -2029,6 +2043,10 @@ impl<A: Action + Clone> SubMenu<A> {
     {
         let selected_item = selected_item.as_ref();
         if let Some(index) = self.items.iter().position(|item| match item {
+            MenuItem::Item(MenuItemFields {
+                element: MenuItemLabel::LocalizedText(label),
+                ..
+            }) => selected_item == label || selected_item == tr(label),
             MenuItem::Item(MenuItemFields {
                 element: MenuItemLabel::Text(label) | MenuItemLabel::MultilineText { label, .. },
                 ..

@@ -98,7 +98,7 @@ impl EditorAndCodeReviewPageView {
                 values
                     .into_iter()
                     .map(|val| {
-                        DropdownItem::new(
+                        DropdownItem::localized(
                             val.dropdown_item_label(),
                             EditorAndCodeReviewPageAction::SetCodeEditorLineNumberMode(val),
                         )

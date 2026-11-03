@@ -77,6 +77,7 @@ pub struct Dropdown<A: DropdownItemAction = ()> {
 pub struct DropdownItem<A: DropdownItemAction = ()> {
     /// Text to display for the item
     pub display_text: String,
+    localize_label: bool,
     /// Constructor for the typed action object
     action: A,
     /// Custom font for the dropdown item
@@ -98,10 +99,19 @@ where
     {
         Self {
             display_text: display_text.into(),
+            localize_label: false,
             action,
             family_id: None,
             tooltip: None,
             clip_config: None,
+        }
+    }
+
+    /// Only software messages opt in; font names and user labels stay unchanged.
+    pub fn localized(display_text: impl Into<String>, action: A) -> Self {
+        Self {
+            localize_label: true,
+            ..Self::new(display_text, action)
         }
     }
 
@@ -133,10 +143,14 @@ where
     A: DropdownItemAction,
 {
     fn from(dropdown_item: &DropdownItem<A>) -> MenuItem<DropdownAction> {
-        let mut menu_item = MenuItemFields::new(dropdown_item.display_text.clone())
-            .with_on_select_action(DropdownAction::SelectActionAndClose(
-                dropdown_item.action.clone_box(),
-            ));
+        let mut menu_item = if dropdown_item.localize_label {
+            MenuItemFields::localized(dropdown_item.display_text.clone())
+        } else {
+            MenuItemFields::new(dropdown_item.display_text.clone())
+        }
+        .with_on_select_action(DropdownAction::SelectActionAndClose(
+            dropdown_item.action.clone_box(),
+        ));
         if let Some(tooltip) = &dropdown_item.tooltip {
             menu_item = menu_item.with_tooltip(tooltip.clone());
         }

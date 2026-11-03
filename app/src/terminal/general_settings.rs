@@ -55,7 +55,7 @@ define_settings_group!(GeneralSettings, settings: [
         supported_platforms: SupportedPlatforms::ALL,
         private: false,
         toml_path: "appearance.language",
-        description: "Software interface language. Restart NeoWarp to apply.",
+        description: "Software interface language. Changes apply immediately.",
     },
     accessibility_plugin: AccessibilityPlugin {
         type: bool,

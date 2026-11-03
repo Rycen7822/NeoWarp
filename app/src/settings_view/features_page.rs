@@ -1574,23 +1574,23 @@ impl FeaturesPageView {
         let pin_position_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
 
-            let top = DropdownItem::new(
-                tr("Pin to top"),
+            let top = DropdownItem::localized(
+                "Pin to top",
                 FeaturesPageAction::QuakeEditorSetPinPosition(QuakeModePinPosition::Top),
             );
 
-            let bottom = DropdownItem::new(
-                tr("Pin to bottom"),
+            let bottom = DropdownItem::localized(
+                "Pin to bottom",
                 FeaturesPageAction::QuakeEditorSetPinPosition(QuakeModePinPosition::Bottom),
             );
 
-            let left = DropdownItem::new(
-                tr("Pin to left"),
+            let left = DropdownItem::localized(
+                "Pin to left",
                 FeaturesPageAction::QuakeEditorSetPinPosition(QuakeModePinPosition::Left),
             );
 
-            let right = DropdownItem::new(
-                tr("Pin to right"),
+            let right = DropdownItem::localized(
+                "Pin to right",
                 FeaturesPageAction::QuakeEditorSetPinPosition(QuakeModePinPosition::Right),
             );
 
@@ -3608,8 +3608,8 @@ fn init_display_count_dropdown(
     dropdown: &mut Dropdown<FeaturesPageAction>,
     ctx: &mut ViewContext<Dropdown<FeaturesPageAction>>,
 ) {
-    let no_preference = DropdownItem::new(
-        tr("Active Screen"),
+    let no_preference = DropdownItem::localized(
+        "Active Screen",
         //|| {
         FeaturesPageAction::QuakeEditorSetPinScreen(None), //}
     );

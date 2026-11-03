@@ -45,6 +45,7 @@ use crate::pane_group::pane::view;
 use crate::pane_group::{BackingView, Direction, PaneConfiguration, PaneEvent, SplitPaneState};
 use crate::settings::{BlockVisibilitySettings, SettingsFileError};
 use crate::terminal::SizeInfo;
+use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 use crate::terminal::model::blockgrid::BlockGrid;
 use crate::ui_components::icons;
 use crate::util::bindings::{BindingGroup, CustomAction, keybinding_name_to_display_string};
@@ -891,6 +892,18 @@ impl SettingsView {
         });
 
         ctx.subscribe_to_view(&search_editor, Self::handle_search_editor_event);
+
+        ctx.subscribe_to_model(&GeneralSettings::handle(ctx), |me, _, event, ctx| {
+            if matches!(event, GeneralSettingsChangedEvent::UiLanguage { .. }) {
+                me.search_editor.update(ctx, |editor, ctx| {
+                    editor.set_placeholder_text(tr("Search"), ctx);
+                });
+                me.pane_configuration.update(ctx, |configuration, ctx| {
+                    configuration.set_title(tr("Settings"), ctx);
+                });
+                ctx.notify();
+            }
+        });
 
         let context_menu = ctx.add_typed_action_view(|_| {
             Menu::new()
