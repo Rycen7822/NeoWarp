@@ -3,13 +3,14 @@ use warpui::elements::{
     Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Expanded, Flex,
     ParentElement, Text,
 };
-use warpui::ui_components::components::UiComponent;
+use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, SingletonEntity, ViewHandle};
 
 use super::WorkspaceAction;
 use crate::appearance::Appearance;
 use crate::file_browser::FileBrowserView;
 use crate::project_sessions::view::ProjectsView;
+use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
 
@@ -65,25 +66,36 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
         (
             SidebarTab::Files,
             "Files",
-            Icon::Folder,
+            Icon::FileCopy,
             &state.files,
             state.files_id,
         ),
         (
             SidebarTab::Projects,
             "Projects",
-            Icon::Terminal,
+            Icon::Folder,
             &state.projects,
             state.projects_id,
         ),
     ] {
+        let selected = tab == target;
+        let color = if selected {
+            theme.foreground()
+        } else {
+            theme.sub_text_color(theme.background())
+        };
         let tooltip = appearance
             .ui_builder()
             .tool_tip(label.to_owned())
             .build()
             .finish();
         tabs.add_child(accessible(
-            icon_button(appearance, icon, tab == target, mouse.clone())
+            icon_button(appearance, icon, selected, mouse.clone())
+                .with_style(UiComponentStyles::default().set_font_color(color.into()))
+                .with_active_styles(
+                    UiComponentStyles::default()
+                        .set_background(blended_colors::fg_overlay_3(theme).into()),
+                )
                 .with_tooltip(move || tooltip)
                 .build()
                 .on_click(move |ctx, _, _| {
@@ -91,7 +103,7 @@ pub(crate) fn header(tab: SidebarTab, state: &HeaderState, app: &AppContext) -> 
                 })
                 .finish(),
             app,
-            Semantics::new(id, label).selected(tab == target),
+            Semantics::new(id, label).selected(selected),
             WorkspaceAction::SelectSidebarTab(target),
         ));
     }
