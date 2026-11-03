@@ -7394,6 +7394,19 @@ impl TerminalView {
     ) -> Vec<MenuItem<TerminalAction>> {
         let mut items = vec![];
 
+        #[cfg(feature = "local_fs")]
+        if self
+            .cli_toolbelt
+            .as_ref()
+            .is_some_and(cli_toolbelt::CliToolbelt::is_empty)
+        {
+            items.push(
+                MenuItemFields::new(tr("Edit CLI agent toolbelt"))
+                    .with_on_select_action(TerminalAction::EditCliToolbelt)
+                    .into_item(),
+            );
+        }
+
         {
             items.extend(vec![
                 MenuItemFields::new("Split pane right")
@@ -12640,8 +12653,8 @@ impl View for TerminalView {
 
                 let input_box_visible = self.is_input_box_visible(&model, app);
                 #[cfg(feature = "local_fs")]
-                if has_cli_toolbelt {
-                    column.add_child(self.render_cli_toolbelt(&model, app));
+                if let Some(toolbelt) = self.render_cli_toolbelt(&model, app) {
+                    column.add_child(toolbelt);
                 }
                 if input_box_visible && !has_cli_toolbelt {
                     column.add_child(self.render_input());

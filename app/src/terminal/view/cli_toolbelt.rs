@@ -45,6 +45,10 @@ pub(super) struct CliToolbelt {
 }
 
 impl CliToolbelt {
+    pub(super) fn is_empty(&self) -> bool {
+        self.mouse.is_empty()
+    }
+
     pub(super) fn has_rich_input(&self) -> bool {
         self.mouse.iter().any(|(item, _)| *item == Item::RichInput)
     }
@@ -488,8 +492,11 @@ impl TerminalView {
         &self,
         model: &TerminalModel,
         app: &AppContext,
-    ) -> Box<dyn Element> {
-        let state = self.cli_toolbelt.as_ref().expect("toolbelt visible");
+    ) -> Option<Box<dyn Element>> {
+        let state = self
+            .cli_toolbelt
+            .as_ref()
+            .filter(|state| !state.is_empty())?;
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let (left, right) = SessionSettings::as_ref(app)
@@ -562,10 +569,12 @@ impl TerminalView {
         } else {
             theme.surface_1().into_solid()
         };
-        Container::new(column.finish())
-            .with_background(background)
-            .with_border(Border::top(1.).with_border_fill(theme.outline()))
-            .finish()
+        Some(
+            Container::new(column.finish())
+                .with_background(background)
+                .with_border(Border::top(1.).with_border_fill(theme.outline()))
+                .finish(),
+        )
     }
 }
 // Same text/Enter framing as upstream's local CLI footer; no shell command execution.

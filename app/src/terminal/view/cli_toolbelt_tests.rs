@@ -5,6 +5,7 @@ use settings::Setting;
 use warpui::{App, TypedActionView, View};
 
 use super::*;
+use crate::terminal::cli_toolbelt_config::CLIAgentToolbarChipSelection as Selection;
 use crate::terminal::view::Event;
 use crate::test_util::add_window_with_terminal;
 use crate::test_util::terminal::initialize_app_for_terminal_view;
@@ -79,18 +80,45 @@ fn cli_toolbelt_preserves_draft_and_submits_codex_text_without_running_a_shell_c
             view.submit_cli_rich_input(ctx);
             block
         });
-        SessionSettings::handle(&app).update(&mut app, |settings, ctx| {
-            settings
-                .cli_agent_footer_chip_selection
-                .set_value(
-                    crate::terminal::cli_toolbelt_config::CLIAgentToolbarChipSelection::Custom {
-                        left: vec![Item::ContextChip(ContextChipKind::WorkingDirectory)],
-                        right: vec![],
-                    },
-                    ctx,
+        let set_tools = |app: &mut App, left| {
+            SessionSettings::handle(app).update(app, |settings, ctx| {
+                settings
+                    .cli_agent_footer_chip_selection
+                    .set_value(
+                        Selection::Custom {
+                            left,
+                            right: vec![],
+                        },
+                        ctx,
+                    )
+                    .unwrap();
+            });
+        };
+        let tools = vec![Item::ContextChip(ContextChipKind::WorkingDirectory)];
+        set_tools(&mut app, tools.clone());
+        let has_footer = |app: &App| {
+            terminal.read(app, |view, ctx| {
+                view.render_cli_toolbelt(&view.model.lock(), ctx).is_some()
+            })
+        };
+        assert!(has_footer(&app));
+        set_tools(&mut app, vec![]);
+        assert!(
+            !has_footer(&app),
+            "An empty toolbelt must not produce a footer element"
+        );
+        terminal.update(&mut app, |view, ctx| {
+            assert!(view.cli_toolbelt.is_some());
+            assert!(!view.is_input_box_visible(&view.model.lock(), ctx));
+            assert!(view.pane_context_menu_items(None, ctx).iter().any(|item| {
+                matches!(
+                    item.item_on_select_action(),
+                    Some(TerminalAction::EditCliToolbelt)
                 )
-                .unwrap();
+            }));
         });
+        set_tools(&mut app, tools);
+        assert!(has_footer(&app));
         terminal.update(&mut app, |view, ctx| {
             assert!(view.cli_toolbelt.as_ref().unwrap().editor.is_none());
             assert!(!view.keymap_context(ctx).set.contains("CliAgentToolbelt"));
