@@ -14,7 +14,7 @@ use warpui::elements::{
     ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
     Shrinkable, Text,
 };
-use warpui::ui_components::components::UiComponent;
+use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::units::Pixels;
 use warpui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
@@ -84,6 +84,10 @@ pub struct GitReviewView {
     list: ListState<()>,
     scroll: ScrollStateHandle,
     close_mouse: MouseStateHandle,
+    wrap_lines: bool,
+    refresh_mouse: MouseStateHandle,
+    wrap_mouse: MouseStateHandle,
+    fold_mouse: MouseStateHandle,
 }
 
 impl GitReviewView {
@@ -162,6 +166,10 @@ impl GitReviewView {
             list,
             scroll: Default::default(),
             close_mouse: Default::default(),
+            wrap_lines: false,
+            refresh_mouse: Default::default(),
+            wrap_mouse: Default::default(),
+            fold_mouse: Default::default(),
         };
         view.update_files(ctx);
         view
@@ -388,6 +396,7 @@ impl GitReviewView {
                             };
                             editor.update(ctx, |editor, ctx| {
                                 editor.set_review_content(&base, &current, ctx);
+                                editor.set_review_wrapping(me.wrap_lines, ctx);
                             });
                             me.files[index].base = Some(base);
                             me.files[index].message.clear();
@@ -408,6 +417,28 @@ impl GitReviewView {
             ),
         ));
         ctx.notify();
+    }
+
+    fn set_expanded(&mut self, index: usize, expanded: bool, ctx: &mut ViewContext<Self>) {
+        let card = &mut self.files[index];
+        if card.expanded == expanded {
+            return;
+        }
+        card.expanded = expanded;
+        card.dirty = true;
+        card.base = None;
+        if !expanded && let Some(editor) = card.editor.take() {
+            card.editor_state = Some(editor.as_ref(ctx).review_state(ctx));
+        }
+        if !expanded
+            && self
+                .loading
+                .as_ref()
+                .is_some_and(|(path, _)| *path == card.entry.path)
+        {
+            self.cancel_loading();
+        }
+        self.list.invalidate_height_for_index(index);
     }
 
     fn render_card(&self, card: &FileCard, app: &AppContext) -> Box<dyn Element> {
@@ -611,37 +642,45 @@ async fn load_file(
 pub enum GitReviewAction {
     Toggle(String),
     CopyPath(String),
+    Refresh,
+    ToggleWrapping,
+    ToggleAll,
 }
 
 impl TypedActionView for GitReviewView {
     type Action = GitReviewAction;
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
+            GitReviewAction::Refresh => {
+                self.status
+                    .update(ctx, |status, ctx| status.refresh_metadata(ctx));
+            }
+            GitReviewAction::ToggleWrapping => {
+                self.wrap_lines = !self.wrap_lines;
+                for (index, card) in self.files.iter().enumerate() {
+                    if let Some(editor) = &card.editor {
+                        editor.update(ctx, |editor, ctx| {
+                            editor.set_review_wrapping(self.wrap_lines, ctx)
+                        });
+                    }
+                    self.list.invalidate_height_for_index(index);
+                }
+                ctx.notify();
+            }
+            GitReviewAction::ToggleAll => {
+                let expanded = !self.files.iter().any(|card| card.expanded);
+                for index in 0..self.files.len() {
+                    self.set_expanded(index, expanded, ctx);
+                }
+                ctx.notify();
+            }
             GitReviewAction::CopyPath(path) => {
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(path.clone()));
             }
             GitReviewAction::Toggle(path) => {
                 if let Some(index) = self.files.iter().position(|card| card.entry.path == *path) {
-                    let card = &mut self.files[index];
-                    card.expanded = !card.expanded;
-                    card.dirty = true;
-                    card.base = None;
-                    if !card.expanded
-                        && let Some(editor) = card.editor.take()
-                    {
-                        card.editor_state = Some(editor.as_ref(ctx).review_state(ctx));
-                    }
-                    if !self.files[index].expanded
-                        && self
-                            .loading
-                            .as_ref()
-                            .is_some_and(|(loading, _)| loading == path)
-                    {
-                        self.cancel_loading();
-                        self.files[index].dirty = true;
-                    }
-                    self.list.invalidate_height_for_index(index);
+                    self.set_expanded(index, !self.files[index].expanded, ctx);
                     ctx.notify();
                 }
             }
@@ -721,6 +760,71 @@ impl View for GitReviewView {
         );
         let mut summary = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         summary.add_child(ChildView::new(&self.selector).finish());
+        summary.add_child(Expanded::new(1., Empty::new().finish()).finish());
+        let any_expanded = self.files.iter().any(|card| card.expanded);
+        for (icon, active, mouse, action, label) in [
+            (
+                Icon::Refresh,
+                false,
+                &self.refresh_mouse,
+                GitReviewAction::Refresh,
+                "Refresh changes",
+            ),
+            (
+                Icon::TextWrap,
+                self.wrap_lines,
+                &self.wrap_mouse,
+                GitReviewAction::ToggleWrapping,
+                if self.wrap_lines {
+                    "Disable word wrap"
+                } else {
+                    "Enable word wrap"
+                },
+            ),
+            (
+                if any_expanded {
+                    Icon::CollapseAll
+                } else {
+                    Icon::ExpandAll
+                },
+                false,
+                &self.fold_mouse,
+                GitReviewAction::ToggleAll,
+                if any_expanded {
+                    "Collapse all diffs"
+                } else {
+                    "Expand all diffs"
+                },
+            ),
+        ] {
+            let builder = appearance.ui_builder().clone();
+            summary.add_child(
+                icon_button(appearance, icon, active, mouse.clone())
+                    .with_style(
+                        UiComponentStyles::default()
+                            .set_width(28.)
+                            .set_height(28.)
+                            .set_padding(Coords::uniform(7.))
+                            .set_border_width(0.)
+                            .set_font_color(theme.sub_text_color(theme.background()).into()),
+                    )
+                    .with_hovered_styles(
+                        UiComponentStyles::default().set_background(theme.surface_2().into()),
+                    )
+                    .with_active_styles(
+                        UiComponentStyles::default().set_background(theme.surface_2().into()),
+                    )
+                    .with_clicked_styles(
+                        UiComponentStyles::default().set_background(theme.surface_3().into()),
+                    )
+                    .with_tooltip(Box::new(move || {
+                        builder.tool_tip(tr(label).to_owned()).build().finish()
+                    }))
+                    .build()
+                    .on_click(move |ctx, _, _| ctx.dispatch_typed_action(action.clone()))
+                    .finish(),
+            );
+        }
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(

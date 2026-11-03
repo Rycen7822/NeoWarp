@@ -2,6 +2,94 @@ use warp_util::git::run_git_command;
 
 use super::*;
 
+#[test]
+fn toolbar_folding_releases_bodies_and_reopens_lazily() {
+    use repo_metadata::watcher::DirectoryWatcher;
+    use warp_util::standardized_path::StandardizedPath;
+    use warpui::App;
+    use warpui::platform::WindowStyle;
+
+    App::test((), |mut app| async move {
+        crate::test_util::settings::initialize_settings_for_tests(&mut app);
+        app.add_singleton_model(|_| Appearance::mock());
+        app.add_singleton_model(|_| crate::workspace::sync_inputs::SyncedInputState::mock());
+        app.add_singleton_model(|_| crate::vim_registers::VimRegisters::new());
+        app.add_singleton_model(|_| {
+            crate::settings_view::keybindings::KeybindingChangedNotifier::mock()
+        });
+        app.add_singleton_model(|_| crate::workspace::ActiveSession::default());
+        let directory = tempfile::tempdir().unwrap();
+        let watcher = app.add_singleton_model(DirectoryWatcher::new_for_testing);
+        let repository = watcher.update(&mut app, |watcher, ctx| {
+            watcher
+                .add_directory(
+                    StandardizedPath::from_local_canonicalized(directory.path()).unwrap(),
+                    ctx,
+                )
+                .unwrap()
+        });
+        let status =
+            app.add_model(|ctx| GitRepoStatusModel::new_local_for_test(repository, None, ctx));
+        let (_, review) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
+            GitReviewView::new(directory.path().to_owned(), status, ctx)
+        });
+        review.update(&mut app, |review, ctx| {
+            review.set_files(
+                vec![
+                    FileChangeEntry {
+                        path: "a.txt".into(),
+                        additions: 1,
+                        deletions: 0,
+                    },
+                    FileChangeEntry {
+                        path: "b.txt".into(),
+                        additions: 1,
+                        deletions: 0,
+                    },
+                ],
+                ctx,
+            );
+            let editor = ctx.add_view(|ctx| {
+                CodeEditorView::new(
+                    None,
+                    None,
+                    CodeEditorRenderOptions::new(VerticalExpansionBehavior::GrowToMaxHeight),
+                    ctx,
+                )
+            });
+            let weak_editor = editor.downgrade();
+            editor.update(ctx, |editor, ctx| {
+                editor.set_review_content("old", "new", ctx)
+            });
+            review.files[0].editor = Some(editor);
+            review.files[0].base = Some(Arc::new("old".into()));
+            review.handle_action(&GitReviewAction::Toggle("b.txt".into()), ctx);
+            review.handle_action(&GitReviewAction::ToggleAll, ctx);
+            assert!(
+                review
+                    .files
+                    .iter()
+                    .all(|card| !card.expanded && card.editor.is_none() && card.base.is_none())
+            );
+            assert!(weak_editor.upgrade(ctx).is_none());
+            assert!(review.files[0].editor_state.is_some());
+            review.handle_action(&GitReviewAction::ToggleWrapping, ctx);
+            review.handle_action(&GitReviewAction::ToggleAll, ctx);
+            assert!(review.wrap_lines);
+            assert!(
+                review
+                    .files
+                    .iter()
+                    .all(|card| card.expanded && card.dirty && card.editor.is_none())
+            );
+            assert!(
+                review.loading.is_none(),
+                "Expanding must defer body reads until cards are visible"
+            );
+        });
+    });
+}
+
 async fn fixture() -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();

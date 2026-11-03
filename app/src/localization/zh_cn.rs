@@ -2,6 +2,11 @@
 
 pub(super) fn lookup(english: &str) -> Option<&'static str> {
     Some(match english {
+        "Refresh changes" => "刷新更改",
+        "Enable word wrap" => "开启自动换行",
+        "Disable word wrap" => "关闭自动换行",
+        "Collapse all diffs" => "折叠全部差异",
+        "Expand all diffs" => "展开全部差异",
         "Appearance" => "外观",
         "Features" => "功能",
         "Keyboard shortcuts" => "键盘快捷键",

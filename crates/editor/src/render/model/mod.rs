@@ -96,7 +96,7 @@ const DASHED_UNDERLINE_GAP_LENGTH: f32 = 4.;
 
 /// In the future, we should also support MinimumWidth(f32) setting so the content will
 /// be laid out with a minimum width that could be larger than the viewport.
-#[derive(Default)]
+#[derive(Default, PartialEq, Eq)]
 pub enum WidthSetting {
     #[default]
     FitViewport,
@@ -947,6 +947,19 @@ impl RenderState {
     pub fn with_width_setting(mut self, setting: WidthSetting) -> Self {
         self.width_setting = setting;
         self
+    }
+
+    pub fn width_setting(&self) -> &WidthSetting {
+        &self.width_setting
+    }
+
+    /// Returns whether the caller needs to rebuild the content layout.
+    pub fn set_width_setting(&mut self, setting: WidthSetting) -> bool {
+        if self.width_setting == setting {
+            return false;
+        }
+        self.width_setting = setting;
+        true
     }
 
     pub fn set_show_final_trailing_newline_when_non_empty(&mut self, show: bool) {

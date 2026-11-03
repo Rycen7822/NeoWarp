@@ -26,7 +26,7 @@ use warp_editor::render::element::{
 use warp_editor::render::model::viewport::ScrollPositionSnapshot;
 use warp_editor::render::model::{
     AutoScrollMode, BlockSpacing, BlockSpacings, CODE_EDITOR_HIDDEN_SECTION_EXPANSION_LINES,
-    ExpansionType, InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles,
+    ExpansionType, InlineCodeStyle, LineCount, ParagraphStyles, RichTextStyles, WidthSetting,
 };
 use warp_editor::search::{SearchEvent, Searcher};
 use warp_util::content_version::ContentVersion;
@@ -256,6 +256,26 @@ impl CodeEditorView {
                 diff.compute_diff(MultilineString::<LF>::apply(current), version, ctx);
             });
             model.show_review_diff(ctx);
+        });
+        ctx.notify();
+    }
+
+    pub(crate) fn set_review_wrapping(&mut self, enabled: bool, ctx: &mut ViewContext<Self>) {
+        self.model.update(ctx, |model, ctx| {
+            let changed = model.render_state().update(ctx, |render, ctx| {
+                let changed = render.set_width_setting(if enabled {
+                    WidthSetting::FitViewport
+                } else {
+                    WidthSetting::InfiniteWidth
+                });
+                if changed && enabled {
+                    render.scroll_horizontal(render.viewport().scroll_left(), ctx);
+                }
+                changed
+            });
+            if changed {
+                model.rebuild_layout_and_refresh_diff(ctx);
+            }
         });
         ctx.notify();
     }

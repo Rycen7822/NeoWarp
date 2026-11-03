@@ -295,7 +295,14 @@ impl CodeEditorModel {
             RenderEvent::LayoutUpdated => {
                 ctx.emit(CodeEditorModelEvent::LayoutInvalidated);
             }
-            RenderEvent::NeedsResize => {}
+            RenderEvent::NeedsResize => {
+                if matches!(
+                    self.render_state.as_ref(ctx).width_setting(),
+                    WidthSetting::FitViewport
+                ) {
+                    self.rebuild_layout_and_refresh_diff(ctx);
+                }
+            }
         }
     }
 
@@ -745,7 +752,7 @@ impl CodeEditorModel {
 
     /// Rebuild layout and make sure the temporary blocks for diff state has the right styling + anchored
     /// at the right lines after the rebuild. This should be used over the default implementation of rebuild_layout.
-    fn rebuild_layout_and_refresh_diff(&self, ctx: &mut ModelContext<Self>) {
+    pub(super) fn rebuild_layout_and_refresh_diff(&self, ctx: &mut ModelContext<Self>) {
         self.rebuild_layout(ctx);
         if self.diff_nav_is_active() {
             self.refresh_diff_state(ctx);
