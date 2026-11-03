@@ -113,6 +113,14 @@ pub fn absolute_path_if_valid(
     working_directory: ShellPathType,
     shell_launch_data: Option<&ShellLaunchData>,
 ) -> Option<PathBuf> {
+    // WSL/MSYS2 output can also contain paths that already belong to the Windows host.
+    #[cfg(windows)]
+    {
+        let path = Path::new(&clean_path_result.path);
+        if path.is_absolute() && is_path_valid(path, clean_path_result) {
+            return Some(path.to_path_buf());
+        }
+    }
     let (maybe_absolute_path, relative_path) = match shell_launch_data {
         Some(shell_launch_data) => {
             // Attempt to parse the clean path result as an absolute path.

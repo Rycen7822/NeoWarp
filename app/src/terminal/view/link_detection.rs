@@ -14,13 +14,16 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
         use crate::{
             terminal::model::grid::grid_handler,
+            terminal::model::session::Session,
             terminal::ShellLaunchData,
             util::file::{FileLink, absolute_path_if_valid, ShellPathType},
         };
         use std::path::PathBuf;
+        use std::sync::Arc;
         use unicode_general_category::{get_general_category, GeneralCategory};
         use unicode_width::UnicodeWidthChar;
         use warp_util::path::CleanPathResult;
+        use warpui::AppContext;
     }
 }
 
@@ -37,6 +40,40 @@ const PREFIXES_TO_REMOVE: [&str; 2] = ["a/", "b/"];
 /// for `ls`.
 #[cfg(feature = "local_fs")]
 const SUFFIXES_TO_REMOVE: [&str; 1] = ["@"];
+
+/// File URLs emitted by WSL tools may identify the Linux host rather than use a Windows path.
+#[cfg(feature = "local_fs")]
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn file_url_path(
+    url: &url::Url,
+    shell: Option<&ShellLaunchData>,
+    hostname: Option<&str>,
+) -> Option<PathBuf> {
+    if url.scheme() != "file" {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        let path = urlencoding::decode(url.path()).ok()?;
+        if path.contains('\0') {
+            return None;
+        }
+        if let Some(shell @ ShellLaunchData::WSL { .. }) = shell
+            && url.host_str().is_none_or(|host| {
+                hostname.is_some_and(|hostname| host.eq_ignore_ascii_case(hostname))
+            })
+        {
+            // A drive-letter URL already names a Windows file, even inside a WSL session.
+            if url.host_str().is_none()
+                && let Ok(path) = url.to_file_path()
+            {
+                return Some(path);
+            }
+            return shell.maybe_convert_absolute_path(&path);
+        }
+    }
+    url.to_file_path().ok()
+}
 
 #[cfg(feature = "local_fs")]
 struct TrimmedSentencePunctuation<'a> {
@@ -482,12 +519,43 @@ impl super::TerminalView {
                     .model
                     .lock()
                     .link_at_range(url, RespectObfuscatedSecrets::No);
-                ctx.open_url(&uri);
+                self.open_hyperlink_uri(&uri, url, ctx);
             }
-            GridHighlightedLink::Hyperlink { uri, .. } => {
-                self.open_hyperlink_uri(uri, ctx);
+            GridHighlightedLink::Hyperlink { link, uri } => {
+                self.open_hyperlink_uri(uri, link, ctx);
             }
         };
+    }
+
+    #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
+    pub(super) fn open_hyperlink_uri<T>(
+        &self,
+        uri: &str,
+        origin: &WithinModel<T>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        // Terminal output is untrusted; only parsed URLs reach an OS handler.
+        let Ok(url) = url::Url::parse(uri) else {
+            return;
+        };
+        #[cfg(feature = "local_fs")]
+        if url.scheme() == "file" {
+            let session = self.session_for_link(origin, ctx);
+            // An SSH host's filesystem is not a local Windows/WSL filesystem.
+            if session.as_ref().is_some_and(|session| !session.is_local()) {
+                return;
+            }
+            if let Some(path) = file_url_path(
+                &url,
+                session.as_ref().and_then(|session| session.launch_data()),
+                session.as_ref().map(|session| session.hostname()),
+            ) {
+                ctx.open_file_path(&path);
+            }
+            return;
+        }
+        ctx.notify();
+        ctx.open_url(uri);
     }
 }
 
@@ -495,6 +563,23 @@ impl super::TerminalView {
 // where we can spawn a local tty.
 #[cfg(feature = "local_fs")]
 impl super::TerminalView {
+    fn session_for_link<T>(
+        &self,
+        origin: &WithinModel<T>,
+        ctx: &AppContext,
+    ) -> Option<Arc<Session>> {
+        let session_id = match origin {
+            WithinModel::AltScreen(_) => self.active_block_session_id(),
+            WithinModel::BlockList(block) => self
+                .model
+                .lock()
+                .block_list()
+                .block_at(block.block_index)
+                .and_then(|block| block.session_id()),
+        }?;
+        self.sessions.as_ref(ctx).get(session_id)
+    }
+
     /// Scans the terminal model at the given position to see if it is
     /// contained within a path that should be linkified.
     fn scan_for_file_path(
@@ -505,16 +590,17 @@ impl super::TerminalView {
     ) {
         // For AltScreen we scan for relative path with the current working directory.
         // For BlockList we scan for relative path with the pwd of the hovered block.
+        let session = self.session_for_link(&position, ctx);
         let pwd_to_scan_for = match position {
-            WithinModel::AltScreen(_) => self.pwd_if_local(ctx),
+            WithinModel::AltScreen(_) => self.pwd(),
             WithinModel::BlockList(inner) => self
                 .model
                 .lock()
                 .block_list()
                 .block_at(inner.block_index)
-                .filter(|block| !self.is_block_considered_remote(block.session_id(), ctx)) // Don't scan for file links if the block is on remote sessions
                 .and_then(|block| block.pwd().map(String::from)),
-        };
+        }
+        .filter(|_| session.as_ref().is_none_or(|session| session.is_local()));
 
         match pwd_to_scan_for {
             // Check if we are hovering on any file path. Don't scan for file path
@@ -522,10 +608,7 @@ impl super::TerminalView {
             Some(path) if matches!(from_editor, TerminalEditor::No) => {
                 let possible_paths = self.model.lock().possible_file_paths_at_point(position);
                 let max_columns = self.size_info.columns;
-                let shell_launch_data = self
-                    .active_block_session_id()
-                    .and_then(|active_session_id| self.sessions.as_ref(ctx).get(active_session_id))
-                    .and_then(|active_session| active_session.launch_data().cloned());
+                let shell_launch_data = session.and_then(|session| session.launch_data().cloned());
 
                 // Using the thread builder instead of ctx.spawn here so that the previous
                 // scanning job will be dropped once there is a new scanning job created.

@@ -8053,10 +8053,10 @@ impl TerminalView {
                     .lock()
                     .link_at_range(url, RespectObfuscatedSecrets::No);
                 ctx.notify();
-                ctx.open_url(&uri);
+                self.open_hyperlink_uri(&uri, url, ctx);
             }
             GridHighlightedLink::Hyperlink { link, uri } if link.contains(position) => {
-                self.open_hyperlink_uri(uri, ctx);
+                self.open_hyperlink_uri(uri, link, ctx);
             }
             _ => (),
         }
@@ -8065,16 +8065,6 @@ impl TerminalView {
             ctx.reset_cursor();
             ctx.notify();
         }
-    }
-
-    /// Open an OSC 8 hyperlink URI. The URI comes from untrusted terminal
-    /// output, so it is only opened if it parses as a URL.
-    fn open_hyperlink_uri(&self, uri: &str, ctx: &mut ViewContext<Self>) {
-        if url::Url::parse(uri).is_err() {
-            return;
-        }
-        ctx.notify();
-        ctx.open_url(uri);
     }
 
     fn middle_click_on_grid(
@@ -12412,7 +12402,7 @@ impl TypedActionView for TerminalView {
                 self.drag_and_drop_files(paths, ctx);
             }
             HyperlinkClick(hyperlink) => {
-                self.open_hyperlink_uri(&hyperlink.url, ctx);
+                self.open_hyperlink_uri(&hyperlink.url, &WithinModel::AltScreen(()), ctx);
             }
             StartFileDropTarget => {
                 let Some(session) = self

@@ -8,6 +8,58 @@ use crate::terminal::model::grid::grid_handler::PossiblePath;
 use crate::terminal::model::index::Point;
 use crate::terminal::model::terminal_model::WithinModel;
 
+#[cfg(windows)]
+#[test]
+fn file_urls_resolve_windows_and_wsl_paths_without_changing_the_target_host() {
+    let shell = crate::terminal::ShellLaunchData::WSL {
+        distro: "NeoWarp-Link-Test".into(),
+    };
+    let resolve = |uri| {
+        super::file_url_path(
+            &url::Url::parse(uri).unwrap(),
+            Some(&shell),
+            Some("linux-box"),
+        )
+    };
+    assert_eq!(
+        resolve("file:///home/tester/%E5%9B%BE%20%231%25.png"),
+        Some(r"\\WSL$\NeoWarp-Link-Test\home\tester\图 #1%.png".into())
+    );
+    assert_eq!(
+        resolve("file://LINUX-BOX/home/tester/image.png"),
+        Some(r"\\WSL$\NeoWarp-Link-Test\home\tester\image.png".into())
+    );
+    assert_eq!(
+        resolve("file:///mnt/d/NeoWarp-Link-Test/image.png"),
+        Some(r"D:\NeoWarp-Link-Test\image.png".into())
+    );
+    assert_eq!(
+        resolve("file:///D:/NeoWarp-Link-Test/image.png"),
+        Some(r"D:\NeoWarp-Link-Test\image.png".into())
+    );
+    assert_eq!(
+        resolve("file://wsl.localhost/Other/home/tester/image.png"),
+        Some(r"\\wsl.localhost\Other\home\tester\image.png".into())
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn invalid_file_urls_do_not_fall_back_to_local_windows_files() {
+    let shell = crate::terminal::ShellLaunchData::WSL {
+        distro: "NeoWarp-Link-Test".into(),
+    };
+    for uri in [
+        "file:///home/tester/image%00.png",
+        "file:///home/tester/%FF.png",
+    ] {
+        let url = url::Url::parse(uri).unwrap();
+        assert_eq!(super::file_url_path(&url, Some(&shell), None), None);
+    }
+    let url = url::Url::parse("file:///home/tester/image.png").unwrap();
+    assert_eq!(super::file_url_path(&url, None, None), None);
+}
+
 #[test]
 fn strips_only_sentence_periods() {
     // A trailing period after a real file name is sentence punctuation.
@@ -91,11 +143,14 @@ fn compute_valid_paths_excludes_trailing_sentence_period() {
         },
     });
 
+    let shell = cfg!(windows).then(|| crate::terminal::ShellLaunchData::WSL {
+        distro: "NeoWarp-Link-Test".into(),
+    });
     let link = TerminalView::compute_valid_paths(
         dir.path().to_str().unwrap(),
         iter::once(candidate),
         1000,
-        None,
+        shell,
     )
     .expect("the markdown file should be detected as a link");
 
@@ -171,7 +226,7 @@ fn compute_valid_paths_keeps_trailing_fullwidth_punctuation_when_it_is_the_filen
     let file = dir.path().join("warp-md-test.md，");
     std::fs::write(&file, "# Hello\n").unwrap();
 
-    let token = file.to_string_lossy().to_string();
+    let token = "warp-md-test.md，".to_string();
     let end_col = token.chars().count();
     let candidate = WithinModel::AltScreen(PossiblePath {
         path: CleanPathResult {
@@ -184,13 +239,15 @@ fn compute_valid_paths_keeps_trailing_fullwidth_punctuation_when_it_is_the_filen
         },
     });
 
-    let link = TerminalView::compute_valid_paths(
-        dir.path().to_str().unwrap(),
-        iter::once(candidate),
-        1000,
-        None,
-    )
-    .expect("the file with fullwidth punctuation should be detected as a link");
+    let working_directory = dir.path().to_str().unwrap().to_string();
+    let shell = cfg!(windows).then(|| crate::terminal::ShellLaunchData::WSL {
+        distro: "NeoWarp-Link-Test".into(),
+    });
+    #[cfg(windows)]
+    let working_directory = warp_util::path::convert_windows_path_to_wsl(&working_directory);
+    let link =
+        TerminalView::compute_valid_paths(&working_directory, iter::once(candidate), 1000, shell)
+            .expect("the file with fullwidth punctuation should be detected as a link");
 
     let GridHighlightedLink::File(file_link) = link else {
         panic!("expected a file link");
