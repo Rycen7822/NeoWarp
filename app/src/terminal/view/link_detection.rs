@@ -472,7 +472,7 @@ impl super::TerminalView {
         self.last_hover_fragment_boundary = Some(new_fragment_boundary);
     }
 
-    #[cfg_attr(not(all(feature = "local_fs", windows)), allow(unused_variables))]
+    #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
     pub(super) fn handle_find_link(
         &mut self,
         find_link_arg: FindLinkArg,
@@ -493,7 +493,7 @@ impl super::TerminalView {
             return;
         }
 
-        #[cfg(all(feature = "local_fs", windows))]
+        #[cfg(feature = "local_fs")]
         self.scan_for_file_path(position, from_editor, ctx);
     }
 
@@ -527,7 +527,7 @@ impl super::TerminalView {
         };
     }
 
-    #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
+    #[cfg_attr(not(all(feature = "local_fs", windows)), allow(unused_variables))]
     pub(super) fn open_hyperlink_uri<T>(
         &self,
         uri: &str,
@@ -538,7 +538,7 @@ impl super::TerminalView {
         let Ok(url) = url::Url::parse(uri) else {
             return;
         };
-        #[cfg(feature = "local_fs")]
+        #[cfg(all(feature = "local_fs", windows))]
         if url.scheme() == "file" {
             let session = self.session_for_link(origin, ctx);
             // An SSH host's filesystem is not a local Windows/WSL filesystem.
