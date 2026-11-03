@@ -1277,11 +1277,14 @@ impl AppearanceSettingsPageView {
         // Create the Input category with all widgets
         // The PromptWidget and InputModeWidget will handle their own visibility
 
-        let category_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
+        let mut category_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
             Box::new(InputTypeWidget::default()),
             Box::new(PromptWidget::default()),
             Box::new(InputModeWidget::default()),
         ];
+
+        #[cfg(feature = "local_fs")]
+        category_widgets.push(Box::new(CliToolbeltWidget::default()));
 
         categories.push(Category::new("Input", category_widgets));
 
@@ -4178,6 +4181,44 @@ impl SettingsWidget for HideTitleBarSearchBarInVerticalTabsWidget {
                 "When using the vertical tab layout, hide the search bar in the title bar. Search stays available via the command palette and keyboard shortcuts."
                     .to_string(),
             ),
+        )
+    }
+}
+
+#[cfg(feature = "local_fs")]
+#[derive(Default)]
+struct CliToolbeltWidget {
+    edit_mouse: MouseStateHandle,
+}
+
+#[cfg(feature = "local_fs")]
+impl SettingsWidget for CliToolbeltWidget {
+    type View = AppearanceSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "CLI agent toolbelt toolbar footer tools layout codex pi claude hermes 编辑 工具栏 底栏"
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        _app: &AppContext,
+    ) -> Box<dyn Element> {
+        let button = appearance
+            .ui_builder()
+            .button(ButtonVariant::Secondary, self.edit_mouse.clone())
+            .with_text_label(tr("Edit").to_owned())
+            .build()
+            .on_click(|ctx, _, _| ctx.dispatch_typed_action(WorkspaceAction::OpenCliToolbeltEditor))
+            .finish();
+        render_body_item::<AppearancePageAction>(
+            "CLI agent toolbelt".into(),
+            None,
+            ToggleState::Enabled,
+            appearance,
+            button,
+            None,
         )
     }
 }

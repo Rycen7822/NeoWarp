@@ -1236,6 +1236,12 @@ fn test_cli_toolbelt_editor_saves_layout_and_restores_defaults() {
         initialize_app(&mut app);
         let workspace = mock_workspace(&mut app);
         let editor = workspace.update(&mut app, |view, ctx| {
+            view.handle_action(
+                &WorkspaceAction::ShowSettingsPage(
+                    crate::settings_view::SettingsSection::Appearance,
+                ),
+                ctx,
+            );
             view.handle_action(&WorkspaceAction::OpenCliToolbeltEditor, ctx);
             view.cli_toolbelt_editor.clone().unwrap()
         });

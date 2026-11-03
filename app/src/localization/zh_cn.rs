@@ -521,6 +521,7 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Rich Input" => "富文本输入",
         "Hide Rich Input" => "隐藏富文本输入",
         "Edit CLI agent toolbelt" => "编辑 CLI 工具栏",
+        "CLI agent toolbelt" => "CLI 工具栏",
         "Available chips" => "可用信息块",
         "File Explorer" => "文件浏览器",
         "Attach File" => "附加文件",
