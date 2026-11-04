@@ -464,16 +464,19 @@ impl TerminalView {
         }
         match item {
             Item::FileExplorer => {
-                ctx.dispatch_typed_action(&WorkspaceAction::FocusTerminalViewInWorkspace {
+                // Workspace focus revisits this terminal; preserve the action order after this update.
+                ctx.dispatch_typed_action_deferred(WorkspaceAction::FocusTerminalViewInWorkspace {
                     terminal_view_id: self.view_id,
                 });
-                ctx.dispatch_typed_action(&WorkspaceAction::SelectSidebarTab(SidebarTab::Files));
+                ctx.dispatch_typed_action_deferred(WorkspaceAction::SelectSidebarTab(
+                    SidebarTab::Files,
+                ));
             }
             Item::RichInput => self.toggle_cli_rich_input(ctx),
             Item::FileAttach => self.attach_cli_toolbelt_file(ctx),
-            Item::Settings => ctx.dispatch_typed_action(&WorkspaceAction::ShowSettings),
-            Item::ContextChip(ContextChipKind::GitDiffStats) => ctx.dispatch_typed_action(
-                &WorkspaceAction::OpenGitReview(self.current_repo_path.clone()),
+            Item::Settings => ctx.dispatch_typed_action_deferred(WorkspaceAction::ShowSettings),
+            Item::ContextChip(ContextChipKind::GitDiffStats) => ctx.dispatch_typed_action_deferred(
+                WorkspaceAction::OpenGitReview(self.current_repo_path.clone()),
             ),
             Item::ContextChip(ContextChipKind::WorkingDirectory) => {
                 if let Some(path) = self.active_session_path_if_local(ctx) {
