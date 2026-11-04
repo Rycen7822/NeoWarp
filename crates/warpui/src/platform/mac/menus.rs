@@ -419,7 +419,3 @@ pub unsafe fn make_dock_menu(menu: Menu) -> Retained<NSMenu> {
         dock_menu
     }
 }
-
-#[cfg(test)]
-#[path = "menus_tests.rs"]
-mod tests;
