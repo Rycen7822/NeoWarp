@@ -142,6 +142,8 @@ struct InternalBufferState {
     /// Tracks any active background diff parsing for auto-reload.
     pending_diff_parse: Option<PendingDiffParse>,
     source: BufferSource,
+    #[cfg(all(windows, feature = "local_fs"))]
+    _wsl_watch: Option<crate::file_watcher::wsl::FileWatch>,
 }
 
 impl InternalBufferState {
@@ -891,6 +893,8 @@ impl GlobalBufferModel {
 
         self.location_to_id
             .insert(LocalOrRemotePath::Local(path.clone()), file_id);
+        #[cfg(windows)]
+        let wsl_watch = Self::watch_wsl_file(&path, ctx);
         self.buffers.insert(
             file_id,
             InternalBufferState {
@@ -899,6 +903,8 @@ impl GlobalBufferModel {
                 source: BufferSource::Local {
                     base_content_version,
                 },
+                #[cfg(windows)]
+                _wsl_watch: wsl_watch,
             },
         );
 
@@ -997,16 +1003,40 @@ impl GlobalBufferModel {
                 base_content_version: None,
             }
         };
+        #[cfg(windows)]
+        let wsl_watch = Self::watch_wsl_file(path, ctx);
         self.buffers.insert(
             file_id,
             InternalBufferState {
                 buffer: buffer.downgrade(),
                 pending_diff_parse: None,
                 source,
+                #[cfg(windows)]
+                _wsl_watch: wsl_watch,
             },
         );
 
         BufferState::new(file_id, buffer)
+    }
+
+    #[cfg(all(windows, feature = "local_fs"))]
+    fn watch_wsl_file(
+        path: &Path,
+        ctx: &mut ModelContext<Self>,
+    ) -> Option<crate::file_watcher::wsl::FileWatch> {
+        let (watch, events) =
+            crate::file_watcher::wsl::watch_file(path, &ctx.background_executor())?;
+        let path = path.to_path_buf();
+        ctx.spawn_stream_local(
+            events,
+            move |_, (), ctx| {
+                FileModel::handle(ctx).update(ctx, |files, ctx| {
+                    files.reload_file_paths([path.clone()].into(), ctx);
+                });
+            },
+            |_, _| {},
+        );
+        Some(watch)
     }
 
     /// Look up a remote buffer's `FileId` by host and path string.
@@ -1151,6 +1181,8 @@ impl GlobalBufferModel {
                     sync_clock: None,
                     pending_batch: None,
                 },
+                #[cfg(all(windows, feature = "local_fs"))]
+                _wsl_watch: None,
             },
         );
 
@@ -1809,6 +1841,8 @@ impl GlobalBufferModel {
                     sync_clock: Some(SyncClock::from_wire(server_version, 0)),
                     pending_batch: None,
                 },
+                #[cfg(all(windows, feature = "local_fs"))]
+                _wsl_watch: None,
             },
         );
         BufferState::new(file_id, buffer)

@@ -2,7 +2,7 @@
 //! sidecar supplies invalidations over stdio; Git calculation stays in the app.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
@@ -12,6 +12,7 @@ use anyhow::{Context, Result, bail};
 use async_channel::{Receiver, Sender};
 use command::r#async::Command;
 use futures::future::{Either, select};
+use futures::stream::{AbortHandle, Abortable};
 use futures_lite::StreamExt;
 use futures_lite::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use parking_lot::Mutex;
@@ -79,6 +80,73 @@ impl Drop for Subscription {
         // The registry is weak. The last subscription drops the last sender,
         // closing the actor and the helper's stdin without touching WSL itself.
     }
+}
+
+pub(crate) struct FileWatch(AbortHandle);
+
+impl Drop for FileWatch {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Keeps an open file current independently of the directory sidebar.
+pub(crate) fn watch_file(
+    path: &Path,
+    executor: &Arc<Background>,
+) -> Option<(FileWatch, impl futures::Stream<Item = ()> + use<>)> {
+    let parent = path.parent()?.to_path_buf();
+    let initial = subscribe(&parent, WatchScope::Directory, executor)?;
+    let filename = PathBuf::from(path.file_name()?);
+    let path = path.to_path_buf();
+    let executor = executor.clone();
+    let events = async_stream::stream! {
+        let mut connection = Some(initial);
+        let mut ready = false;
+        let mut previous = None;
+        loop {
+            let tick = async_io::Timer::after(Duration::from_secs(5));
+            let notification = if let Some((_, events)) = &connection {
+                let next = events.recv();
+                futures::pin_mut!(next);
+                match select(next, tick).await {
+                    Either::Left((event, _)) => Some(event),
+                    Either::Right(_) => None,
+                }
+            } else {
+                tick.await;
+                None
+            };
+            match notification {
+                Some(Ok(())) => {
+                    ready = true;
+                    let changes = connection.as_ref().expect("received from this connection").0.take_changes();
+                    if changes.full || changes.paths.contains(&filename) {
+                        yield ();
+                    }
+                }
+                Some(Err(_)) => {
+                    connection = None;
+                    ready = false;
+                }
+                None if !ready => {
+                    // Only failed/startup watches poll metadata; healthy watches do no file I/O here.
+                    let current = async_fs::metadata(&path).await.ok()
+                        .and_then(|metadata| Some((metadata.modified().ok()?, metadata.len())));
+                    if current != previous {
+                        previous = current;
+                        yield ();
+                    }
+                    if connection.is_none() {
+                        connection = subscribe(&parent, WatchScope::Directory, &executor);
+                    }
+                }
+                None => {}
+            }
+        }
+    };
+    let (abort, registration) = AbortHandle::new_pair();
+    Some((FileWatch(abort), Abortable::new(events, registration)))
 }
 
 pub(crate) fn subscribe(

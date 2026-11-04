@@ -10,8 +10,6 @@ use futures_lite::StreamExt;
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
 use pathfinder_geometry::vector::Vector2F;
 use warp_core::ui::theme::color::internal_colors;
-#[cfg(windows)]
-use warp_files::FileModel;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
@@ -183,19 +181,7 @@ impl FileBrowserView {
                     }
                     directory.poll = false;
                     if let Some(subscription) = &directory.subscription {
-                        let changes = subscription.take_changes();
-                        let files = if changes.full {
-                            directory
-                                .entries
-                                .iter()
-                                .filter(|e| !e.is_dir)
-                                .map(|e| e.path.clone())
-                                .collect()
-                        } else {
-                            changes.paths.into_iter().map(|p| changed.join(p)).collect()
-                        };
-                        FileModel::handle(ctx)
-                            .update(ctx, |model, ctx| model.reload_file_paths(files, ctx));
+                        subscription.take_changes();
                     }
                     me.refresh(&changed, ctx);
                 },
