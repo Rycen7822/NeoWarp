@@ -36,7 +36,7 @@ pub(crate) fn parse(command: &str, shell: ShellType) -> Option<ParsedCommand> {
         Provider::Codex => argv.get(index + 1).is_some_and(|arg| arg == "resume"),
         _ => argv[index + 1..].iter().any(|arg| {
             matches!(arg.as_str(), "--resume" | "--continue" | "--session")
-                || (matches!(provider, Provider::Pi | Provider::Claude)
+                || (matches!(provider, Provider::Pi | Provider::Claude | Provider::Hermes)
                     && matches!(arg.as_str(), "-r" | "-c"))
         }),
     };
@@ -162,8 +162,9 @@ fn explicit_identity(provider: Provider, argv: &[String]) -> Option<Identity> {
             .windows(2)
             .find(|pair| pair[0] == "resume")
             .map(|pair| pair[1].as_str()),
-        Provider::Claude => option(argv, "--resume").or_else(|| option(argv, "-r")),
-        Provider::Hermes => option(argv, "--resume"),
+        Provider::Claude | Provider::Hermes => {
+            option(argv, "--resume").or_else(|| option(argv, "-r"))
+        }
         Provider::Pi => option(argv, "--session"),
         Provider::Custom => None,
     }?;

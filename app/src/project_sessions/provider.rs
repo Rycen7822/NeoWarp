@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Days, Utc};
 use serde::Deserialize;
-use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
 
 use super::config::{Host, Identity, Provider};
 
@@ -72,7 +71,14 @@ impl Query {
         {
             base
         } else {
-            join(&base, "sessions")
+            join(
+                &base,
+                if self.provider == Provider::Hermes {
+                    "terminal-sessions"
+                } else {
+                    "sessions"
+                },
+            )
         }
     }
 }
@@ -100,68 +106,24 @@ struct CodexHeader {
     timestamp: String,
 }
 
-/// Hermes stores one JSON document. Stop after the three metadata fields, before messages.
+/// Hermes publishes this small per-terminal record on launch and resume.
+#[derive(Deserialize)]
 struct HermesHeader {
-    id: String,
+    session_id: String,
     cwd: String,
-    timestamp: String,
+    ts: f64,
 }
 
-impl HermesHeader {
-    fn read(reader: impl Read) -> Result<Self> {
-        struct MetadataVisitor<'a>(&'a mut Option<HermesHeader>);
-        impl<'de> Visitor<'de> for MetadataVisitor<'_> {
-            type Value = ();
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("Hermes session metadata")
-            }
-
-            fn visit_map<A: MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> std::result::Result<Self::Value, A::Error> {
-                let (mut id, mut cwd, mut timestamp) = (None, None, None);
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "session_id" => id = Some(map.next_value::<String>()?),
-                        "cwd" => cwd = Some(map.next_value::<String>()?),
-                        "session_start" => timestamp = Some(map.next_value::<String>()?),
-                        _ => {
-                            map.next_value::<IgnoredAny>()?;
-                        }
-                    }
-                    if let (Some(id), Some(cwd), Some(timestamp)) = (&id, &cwd, &timestamp) {
-                        *self.0 = Some(HermesHeader {
-                            id: id.clone(),
-                            cwd: cwd.clone(),
-                            timestamp: timestamp.clone(),
-                        });
-                        // Serde otherwise consumes the closing brace after visit_map returns.
-                        // Stop here so a large messages array is never read or allocated.
-                        return Err(serde::de::Error::custom("metadata complete"));
-                    }
-                }
-                Err(serde::de::Error::custom("missing Hermes identity metadata"))
-            }
-        }
-        let mut header = None;
-        let result = serde_json::Deserializer::from_reader(reader)
-            .deserialize_map(MetadataVisitor(&mut header));
-        if let Some(header) = header {
-            return Ok(header);
-        }
-        result?;
-        bail!("missing Hermes identity metadata")
-    }
-}
-
-fn read_header(path: &Path, provider: Provider) -> Result<Option<(String, String, String)>> {
+fn read_header(path: &Path, provider: Provider) -> Result<Option<(String, String, i64)>> {
     // A partial/oversize metadata record is unresolved, not permission to bind another candidate.
     let mut reader = BufReader::new(File::open(path)?.take(128 * 1024));
     if provider == Provider::Hermes {
-        let header = HermesHeader::read(reader)?;
-        return Ok(Some((header.id, header.cwd, header.timestamp)));
+        let header: HermesHeader = serde_json::from_reader(reader)?;
+        return Ok(Some((
+            header.session_id,
+            header.cwd,
+            (header.ts * 1000.0) as i64,
+        )));
     }
     let mut line = String::new();
     for _ in 0..64 {
@@ -173,20 +135,32 @@ fn read_header(path: &Path, provider: Provider) -> Result<Option<(String, String
         match provider {
             Provider::Codex if header.kind == "session_meta" => {
                 if let Some(meta) = header.payload {
-                    return Ok(Some((meta.id, meta.cwd, meta.timestamp)));
+                    return Ok(Some((
+                        meta.id,
+                        meta.cwd,
+                        DateTime::parse_from_rfc3339(&meta.timestamp)?.timestamp_millis(),
+                    )));
                 }
             }
             Provider::Claude => {
                 if let (Some(id), Some(cwd), Some(time)) =
                     (header.claude_id, header.cwd, header.timestamp)
                 {
-                    return Ok(Some((id, cwd, time)));
+                    return Ok(Some((
+                        id,
+                        cwd,
+                        DateTime::parse_from_rfc3339(&time)?.timestamp_millis(),
+                    )));
                 }
             }
             Provider::Pi if header.kind == "session" => {
                 if let (Some(id), Some(cwd), Some(time)) = (header.id, header.cwd, header.timestamp)
                 {
-                    return Ok(Some((id, cwd, time)));
+                    return Ok(Some((
+                        id,
+                        cwd,
+                        DateTime::parse_from_rfc3339(&time)?.timestamp_millis(),
+                    )));
                 }
             }
             _ => {}
@@ -250,25 +224,22 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
             if !entry.file_type().is_file() {
                 continue;
             }
-            let extension = if query.provider == Provider::Hermes {
-                "json"
-            } else {
-                "jsonl"
-            };
-            if entry.path().extension().and_then(|value| value.to_str()) != Some(extension) {
+            if query.provider != Provider::Hermes
+                && entry.path().extension().and_then(|value| value.to_str()) != Some("jsonl")
+            {
                 continue;
             }
             let modified: DateTime<Utc> = entry.metadata()?.modified()?.into();
             if modified.timestamp_millis() < query.started_at - 2000 {
                 continue;
             }
-            let Some((id, cwd, timestamp)) = read_header(entry.path(), query.provider)? else {
+            let Some((id, cwd, created)) = read_header(entry.path(), query.provider)? else {
                 continue;
             };
-            let created = DateTime::parse_from_rfc3339(&timestamp)?.timestamp_millis();
             // Resume appends to an old session: recent writes, not its original creation time,
             // identify candidates. New launches still require a freshly created session.
-            if (!query.resuming && created < query.started_at - 2000)
+            if ((!query.resuming || query.provider == Provider::Hermes)
+                && created < query.started_at - 2000)
                 || !query.host.same_path(&cwd, &query.directory)
             {
                 continue;

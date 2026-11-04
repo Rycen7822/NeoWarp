@@ -63,8 +63,8 @@ pub(crate) fn resolve_shell(
     let data = shell
         .get_valid_shell_path_and_type()
         .context("The saved shell is no longer available")?;
-    if let warp_terminal::shell::ShellLaunchData::Executable { shell_type, .. }
-    | warp_terminal::shell::ShellLaunchData::MSYS2 { shell_type, .. } = data
+    if let ShellLaunchData::Executable { shell_type, .. }
+    | ShellLaunchData::MSYS2 { shell_type, .. } = data
     {
         ensure!(
             shell_type == saved.kind,
@@ -231,12 +231,12 @@ fn resume_command(session: &Session) -> Result<String> {
             continue;
         }
         if (session.provider == Provider::Pi && matches!(arg.as_str(), "-r" | "--resume" | "-c"))
-            || (session.provider == Provider::Claude && arg == "-c")
+            || (matches!(session.provider, Provider::Claude | Provider::Hermes) && arg == "-c")
         {
             continue;
         }
         if matches!(arg.as_str(), "--resume" | "--session")
-            || (session.provider == Provider::Claude && arg == "-r")
+            || (matches!(session.provider, Provider::Claude | Provider::Hermes) && arg == "-r")
         {
             if args.peek().is_some_and(|value| !value.starts_with('-')) {
                 args.next();
@@ -283,7 +283,7 @@ fn resume_command(session: &Session) -> Result<String> {
                     | "--effort"
             ),
             Provider::Pi => matches!(flag, "--model" | "--provider" | "--thinking" | "--tools"),
-            Provider::Hermes => matches!(flag, "--model" | "--provider"),
+            Provider::Hermes => matches!(flag, "-m" | "--model" | "--provider"),
             Provider::Custom => false,
         };
         let switch = match session.provider {
