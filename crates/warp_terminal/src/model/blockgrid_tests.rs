@@ -1,3 +1,4 @@
+use pathfinder_geometry::vector::Vector2F;
 use warp_core::features::FeatureFlag;
 
 use crate::SizeInfo;
@@ -6,7 +7,9 @@ use crate::model::ansi::Handler;
 use crate::model::blockgrid::BlockGrid;
 use crate::model::grid::Dimensions;
 use crate::model::grid::grid_handler::PerformResetGridChecks;
+use crate::model::image_map::StoredImageMetadata;
 use crate::model::index::Point;
+use crate::model::iterm_image::{ITermImage, ITermImageDimensionUnit, ITermImageMetadata};
 use crate::model::kitty::{CursorMovementPolicy, KittyAction};
 use crate::model::secrets::ObfuscateSecrets;
 use crate::test_util::{
@@ -184,6 +187,79 @@ pub fn test_non_moving_kitty_image_keeps_finished_grid_visible() {
     assert_eq!(block_grid.grid_handler().cursor_point(), Point::new(0, 0));
     assert!(block_grid.grid_handler().has_visible_images());
     assert!(!block_grid.should_show_as_empty_when_finished());
+}
+
+#[test]
+pub fn test_kitty_subpixel_height_uses_one_cell() {
+    let _kitty_images = FeatureFlag::KittyImages.override_enabled(true);
+    let mut block_grid = BlockGrid::new(
+        SizeInfo::new_without_font_metrics(10, 10),
+        1000,
+        ChannelEventListener::new_for_test(),
+        ObfuscateSecrets::No,
+        PerformResetGridChecks::default(),
+    );
+    block_grid.start();
+
+    let mut metadata = test_kitty_image_metadata_map(1);
+    let Some(StoredImageMetadata::Kitty(kitty_metadata)) = metadata.get_mut(&1) else {
+        panic!("expected Kitty metadata");
+    };
+    kitty_metadata.image_size = Vector2F::new(100.0, 1.0);
+
+    let mut action = test_kitty_store_and_display_action(1, 1);
+    let KittyAction::StoreAndDisplay(store_and_display) = &mut action else {
+        panic!("expected StoreAndDisplay action");
+    };
+    store_and_display.image.metadata.image_size = Vector2F::new(100.0, 1.0);
+    store_and_display.placement_data.rows = None;
+
+    block_grid
+        .handle_completed_kitty_action(action, &mut metadata)
+        .expect("kitty action should be handled")
+        .expect("kitty image should render");
+
+    let placement = block_grid
+        .grid_handler()
+        .get_image_placement_data(1, 1)
+        .expect("image placement should exist");
+    assert_eq!(placement.height_cells, 1);
+    assert_eq!(block_grid.grid_handler().cursor_point(), Point::new(0, 1));
+}
+
+#[test]
+pub fn test_iterm_subpixel_height_uses_one_cell() {
+    let _iterm_images = FeatureFlag::ITermImages.override_enabled(true);
+    let mut block_grid = BlockGrid::new(
+        SizeInfo::new_without_font_metrics(5, 8),
+        1000,
+        ChannelEventListener::new_for_test(),
+        ObfuscateSecrets::No,
+        PerformResetGridChecks::default(),
+    );
+    block_grid.start();
+
+    block_grid.handle_completed_iterm_image(ITermImage {
+        metadata: ITermImageMetadata {
+            id: 1,
+            desired_width: Some((50, ITermImageDimensionUnit::Percent)),
+            desired_height: Some((1, ITermImageDimensionUnit::Percent)),
+            preserve_aspect_ratio: true,
+            name: "x".to_string(),
+            inline: true,
+            image_size: Vector2F::new(100.0, 100.0),
+        },
+        data: vec![0],
+    });
+
+    let placements = block_grid.grid_handler().get_image_ids_in_range(0, 1);
+    assert_eq!(placements.len(), 1);
+    let placement = block_grid
+        .grid_handler()
+        .get_image_placement_data(1, placements[0].placement_id)
+        .expect("image placement should exist");
+    assert_eq!(placement.height_cells, 1);
+    assert_eq!(block_grid.grid_handler().cursor_point(), Point::new(0, 4));
 }
 
 #[test]

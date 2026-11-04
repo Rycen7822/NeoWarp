@@ -1369,7 +1369,7 @@ impl ansi::Handler for GridHandler {
             };
 
         let scroll_up_cells =
-            (scroll_up_px / (self.ansi_handler_state.cell_height as f32)).ceil() as usize;
+            ((scroll_up_px / (self.ansi_handler_state.cell_height as f32)).ceil() as usize).max(1);
 
         let scroll_right_cells =
             (scroll_right_px / (self.ansi_handler_state.cell_width as f32)).ceil() as usize;
@@ -1841,8 +1841,10 @@ impl GridHandler {
                 let image_size = Vector2F::new(width_px as f32, height_px as f32);
 
                 // Convert the dimension in pixels to cells. We want to round up if this doesn't perfectly fit within an amount of cells.
-                let height_cells = (height_px as f32 / (self.ansi_handler_state.cell_height as f32))
-                    .ceil() as usize;
+                let height_cells = ((height_px as f32
+                    / (self.ansi_handler_state.cell_height as f32))
+                    .ceil() as usize)
+                    .max(1);
                 let width_cells =
                     (width_px as f32 / (self.ansi_handler_state.cell_width as f32)).ceil() as usize;
 
@@ -1939,8 +1941,10 @@ impl GridHandler {
                 let image_size = Vector2F::new(width_px as f32, height_px as f32);
 
                 // Convert the dimension in pixels to cells. We want to round up if this doesn't perfectly fit within an amount of cells.
-                let height_cells = (height_px as f32 / (self.ansi_handler_state.cell_height as f32))
-                    .ceil() as usize;
+                let height_cells = ((height_px as f32
+                    / (self.ansi_handler_state.cell_height as f32))
+                    .ceil() as usize)
+                    .max(1);
                 let width_cells =
                     (width_px as f32 / (self.ansi_handler_state.cell_width as f32)).ceil() as usize;
 
