@@ -633,6 +633,7 @@ impl SessionInfo {
         let session_type = Self::determine_session_type(
             &init_shell_value,
             matches!(&is_ssh_wrapper_session, IsSSHWrapperSession::Yes { .. }),
+            launch_data.as_ref(),
         );
 
         let spawning_session_id = if matches!(session_type, BootstrapSessionType::WarpifiedRemote)
@@ -672,14 +673,18 @@ impl SessionInfo {
     fn determine_session_type(
         init_shell_value: &InitShellValue,
         is_ssh_session: bool,
+        launch_data: Option<&ShellLaunchData>,
     ) -> BootstrapSessionType {
+        if is_ssh_session {
+            return BootstrapSessionType::WarpifiedRemote;
+        }
+        // An explicitly launched local distribution may use its own hostname.
+        if matches!(launch_data, Some(ShellLaunchData::WSL { .. })) {
+            return BootstrapSessionType::Local;
+        }
         match get_local_hostname() {
             Ok(local_hostname) => {
-                // Ensures subshells are treated as local
-                if local_hostname == init_shell_value.hostname &&
-                // Ensures `ssh localhost` is treated as remote
-                !is_ssh_session
-                {
+                if local_hostname == init_shell_value.hostname {
                     BootstrapSessionType::Local
                 } else {
                     BootstrapSessionType::WarpifiedRemote
@@ -758,6 +763,17 @@ impl SessionInfo {
             bootstrapped_value.shell_options
         };
 
+        let wsl_name = bootstrapped_value.wsl_name.or(self.wsl_name.take());
+        let launch_data = self.launch_data.take().or_else(|| {
+            if cfg!(windows) && self.session_type == BootstrapSessionType::Local {
+                wsl_name.as_ref().map(|distro| ShellLaunchData::WSL {
+                    distro: distro.clone(),
+                })
+            } else {
+                None
+            }
+        });
+
         SessionInfo {
             session_id: self.session_id,
             shell: Shell::new(
@@ -767,7 +783,7 @@ impl SessionInfo {
                 bootstrapped_value.shell_plugins.unwrap_or_default(),
                 bootstrapped_value.shell_path,
             ),
-            launch_data: self.launch_data.take(),
+            launch_data,
             histfile: bootstrapped_value.histfile,
             user: self.user,
             hostname: self.hostname,
@@ -788,7 +804,7 @@ impl SessionInfo {
                 os_category: bootstrapped_value.os_category,
                 linux_distribution: bootstrapped_value.linux_distribution,
             },
-            wsl_name: bootstrapped_value.wsl_name,
+            wsl_name,
             spawning_session_id: self.spawning_session_id,
         }
     }

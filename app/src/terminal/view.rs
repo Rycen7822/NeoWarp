@@ -4635,7 +4635,16 @@ impl TerminalView {
                             ctx,
                         );
 
+                        let request_cwd = active_directory.to_owned();
                         ctx.spawn(fut, move |me, repo_path_opt, ctx| {
+                            // A previous directory's lookup can finish after a later navigation.
+                            if !me.active_block_metadata.as_ref().is_some_and(|metadata| {
+                                metadata.session_id() == session_id
+                                    && metadata.current_working_directory()
+                                        == Some(request_cwd.as_str())
+                            }) {
+                                return;
+                            }
                             let old_repo_path = me.current_repo_path.clone();
                             me.current_repo_path = repo_path_opt.clone();
 
