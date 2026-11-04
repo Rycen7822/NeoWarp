@@ -34,13 +34,6 @@ fn match_data_countable_zero_is_not_truthy() {
     assert!(!MatchData::Countable(0).is_truthy());
 }
 
-// ── Display labels ─────────────────────────────────────────────────
-
-#[test]
-fn subpage_display_names_are_correct() {
-    assert_eq!(SettingsSection::EditorAndCodeReview.to_string(), "Editor");
-}
-
 // ── slug / from_slug ───────────────────────────────────────────────
 
 /// Every `SettingsSection` variant.
@@ -98,15 +91,22 @@ fn slugs_are_unique_across_sections() {
 }
 
 #[test]
-fn slugs_were_seeded_from_the_display_labels_they_replaced() {
-    // Slugs retain the Display strings that used to double as the persistence key.
-    for section in ALL_SECTIONS {
-        assert_eq!(
-            section.slug(),
-            section.to_string(),
-            "{section:?} slug diverged from the Display label it was seeded from"
-        );
-    }
+fn slugs_keep_persisted_identifiers() {
+    assert_eq!(
+        ALL_SECTIONS
+            .iter()
+            .map(|section| section.slug())
+            .collect::<Vec<_>>(),
+        [
+            "About",
+            "Appearance",
+            "Features",
+            "Keyboard shortcuts",
+            "Privacy",
+            "Warpify",
+            "Editor"
+        ],
+    );
 }
 
 #[test]

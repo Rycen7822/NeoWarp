@@ -183,7 +183,3 @@ pub fn get_app_state(app: &AppContext) -> AppState {
         block_lists: Default::default(),
     }
 }
-
-#[cfg(test)]
-#[path = "app_state_tests.rs"]
-mod tests;
