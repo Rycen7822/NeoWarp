@@ -74,33 +74,7 @@ impl LocalGitRepoStatusModel {
         model.refresh_metadata(ctx);
 
         #[cfg(windows)]
-        if let Some((subscription, events)) = wsl::subscribe(
-            &model.watch_path,
-            wsl::WatchScope::Repository,
-            &ctx.background_executor(),
-        ) {
-            model.wsl_subscription = Some(subscription);
-            // A stalled startup must not leave counts frozen. A Ready/Dirty
-            // event cancels this grace timer; EOF enables the normal fallback.
-            model.schedule_fallback_poll(Duration::from_secs(30), ctx);
-            ctx.spawn_stream_local(
-                events,
-                |me, _, ctx| {
-                    if let Some(handle) = me.fallback_poll_handle.take() {
-                        handle.abort();
-                    }
-                    if let Some(subscription) = &me.wsl_subscription {
-                        let changes = subscription.take_changes();
-                        let git_changed = changes.git_changed;
-                        ctx.emit(GitRepoStatusEvent::FilesInvalidated(changes));
-                        me.refresh_worktree(git_changed, ctx);
-                    }
-                },
-                |me, ctx| {
-                    me.wsl_subscription = None;
-                    me.schedule_fallback_poll(Duration::from_secs(5), ctx);
-                },
-            );
+        if model.subscribe_wsl(ctx) {
             return model;
         }
 
@@ -225,6 +199,39 @@ impl LocalGitRepoStatusModel {
     // ── internal helpers ─────────────────────────────────────────────
 
     #[cfg(windows)]
+    fn subscribe_wsl(&mut self, ctx: &mut ModelContext<Self>) -> bool {
+        let Some((subscription, events)) = wsl::subscribe(
+            &self.watch_path,
+            wsl::WatchScope::Repository,
+            &ctx.background_executor(),
+        ) else {
+            return false;
+        };
+        self.wsl_subscription = Some(subscription);
+        // Keep startup bounded; Ready/Dirty cancels this timer, EOF enters fallback.
+        self.schedule_fallback_poll(Duration::from_secs(30), ctx);
+        ctx.spawn_stream_local(
+            events,
+            |me, _, ctx| {
+                if let Some(handle) = me.fallback_poll_handle.take() {
+                    handle.abort();
+                }
+                if let Some(subscription) = &me.wsl_subscription {
+                    let changes = subscription.take_changes();
+                    let git_changed = changes.git_changed;
+                    ctx.emit(GitRepoStatusEvent::FilesInvalidated(changes));
+                    me.refresh_worktree(git_changed, ctx);
+                }
+            },
+            |me, ctx| {
+                me.wsl_subscription = None;
+                me.schedule_fallback_poll(Duration::from_secs(5), ctx);
+            },
+        );
+        true
+    }
+
+    #[cfg(windows)]
     fn schedule_fallback_poll(&mut self, delay: Duration, ctx: &mut ModelContext<Self>) {
         if let Some(handle) = self.fallback_poll_handle.take() {
             handle.abort();
@@ -236,7 +243,9 @@ impl LocalGitRepoStatusModel {
             |me, _, ctx| {
                 me.fallback_poll_handle = None;
                 me.refresh_metadata(ctx);
-                me.schedule_fallback_poll(Duration::from_secs(5), ctx);
+                if me.wsl_subscription.is_some() || !me.subscribe_wsl(ctx) {
+                    me.schedule_fallback_poll(Duration::from_secs(5), ctx);
+                }
             },
         ));
     }

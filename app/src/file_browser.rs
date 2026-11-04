@@ -158,48 +158,11 @@ impl FileBrowserView {
             },
         );
         #[cfg(windows)]
-        if let Some((subscription, events)) =
-            wsl::subscribe(&path, wsl::WatchScope::Directory, ctx.background_executor())
-        {
-            let directory = self
-                .directories
-                .get_mut(&path)
-                .expect("directory just inserted");
-            directory.subscription = Some(subscription);
-            directory.poll = true;
-            let changed = path.clone();
-            let closed = path.clone();
-            let generation = self.generation;
-            ctx.spawn_stream_local(
-                events,
-                move |me, _, ctx| {
-                    let Some(directory) = me.directories.get_mut(&changed) else {
-                        return;
-                    };
-                    if directory.generation != generation {
-                        return;
-                    }
-                    directory.poll = false;
-                    if let Some(subscription) = &directory.subscription {
-                        subscription.take_changes();
-                    }
-                    me.refresh(&changed, ctx);
-                },
-                move |me, ctx| {
-                    if let Some(directory) = me.directories.get_mut(&closed)
-                        && directory.generation == generation
-                    {
-                        directory.subscription = None;
-                        directory.poll = true;
-                        me.schedule_poll(ctx);
-                    }
-                },
-            );
+        if self.subscribe_wsl_directory(&path, ctx) {
             self.schedule_poll(ctx);
             self.refresh(&path, ctx);
             return;
         }
-
         if self.watcher.is_none() {
             let watcher =
                 ctx.add_model(|ctx| BulkFilesystemWatcher::new(Duration::from_millis(150), ctx));
@@ -231,6 +194,50 @@ impl FileBrowserView {
             }
         });
         self.refresh(&path, ctx);
+    }
+
+    #[cfg(windows)]
+    fn subscribe_wsl_directory(&mut self, path: &Path, ctx: &mut ViewContext<Self>) -> bool {
+        let Some((subscription, events)) =
+            wsl::subscribe(path, wsl::WatchScope::Directory, ctx.background_executor())
+        else {
+            return false;
+        };
+        let directory = self
+            .directories
+            .get_mut(path)
+            .expect("watched directory must still be expanded");
+        directory.subscription = Some(subscription);
+        directory.poll = true;
+        let changed = path.to_path_buf();
+        let closed = path.to_path_buf();
+        let generation = directory.generation;
+        ctx.spawn_stream_local(
+            events,
+            move |me, _, ctx| {
+                let Some(directory) = me.directories.get_mut(&changed) else {
+                    return;
+                };
+                if directory.generation != generation {
+                    return;
+                }
+                directory.poll = false;
+                if let Some(subscription) = &directory.subscription {
+                    subscription.take_changes();
+                }
+                me.refresh(&changed, ctx);
+            },
+            move |me, ctx| {
+                if let Some(directory) = me.directories.get_mut(&closed)
+                    && directory.generation == generation
+                {
+                    directory.subscription = None;
+                    directory.poll = true;
+                    me.schedule_poll(ctx);
+                }
+            },
+        );
+        true
     }
 
     fn native_changes(&mut self, event: &BulkFilesystemWatcherEvent, ctx: &mut ViewContext<Self>) {
@@ -265,6 +272,14 @@ impl FileBrowserView {
                     .map(|(path, _)| path.clone())
                     .collect();
                 for path in paths {
+                    #[cfg(windows)]
+                    if me
+                        .directories
+                        .get(&path)
+                        .is_some_and(|directory| directory.subscription.is_none())
+                    {
+                        me.subscribe_wsl_directory(&path, ctx);
+                    }
                     me.refresh(&path, ctx);
                 }
                 me.schedule_poll(ctx);

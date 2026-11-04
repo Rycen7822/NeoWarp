@@ -436,6 +436,15 @@ impl GlobalBufferModel {
 
             state.set_base_content_version(new_version);
 
+            // Ready requests a full resync. Subscribe after loading so FileModel can consume it.
+            #[cfg(all(windows, feature = "local_fs"))]
+            if state._wsl_watch.is_none()
+                && let Some(LocalOrRemotePath::Local(path)) =
+                    self.location_to_id.get_by_right(&file_id)
+            {
+                state._wsl_watch = Self::watch_wsl_file(path, ctx);
+            }
+
             ctx.emit(GlobalBufferModelEvent::BufferLoaded {
                 file_id,
                 content_version: new_version,
@@ -1003,8 +1012,6 @@ impl GlobalBufferModel {
                 base_content_version: None,
             }
         };
-        #[cfg(windows)]
-        let wsl_watch = Self::watch_wsl_file(path, ctx);
         self.buffers.insert(
             file_id,
             InternalBufferState {
@@ -1012,7 +1019,7 @@ impl GlobalBufferModel {
                 pending_diff_parse: None,
                 source,
                 #[cfg(windows)]
-                _wsl_watch: wsl_watch,
+                _wsl_watch: None,
             },
         );
 
