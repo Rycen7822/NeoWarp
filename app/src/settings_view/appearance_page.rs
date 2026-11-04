@@ -61,6 +61,8 @@ use crate::settings::{
 };
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::blockgrid_element::BlockGridElement;
+#[cfg(feature = "local_fs")]
+use crate::terminal::cli_toolbelt_editor::CliToolbeltInlineEditor;
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::ligature_settings::LigatureSettings;
 use crate::terminal::model::ObfuscateSecrets;
@@ -491,6 +493,8 @@ pub struct AppearanceSettingsPageView {
     color_picker_dot_states: Vec<Vec<MouseStateHandle>>,
     directory_tab_color_delete_buttons: Vec<ViewHandle<ActionButton>>,
     header_toolbar_inline_editor: ViewHandle<HeaderToolbarInlineEditor>,
+    #[cfg(feature = "local_fs")]
+    cli_toolbelt_inline_editor: ViewHandle<CliToolbeltInlineEditor>,
 
     /// The context chip renderers based on the most recently
     /// selected Warp prompt configuration.
@@ -1145,6 +1149,8 @@ impl AppearanceSettingsPageView {
         input_type_radio_state.set_selected_idx(input_type as usize);
         let header_toolbar_inline_editor =
             ctx.add_typed_action_view(HeaderToolbarInlineEditor::new);
+        #[cfg(feature = "local_fs")]
+        let cli_toolbelt_inline_editor = ctx.add_typed_action_view(CliToolbeltInlineEditor::new);
 
         let language_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
@@ -1220,6 +1226,8 @@ impl AppearanceSettingsPageView {
                 .collect(),
             directory_tab_color_delete_buttons: build_directory_delete_buttons(ctx),
             header_toolbar_inline_editor,
+            #[cfg(feature = "local_fs")]
+            cli_toolbelt_inline_editor,
             alt_screen_padding_editor,
             context_chips,
             ps1_grid_info: None,
@@ -1284,7 +1292,7 @@ impl AppearanceSettingsPageView {
         ];
 
         #[cfg(feature = "local_fs")]
-        category_widgets.push(Box::new(CliToolbeltWidget::default()));
+        category_widgets.push(Box::new(CliToolbeltWidget));
 
         categories.push(Category::new("Input", category_widgets));
 
@@ -4186,10 +4194,7 @@ impl SettingsWidget for HideTitleBarSearchBarInVerticalTabsWidget {
 }
 
 #[cfg(feature = "local_fs")]
-#[derive(Default)]
-struct CliToolbeltWidget {
-    edit_mouse: MouseStateHandle,
-}
+struct CliToolbeltWidget;
 
 #[cfg(feature = "local_fs")]
 impl SettingsWidget for CliToolbeltWidget {
@@ -4201,25 +4206,25 @@ impl SettingsWidget for CliToolbeltWidget {
 
     fn render(
         &self,
-        _view: &Self::View,
+        view: &Self::View,
         appearance: &Appearance,
         _app: &AppContext,
     ) -> Box<dyn Element> {
-        let button = appearance
-            .ui_builder()
-            .button(ButtonVariant::Secondary, self.edit_mouse.clone())
-            .with_text_label(tr("Edit").to_owned())
-            .build()
-            .on_click(|ctx, _, _| ctx.dispatch_typed_action(WorkspaceAction::OpenCliToolbeltEditor))
-            .finish();
-        render_body_item::<AppearancePageAction>(
-            "CLI agent toolbelt".into(),
+        let label = render_body_item_label::<AppearancePageAction>(
+            "CLI agent toolbelt".to_string(),
+            None,
             None,
             ToggleState::Enabled,
             appearance,
-            button,
-            None,
-        )
+        );
+        let editor = Container::new(ChildView::new(&view.cli_toolbelt_inline_editor).finish())
+            .with_padding_bottom(HEADER_PADDING)
+            .finish();
+
+        Flex::column()
+            .with_child(Container::new(label).with_margin_bottom(4.).finish())
+            .with_child(editor)
+            .finish()
     }
 }
 
