@@ -387,7 +387,8 @@ impl GitReviewView {
                                 });
                                 editor.update(ctx, |editor, ctx| {
                                     editor.set_language_with_local_path(
-                                        &me.root.join(&result_path),
+                                        &crate::util::path::local_path_for_io(&me.root)
+                                            .join(&result_path),
                                         ctx,
                                     );
                                 });
@@ -488,7 +489,7 @@ impl GitReviewView {
             appearance,
         ));
         header.add_child(Expanded::new(1., Empty::new().finish()).finish());
-        let path = self.root.join(&card.entry.path);
+        let path = crate::util::path::local_path_for_io(&self.root).join(&card.entry.path);
         header.add_child(
             icon_button(
                 appearance,
@@ -619,7 +620,7 @@ async fn load_file(
     let current = if matches!(status, GitFileStatus::Deleted) {
         String::new()
     } else {
-        let file = root.join(path);
+        let file = crate::util::path::local_path_for_io(&root).join(path);
         if async_fs::metadata(&file).await?.len() > MAX_DIFF_SIZE as u64 {
             anyhow::bail!("file is too large to display");
         }

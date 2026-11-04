@@ -1650,7 +1650,7 @@ enum BlockMetadataUpdateSource {
 }
 
 impl TerminalView {
-    /// Returns the path to the current repository, if any.
+    /// Returns the command address of the current repository, including its WSL distribution.
     pub fn current_repo_path(&self) -> Option<&LocalOrRemotePath> {
         self.current_repo_path.as_ref()
     }
@@ -4647,6 +4647,13 @@ impl TerminalView {
                             }
                             let old_repo_path = me.current_repo_path.clone();
                             me.current_repo_path = repo_path_opt.clone();
+                            #[cfg(windows)]
+                            if let (Some(LocalOrRemotePath::Local(path)), Some(session)) = (
+                                &mut me.current_repo_path,
+                                session_id.and_then(|id| me.sessions.as_ref(ctx).get(id)),
+                            ) {
+                                *path = session.repository_command_path(path);
+                            }
 
                             if old_repo_path != me.current_repo_path {
                                 ctx.emit(Event::Pane(PaneEvent::RepoChanged));
@@ -4708,9 +4715,7 @@ impl TerminalView {
                                             },
                                         );
 
-                                        if old_repo_path.as_ref().and_then(|p| p.to_local_path())
-                                            != Some(repo_path.as_path())
-                                        {
+                                        if old_repo_path != me.current_repo_path {
                                             me.clear_git_repo_status_subscription(ctx);
                                             me.update_git_status_subscription(ctx);
                                         }

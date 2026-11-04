@@ -16,6 +16,20 @@ pub fn display_local_path(path: &std::path::Path) -> String {
     }
 }
 
+/// Maps a WSL command address back to the native file access path (notably `/mnt/<drive>`).
+pub fn local_path_for_io(path: &std::path::Path) -> std::borrow::Cow<'_, std::path::Path> {
+    #[cfg(windows)]
+    if let Some(wsl) = parse_wsl_unc_path(path)
+        && let Ok(native) = convert_wsl_to_windows_host_path(
+            &typed_path::TypedPath::unix(&wsl.linux_path),
+            &wsl.distro,
+        )
+    {
+        return std::borrow::Cow::Owned(native);
+    }
+    std::borrow::Cow::Borrowed(path)
+}
+
 /// Returns the display name of a local or remote path, prefixed with the
 /// host label for remote paths.
 pub fn display_name_with_host(path: &LocalOrRemotePath, ctx: &AppContext) -> String {

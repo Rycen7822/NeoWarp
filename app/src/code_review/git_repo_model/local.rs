@@ -22,7 +22,9 @@ use crate::util::git::{FileChangeEntry, detect_current_branch_display, detect_ma
 /// When all strong handles are dropped the model (and its watcher) is
 /// automatically torn down.
 pub struct LocalGitRepoStatusModel {
+    // Commands retain their distribution; filesystem events use the native root.
     repo_path: PathBuf,
+    watch_path: PathBuf,
     repository: ModelHandle<Repository>,
     subscriber_id: Option<SubscriberId>,
     metadata: Option<GitStatusMetadata>,
@@ -50,6 +52,11 @@ impl LocalGitRepoStatusModel {
     ) -> Self {
         let mut model = Self {
             repo_path: repo_path.clone(),
+            watch_path: repository_model
+                .as_ref(ctx)
+                .root_dir()
+                .to_local_path()
+                .expect("local Git model requires a local repository"),
             repository: repository_model.clone(),
             subscriber_id: None,
             metadata: None,
@@ -68,7 +75,7 @@ impl LocalGitRepoStatusModel {
 
         #[cfg(windows)]
         if let Some((subscription, events)) = wsl::subscribe(
-            &repo_path,
+            &model.watch_path,
             wsl::WatchScope::Repository,
             &ctx.background_executor(),
         ) {
@@ -139,7 +146,7 @@ impl LocalGitRepoStatusModel {
                             .filter(|file| !file.is_ignored)
                             .filter_map(|file| {
                                 file.path
-                                    .strip_prefix(&me.repo_path)
+                                    .strip_prefix(&me.watch_path)
                                     .ok()
                                     .map(Path::to_path_buf)
                             })
@@ -380,6 +387,7 @@ impl LocalGitRepoStatusModel {
     ) -> Self {
         Self {
             repo_path: PathBuf::from("/test"),
+            watch_path: PathBuf::from("/test"),
             repository,
             subscriber_id: None,
             metadata,

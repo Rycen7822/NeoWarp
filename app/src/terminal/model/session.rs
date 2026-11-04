@@ -1031,6 +1031,27 @@ impl Session {
         self.info.wsl_name()
     }
 
+    /// Keep the WSL command environment even when the working tree is on a Windows drive.
+    #[cfg(windows)]
+    pub fn repository_command_path(&self, path: &Path) -> PathBuf {
+        use std::path::{Component, Prefix};
+
+        let Some(distro) = self.wsl_distro_name().filter(|_| self.is_local()) else {
+            return path.to_path_buf();
+        };
+        if !matches!(path.components().next(), Some(Component::Prefix(prefix))
+            if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
+        {
+            return path.to_path_buf();
+        }
+        let linux_path = warp_util::path::convert_windows_path_to_wsl(
+            &dunce::simplified(path).to_string_lossy(),
+        );
+        PathBuf::from(r"\\wsl.localhost")
+            .join(distro)
+            .join(linux_path.trim_start_matches('/').replace('/', "\\"))
+    }
+
     pub fn is_msys2(&self) -> bool {
         matches!(self.launch_data(), Some(ShellLaunchData::MSYS2 { .. }))
     }
