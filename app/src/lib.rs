@@ -1048,6 +1048,11 @@ pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppC
             });
         })),
         on_should_close_window: Some(Box::new(move |window_id, ctx| {
+            if let Some(workspace) = workspace::WorkspaceRegistry::as_ref(ctx).get(window_id, ctx)
+                && !workspace.update(ctx, |workspace, ctx| workspace.confirm_window_close(ctx))
+            {
+                return ApproveTerminateResult::Cancel;
+            }
             let general_settings = GeneralSettings::as_ref(ctx);
             // On Linux or Windows, if we're about to close the final window, we should quit the app instead.
             // On Mac, we do this conditionally based on a user setting.

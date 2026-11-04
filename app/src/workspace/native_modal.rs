@@ -1,9 +1,13 @@
+use std::time::Duration;
+
+use instant::Instant;
 use settings::Setting as _;
 use warp_core::ui::theme::Fill;
+use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::{Align, Container, Empty, Flex, MouseStateHandle, ParentElement};
 use warpui::fonts::Weight;
 use warpui::keymap::FixedBinding;
-use warpui::modals::{AlertDialogWithCallbacks, AppModalCallback};
+use warpui::modals::{AlertDialogWithCallbacks, AppModalCallback, ModalButton};
 use warpui::platform::Cursor;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -13,8 +17,10 @@ use warpui::{
 };
 
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 use crate::ui_components::dialog::{Dialog, dialog_styles};
+use crate::window_settings::WindowSettings;
 
 pub(super) fn init(app: &mut AppContext) {
     use warpui::keymap::macros::*;
@@ -31,6 +37,8 @@ pub struct NativeModal {
     dont_show_again: bool,
     modal_button_mouse_states: Vec<MouseStateHandle>,
     dont_show_again_mouse_state: MouseStateHandle,
+    close_confirmation: Option<(Instant, SpawnedFutureHandle)>,
+    close_approved: bool,
 }
 
 #[derive(Debug)]
@@ -46,6 +54,7 @@ pub enum NativeModalAction {
 
 pub enum NativeModalEvent {
     Close,
+    CloseConfirmation,
 }
 
 impl NativeModal {
@@ -61,6 +70,8 @@ impl NativeModal {
             dont_show_again,
             dont_show_again_mouse_state: Default::default(),
             modal_button_mouse_states: Default::default(),
+            close_confirmation: None,
+            close_approved: false,
         }
     }
 
@@ -79,7 +90,7 @@ impl NativeModal {
     }
 
     pub fn set_alert_dialog(&mut self, alert_dialog: AlertDialogWithCallbacks<AppModalCallback>) {
-        self.modal_button_mouse_states.clear();
+        self.reset();
         for _ in 0..alert_dialog.button_data.len() {
             self.modal_button_mouse_states.push(Default::default());
         }
@@ -87,8 +98,52 @@ impl NativeModal {
     }
 
     fn reset(&mut self) {
+        if let Some((_, timer)) = self.close_confirmation.take() {
+            timer.abort();
+        }
+        self.close_approved = false;
         self.alert_dialog = None;
         self.modal_button_mouse_states = Default::default();
+    }
+
+    pub(super) fn confirm_window_close(&mut self, ctx: &mut ViewContext<Self>) -> bool {
+        if std::mem::take(&mut self.close_approved)
+            || !*WindowSettings::as_ref(ctx).confirm_before_closing
+        {
+            return true;
+        }
+        if self.alert_dialog.is_some() {
+            return false;
+        }
+        let seconds = *WindowSettings::as_ref(ctx).close_confirmation_timeout;
+        self.set_alert_dialog(AlertDialogWithCallbacks::for_app(
+            tr("Close this window?"),
+            tr("This window stays open if you do not confirm within {seconds} seconds.")
+                .replace("{seconds}", &seconds.to_string()),
+            vec![
+                ModalButton::for_app(tr("Close completely"), |_| {}),
+                ModalButton::for_app(tr("Cancel"), |_| {}),
+            ],
+            |_| {},
+        ));
+        let timeout = Duration::from_secs(u64::from(seconds));
+        let deadline = Instant::now() + timeout;
+        self.close_confirmation = Some((
+            deadline,
+            ctx.spawn(Timer::after(timeout), move |modal, _, ctx| {
+                if modal
+                    .close_confirmation
+                    .as_ref()
+                    .is_some_and(|(current, _)| *current == deadline)
+                {
+                    modal.reset();
+                    ctx.emit(NativeModalEvent::CloseConfirmation);
+                    ctx.notify();
+                }
+            }),
+        ));
+        ctx.notify();
+        false
     }
 
     #[cfg(any(test, feature = "integration_tests"))]
@@ -97,6 +152,23 @@ impl NativeModal {
     }
 
     fn trigger_button_callback(&mut self, idx: usize, ctx: &mut ViewContext<Self>) {
+        if self
+            .alert_dialog
+            .as_ref()
+            .is_none_or(|dialog| idx >= dialog.button_data.len())
+        {
+            return;
+        }
+        if let Some((deadline, _)) = self.close_confirmation.as_ref() {
+            let approved = idx == 0 && Instant::now() < *deadline;
+            self.reset();
+            self.close_approved = approved;
+            ctx.emit(NativeModalEvent::CloseConfirmation);
+            if approved {
+                ctx.close_window();
+            }
+            return;
+        }
         // Once we trigger a callback from a button, we are guaranteed that the modal will close so
         // it's ok to take the alert dialog from Self.
         if let Some(mut dialog) = self.alert_dialog.take() {
@@ -108,6 +180,12 @@ impl NativeModal {
         }
         self.reset();
         ctx.emit(NativeModalEvent::Close);
+    }
+}
+
+impl Drop for NativeModal {
+    fn drop(&mut self) {
+        self.reset();
     }
 }
 
@@ -144,11 +222,14 @@ impl View for NativeModal {
             .on_click(|ctx, _, _| ctx.dispatch_typed_action(NativeModalAction::ToggleDontShowAgain))
             .finish();
 
-        let mut dialog_column_contents = vec![
-            Container::new(dont_show_again_checkbox)
-                .with_padding_bottom(20.)
-                .finish(),
-        ];
+        let mut dialog_column_contents = Vec::new();
+        if self.close_confirmation.is_none() {
+            dialog_column_contents.push(
+                Container::new(dont_show_again_checkbox)
+                    .with_padding_bottom(20.)
+                    .finish(),
+            );
+        }
 
         for (i, modal_button) in alert_dialog.button_data.iter().enumerate() {
             let button = Align::new(
@@ -216,8 +297,9 @@ impl TypedActionView for NativeModal {
                 ctx.notify();
             }
             NativeModalAction::Close => {
-                let last_button_idx = self.modal_button_mouse_states.len() - 1;
-                self.trigger_button_callback(last_button_idx, ctx);
+                if let Some(last_button_idx) = self.modal_button_mouse_states.len().checked_sub(1) {
+                    self.trigger_button_callback(last_button_idx, ctx);
+                }
             }
             NativeModalAction::Confirm => {
                 self.trigger_button_callback(0, ctx);

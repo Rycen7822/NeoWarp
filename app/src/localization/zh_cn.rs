@@ -2,6 +2,13 @@
 
 pub(super) fn lookup(english: &str) -> Option<&'static str> {
     Some(match english {
+        "Confirm before closing" => "关闭前确认",
+        "Confirmation timeout (seconds)" => "确认超时（秒）",
+        "Close this window?" => "关闭此窗口？",
+        "Close completely" => "完全关闭",
+        "This window stays open if you do not confirm within {seconds} seconds." => {
+            "若未在 {seconds} 秒内确认，此窗口将保持打开。"
+        }
         "Refresh changes" => "刷新更改",
         "Enable word wrap" => "开启自动换行",
         "Disable word wrap" => "关闭自动换行",

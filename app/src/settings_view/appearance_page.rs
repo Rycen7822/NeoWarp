@@ -434,6 +434,7 @@ pub enum AppearancePageAction {
     ToggleCursorBlink,
     ToggleRespectSystemTheme,
     ToggleOpenWindowsAtCustomSize,
+    ToggleConfirmBeforeClosing,
     ToggleDimInactivePanes,
     ToggleAllAvailableFonts,
     ToggleTabIndicators,
@@ -470,6 +471,7 @@ pub struct AppearanceSettingsPageView {
     new_window_columns_editor: ViewHandle<EditorView>,
     valid_new_window_columns: bool,
     new_window_rows_editor: ViewHandle<EditorView>,
+    close_confirmation_timeout_editor: ViewHandle<EditorView>,
     valid_new_window_rows: bool,
     opacity_state: SliderStateHandle,
     blur_state: SliderStateHandle,
@@ -554,6 +556,11 @@ impl TypedActionView for AppearanceSettingsPageView {
             ToggleCompactMode => self.toggle_compact_mode(ctx),
             ToggleCursorBlink => self.toggle_cursor_blink(ctx),
             ToggleOpenWindowsAtCustomSize => self.toggle_open_windows_at_custom_size(ctx),
+            ToggleConfirmBeforeClosing => {
+                WindowSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.confirm_before_closing.toggle_and_save_value(ctx));
+                });
+            }
             ToggleRespectSystemTheme => self.toggle_respect_system_theme(ctx),
             ToggleAllAvailableFonts => self.toggle_all_available_fonts(ctx),
             ToggleDimInactivePanes => self.toggle_dim_inactive_panes(ctx),
@@ -808,6 +815,13 @@ impl AppearanceSettingsPageView {
         ctx.subscribe_to_model(&BlockListSettings::handle(ctx), |_, _, _, ctx| ctx.notify());
         ctx.subscribe_to_model(&WindowSettings::handle(ctx), |me, _, evt, ctx| {
             match evt {
+                WindowSettingsChangedEvent::CloseConfirmationTimeout { .. } => {
+                    let seconds = *WindowSettings::as_ref(ctx).close_confirmation_timeout;
+                    me.close_confirmation_timeout_editor
+                        .update(ctx, |editor, ctx| {
+                            editor.set_buffer_text(&seconds.to_string(), ctx);
+                        });
+                }
                 WindowSettingsChangedEvent::NewWindowsNumColumns { .. } => {
                     // Update the value of the columns input to match the new setting
                     me.new_window_columns_editor.update(ctx, |editor, ctx| {
@@ -887,6 +901,16 @@ impl AppearanceSettingsPageView {
             ctx,
         );
 
+        let seconds = *WindowSettings::as_ref(ctx).close_confirmation_timeout;
+        let close_confirmation_timeout_editor = Self::editor(
+            |me, event, ctx| {
+                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                    me.set_close_confirmation_timeout(ctx);
+                }
+            },
+            &seconds.to_string(),
+            ctx,
+        );
         let window_settings = WindowSettings::as_ref(ctx);
         let (num_columns, num_rows) = (
             *window_settings.new_windows_num_columns.value(),
@@ -1197,6 +1221,7 @@ impl AppearanceSettingsPageView {
             new_window_columns_editor,
             valid_new_window_columns: true,
             new_window_rows_editor,
+            close_confirmation_timeout_editor,
             valid_new_window_rows: true,
             opacity_state: Default::default(),
             blur_state: Default::default(),
@@ -1249,6 +1274,12 @@ impl AppearanceSettingsPageView {
 
         let window_settings = WindowSettings::as_ref(ctx);
         let mut window_settings_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![];
+        if window_settings
+            .confirm_before_closing
+            .is_supported_on_current_platform()
+        {
+            window_settings_widgets.push(Box::new(CloseConfirmationWidget::default()));
+        }
         if window_settings
             .open_windows_at_custom_size
             .is_supported_on_current_platform()
@@ -1681,6 +1712,23 @@ impl AppearanceSettingsPageView {
         user_input.parse::<u16>().ok().filter(|parsed| {
             (MIN_NEW_WINDOW_ROWS_OR_COLS..=MAX_NEW_WINDOW_ROWS_OR_COLS).contains(parsed)
         })
+    }
+
+    fn set_close_confirmation_timeout(&mut self, ctx: &mut ViewContext<Self>) {
+        let input = self
+            .close_confirmation_timeout_editor
+            .as_ref(ctx)
+            .buffer_text(ctx);
+        if let Ok(seconds) = input.trim().parse::<u16>() {
+            WindowSettings::handle(ctx).update(ctx, |settings, ctx| {
+                report_if_error!(settings.close_confirmation_timeout.set_value(seconds, ctx));
+            });
+        }
+        let seconds = *WindowSettings::as_ref(ctx).close_confirmation_timeout;
+        self.close_confirmation_timeout_editor
+            .update(ctx, |editor, ctx| {
+                editor.set_buffer_text(&seconds.to_string(), ctx);
+            });
     }
 
     fn set_font_size(&mut self, ctx: &mut ViewContext<Self>) {
@@ -2724,6 +2772,63 @@ impl SettingsWidget for CustomAppIconWidget {
         } else {
             column
         };
+        column.finish()
+    }
+}
+
+#[derive(Default)]
+struct CloseConfirmationWidget {
+    switch_state: SwitchStateHandle,
+}
+
+impl SettingsWidget for CloseConfirmationWidget {
+    type View = AppearanceSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "confirm close window timeout seconds 关闭 确认 防误关 超时 秒"
+    }
+
+    fn render(
+        &self,
+        view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let enabled = *WindowSettings::as_ref(app).confirm_before_closing;
+        let mut column = Flex::column().with_child(render_body_item::<AppearancePageAction>(
+            "Confirm before closing".into(),
+            None,
+            ToggleState::Enabled,
+            appearance,
+            appearance
+                .ui_builder()
+                .switch(self.switch_state.clone())
+                .check(enabled)
+                .build()
+                .on_click(|ctx, _, _| {
+                    ctx.dispatch_typed_action(AppearancePageAction::ToggleConfirmBeforeClosing);
+                })
+                .finish(),
+            None,
+        ));
+        if enabled {
+            column.add_child(render_body_item::<AppearancePageAction>(
+                "Confirmation timeout (seconds)".into(),
+                None,
+                ToggleState::Enabled,
+                appearance,
+                appearance
+                    .ui_builder()
+                    .text_input(view.close_confirmation_timeout_editor.clone())
+                    .with_style(UiComponentStyles {
+                        width: Some(80.),
+                        ..Default::default()
+                    })
+                    .build()
+                    .finish(),
+                None,
+            ));
+        }
         column.finish()
     }
 }

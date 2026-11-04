@@ -5,6 +5,22 @@ use warpui::platform::WindowBackdrop;
 use warpui::{AppContext, SingletonEntity, WindowId};
 
 define_settings_group!(WindowSettings, settings: [
+    confirm_before_closing: ConfirmBeforeClosing {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        private: false,
+        toml_path: "appearance.window.confirm_before_closing",
+        description: "Require confirmation before closing a window.",
+    },
+    close_confirmation_timeout: CloseConfirmationTimeout {
+        type: u16,
+        default: 15,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        private: false,
+        toml_path: "appearance.window.close_confirmation_timeout",
+        description: "Seconds before an unanswered close confirmation is cancelled (minimum 2).",
+    },
     background_blur_radius: BackgroundBlurRadius {
         type: u8,
         default: 1,
@@ -73,6 +89,14 @@ define_settings_group!(WindowSettings, settings: [
         description: "The zoom level for the window, as a percentage.",
     },
 ]);
+
+impl CloseConfirmationTimeout {
+    pub const MIN: u16 = 2;
+
+    fn validate(&self, new_value: u16) -> u16 {
+        new_value.max(Self::MIN)
+    }
+}
 
 pub(crate) fn stage_legacy_background_backdrop(ctx: &mut AppContext) {
     WindowSettings::handle(ctx).update(ctx, |settings, ctx| {

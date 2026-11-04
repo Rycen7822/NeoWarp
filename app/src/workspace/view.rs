@@ -8065,6 +8065,18 @@ impl Workspace {
             })
     }
 
+    pub(crate) fn confirm_window_close(&mut self, ctx: &mut ViewContext<Self>) -> bool {
+        let approved = self
+            .native_modal
+            .update(ctx, |modal, ctx| modal.confirm_window_close(ctx));
+        if !approved {
+            self.current_workspace_state.is_native_quit_modal_open = true;
+            ctx.focus(&self.native_modal);
+            ctx.notify();
+        }
+        approved
+    }
+
     pub fn show_native_modal(
         &mut self,
         dialog: AlertDialogWithCallbacks<AppModalCallback>,
@@ -8081,8 +8093,11 @@ impl Workspace {
 
     fn handle_native_modal_event(&mut self, event: &NativeModalEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            NativeModalEvent::Close => {
+            NativeModalEvent::Close | NativeModalEvent::CloseConfirmation => {
                 self.current_workspace_state.is_native_quit_modal_open = false;
+                if matches!(event, NativeModalEvent::CloseConfirmation) {
+                    ctx.focus_self();
+                }
                 ctx.notify();
             }
         }
