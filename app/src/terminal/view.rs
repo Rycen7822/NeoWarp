@@ -12275,7 +12275,8 @@ impl TypedActionView for TerminalView {
             #[cfg(feature = "local_fs")]
             EditCliToolbelt => {
                 self.close_context_menu(ctx, false);
-                ctx.dispatch_typed_action(&WorkspaceAction::OpenCliToolbeltEditor);
+                // Opening the modal closes overlays on this terminal after its update finishes.
+                ctx.dispatch_typed_action_deferred(WorkspaceAction::OpenCliToolbeltEditor);
             }
             #[cfg(feature = "local_fs")]
             CliToolbeltItem(item) => self.handle_cli_toolbelt_item(item, ctx),
