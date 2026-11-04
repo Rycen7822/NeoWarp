@@ -20,6 +20,7 @@ pub(crate) struct Query {
     pub(crate) provider: Provider,
     pub(crate) environment: BTreeMap<String, String>,
     pub(crate) started_at: i64,
+    pub(crate) resuming: bool,
 }
 
 impl Query {
@@ -201,7 +202,7 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
         .native_path(&root)
         .context("CLI data directory is not an absolute path")?;
     let scopes: Vec<PathBuf> = match query.provider {
-        Provider::Codex => {
+        Provider::Codex if !query.resuming => {
             let date = Utc::now().date_naive();
             [
                 date.pred_opt(),
@@ -223,7 +224,7 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
                 .collect();
             vec![native_root.join(encoded)]
         }
-        Provider::Pi | Provider::Hermes => vec![native_root.clone()],
+        Provider::Codex | Provider::Pi | Provider::Hermes => vec![native_root.clone()],
         Provider::Custom => return Ok(Vec::new()),
     };
     let mut result = Vec::new();
@@ -232,7 +233,11 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
         if !scope.exists() {
             continue;
         }
-        let depth = if query.provider == Provider::Pi { 2 } else { 1 };
+        let depth = match query.provider {
+            Provider::Codex if query.resuming => 4,
+            Provider::Pi => 2,
+            _ => 1,
+        };
         for entry in walkdir::WalkDir::new(scope)
             .max_depth(depth)
             .follow_links(false)
@@ -261,7 +266,11 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
                 continue;
             };
             let created = DateTime::parse_from_rfc3339(&timestamp)?.timestamp_millis();
-            if created < query.started_at - 2000 || !query.host.same_path(&cwd, &query.directory) {
+            // Resume appends to an old session: recent writes, not its original creation time,
+            // identify candidates. New launches still require a freshly created session.
+            if (!query.resuming && created < query.started_at - 2000)
+                || !query.host.same_path(&cwd, &query.directory)
+            {
                 continue;
             }
             let transcript = if query.provider == Provider::Pi {

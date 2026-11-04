@@ -435,6 +435,8 @@ impl ProjectSessions {
                 provider: session.provider,
                 environment: observation.environment,
                 started_at: observation.started_at,
+                resuming: command::parse(&session.command, session.shell.kind)
+                    .is_some_and(|parsed| parsed.resuming),
             };
             self.register_running(id, observation.terminal, observation.block, query, ctx);
             return;
@@ -484,6 +486,7 @@ impl ProjectSessions {
             provider: parsed.provider,
             environment: environment.clone(),
             started_at,
+            resuming: parsed.resuming,
         };
         let activation = Activation::from_environment(&environment);
         environment.retain(|key, _| {
@@ -724,14 +727,48 @@ impl ProjectSessions {
         provider: config::Provider,
         ctx: &mut ModelContext<Self>,
     ) {
-        let Some(session) = self
+        let Some(project) = self
             .catalog
-            .session_mut(id)
-            .filter(|session| session.identity.is_none() && session.provider == provider)
+            .projects
+            .iter_mut()
+            .find(|project| project.sessions.iter().any(|session| session.id == id))
         else {
             return;
         };
-        session.identity = Some(identity);
+        let Some(index) = project.sessions.iter().position(|session| {
+            session.id == id && session.identity.is_none() && session.provider == provider
+        }) else {
+            return;
+        };
+        let existing_id = project
+            .sessions
+            .iter()
+            .find(|session| {
+                session.id != id
+                    && session.provider == provider
+                    && session
+                        .identity
+                        .as_ref()
+                        .is_some_and(|saved| saved.same_session(&identity, provider, &project.host))
+            })
+            .map(|session| session.id);
+        project.sessions[index].identity = Some(identity);
+        if let Some(existing_id) = existing_id {
+            let mut session = project.sessions.remove(index);
+            let previous = project
+                .sessions
+                .iter_mut()
+                .find(|session| session.id == existing_id)
+                .expect("existing session was found before removing the new entry");
+            session.id = previous.id;
+            session.title = previous.title.clone();
+            session.pinned = previous.pinned;
+            session.resume_command = previous.resume_command.take();
+            *previous = session;
+            for live in self.live.values_mut().filter(|live| live.session_id == id) {
+                live.session_id = existing_id;
+            }
+        }
         self.save(ctx);
     }
 
@@ -755,6 +792,7 @@ impl ProjectSessions {
                 !project.sessions.iter().any(|session| {
                     session.id != id
                         && session.provider == current.provider
+                        && self.live.values().any(|live| live.session_id == session.id)
                         && session.identity.as_ref().is_some_and(|known| {
                             known.same_session(candidate, current.provider, &project.host)
                         })

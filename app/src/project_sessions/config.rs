@@ -165,11 +165,4 @@ impl Catalog {
             .flat_map(|project| &project.sessions)
             .find(|session| session.id == id)
     }
-
-    pub(crate) fn session_mut(&mut self, id: Uuid) -> Option<&mut Session> {
-        self.projects
-            .iter_mut()
-            .flat_map(|project| &mut project.sessions)
-            .find(|session| session.id == id)
-    }
 }

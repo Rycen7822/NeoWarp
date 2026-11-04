@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
-use warp_terminal::shell::{ShellType, shell_quote_arg};
+use warp_terminal::shell::{ShellLaunchData, ShellType, shell_quote_arg};
 use warpui::{AppContext, SingletonEntity};
 
 use super::command;
@@ -54,7 +54,9 @@ pub(crate) fn resolve_shell(
             .filter(|shell| !shell.is_wsl())
             .or_else(|| AvailableShell::try_from(saved.program.as_str()).ok()),
         Host::Wsl(distro) => AvailableShells::as_ref(app)
-            .find_by_command_name(distro)
+            .get_from_shell_launch_data(&ShellLaunchData::WSL {
+                distro: distro.clone(),
+            })
             .and_then(|shell| shell.with_wsl_shell(saved.program.clone(), saved.kind)),
     }
     .context("The saved shell is unavailable; modify the session shell")?;
@@ -228,8 +230,19 @@ fn resume_command(session: &Session) -> Result<String> {
             skip_resume_id = false;
             continue;
         }
-        if matches!(arg.as_str(), "--resume" | "--session") {
-            args.next().context("Missing original session selector")?;
+        if (session.provider == Provider::Pi && matches!(arg.as_str(), "-r" | "--resume" | "-c"))
+            || (session.provider == Provider::Claude && arg == "-c")
+        {
+            continue;
+        }
+        if matches!(arg.as_str(), "--resume" | "--session")
+            || (session.provider == Provider::Claude && arg == "-r")
+        {
+            if args.peek().is_some_and(|value| !value.starts_with('-')) {
+                args.next();
+            } else {
+                ensure!(arg != "--session", "Missing original session selector");
+            }
             continue;
         }
         if arg.starts_with("--resume=")

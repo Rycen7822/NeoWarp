@@ -10,6 +10,7 @@ pub(crate) struct ParsedCommand {
     pub(crate) provider: Provider,
     pub(crate) environment: BTreeMap<String, String>,
     pub(crate) identity: Option<Identity>,
+    pub(crate) resuming: bool,
 }
 
 pub(crate) fn variable_name(name: &str) -> bool {
@@ -31,10 +32,19 @@ pub(crate) fn parse(command: &str, shell: ShellType) -> Option<ParsedCommand> {
         return None;
     }
     let identity = explicit_identity(provider, &argv[index..]);
+    let resuming = match provider {
+        Provider::Codex => argv.get(index + 1).is_some_and(|arg| arg == "resume"),
+        _ => argv[index + 1..].iter().any(|arg| {
+            matches!(arg.as_str(), "--resume" | "--continue" | "--session")
+                || (matches!(provider, Provider::Pi | Provider::Claude)
+                    && matches!(arg.as_str(), "-r" | "-c"))
+        }),
+    };
     Some(ParsedCommand {
         provider,
         environment,
         identity,
+        resuming,
     })
 }
 
@@ -152,7 +162,8 @@ fn explicit_identity(provider: Provider, argv: &[String]) -> Option<Identity> {
             .windows(2)
             .find(|pair| pair[0] == "resume")
             .map(|pair| pair[1].as_str()),
-        Provider::Claude | Provider::Hermes => option(argv, "--resume"),
+        Provider::Claude => option(argv, "--resume").or_else(|| option(argv, "-r")),
+        Provider::Hermes => option(argv, "--resume"),
         Provider::Pi => option(argv, "--session"),
         Provider::Custom => None,
     }?;
