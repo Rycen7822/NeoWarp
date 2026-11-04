@@ -1957,6 +1957,47 @@ fn test_new_session_menu_is_capped_to_window_height() {
     });
 }
 
+#[cfg(feature = "local_fs")]
+#[test]
+fn test_tab_config_repo_picker_result_after_window_close_is_ignored() {
+    let delegate = warpui_core::platform::test::AppDelegate::new().unwrap();
+    let picker_callbacks = delegate.file_picker_callbacks();
+
+    App::test_with_delegate((), Box::new(delegate), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_path_buf();
+        let picker_result = || Ok(vec![path.to_string_lossy().into_owned()]);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.open_repo_picker_for_tab_config_modal(0, ctx);
+        });
+        let callback = picker_callbacks
+            .lock()
+            .pop()
+            .expect("picker callback should be captured");
+        app.update(|ctx| callback(picker_result(), ctx));
+
+        app.read(|ctx| {
+            PersistedWorkspace::handle(ctx).read(ctx, |persisted, _| {
+                assert!(persisted.workspace_for_path(&path).is_some());
+            });
+        });
+
+        let window_id = app.read(|ctx| workspace.window_id(ctx));
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.open_repo_picker_for_tab_config_modal(0, ctx);
+        });
+        let callback = picker_callbacks
+            .lock()
+            .pop()
+            .expect("second picker callback should be captured");
+        app.update(|ctx| ctx.simulate_window_closed(window_id));
+        app.update(|ctx| callback(picker_result(), ctx));
+    });
+}
+
 #[test]
 fn test_open_tab_config_with_params_does_not_use_worktree_branch_as_implicit_title() {
     App::test((), |mut app| async move {

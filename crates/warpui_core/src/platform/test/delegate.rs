@@ -30,6 +30,7 @@ use crate::{
 pub struct AppDelegate {
     clipboard: InMemoryClipboard,
     cursor_shape: Mutex<Cursor>,
+    file_picker_callbacks: Arc<Mutex<Vec<FilePickerCallback>>>,
 }
 
 // Dummy IntegrationTestDelegate implementation so the integration test code
@@ -49,7 +50,12 @@ impl AppDelegate {
         Ok(Self {
             clipboard: InMemoryClipboard::default(),
             cursor_shape: Mutex::new(Cursor::Arrow),
+            file_picker_callbacks: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    pub fn file_picker_callbacks(&self) -> Arc<Mutex<Vec<FilePickerCallback>>> {
+        self.file_picker_callbacks.clone()
     }
 }
 
@@ -211,10 +217,10 @@ impl platform::Delegate for AppDelegate {
 
     fn open_file_picker(
         &self,
-        _callback: FilePickerCallback,
+        callback: FilePickerCallback,
         _file_picker_config: FilePickerConfiguration,
     ) {
-        // no-op for tests
+        self.file_picker_callbacks.lock().push(callback);
     }
 
     fn open_save_file_picker(

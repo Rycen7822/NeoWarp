@@ -81,8 +81,20 @@ impl App {
         asset_provider: A,
         f: impl FnOnce(App) -> F,
     ) -> T {
-        log::info!("Starting test app...");
         let platform = Box::new(platform::test::AppDelegate::new().unwrap());
+        Self::test_with_delegate(asset_provider, platform, f)
+    }
+
+    pub fn test_with_delegate<
+        A: assets::AssetProvider,
+        T: 'static,
+        F: Future<Output = T> + 'static,
+    >(
+        asset_provider: A,
+        platform: Box<dyn platform::Delegate>,
+        f: impl FnOnce(App) -> F,
+    ) -> T {
+        log::info!("Starting test app...");
         let window_manager = Box::new(platform::test::WindowManager::new());
         let font_cache = Box::new(platform::test::FontDB);
         let executor = Rc::new(executor::Foreground::test());

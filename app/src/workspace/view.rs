@@ -5370,7 +5370,7 @@ impl Workspace {
         param_index: usize,
         ctx: &mut ViewContext<Self>,
     ) {
-        let modal_view = self.tab_config_params_modal.view.clone();
+        let modal_view = self.tab_config_params_modal.view.downgrade();
         ctx.open_file_picker(
             move |result, ctx| {
                 let Ok(paths) = result else { return };
@@ -5385,6 +5385,9 @@ impl Workspace {
                     persisted.user_added_workspace(path_buf.clone(), ctx);
                 });
                 // Refresh the repo picker and pre-select the new path.
+                let Some(modal_view) = modal_view.upgrade(ctx) else {
+                    return;
+                };
                 modal_view.update(ctx, |modal, ctx| {
                     modal.body().update(ctx, |body, ctx| {
                         body.on_new_repo_selected(path_buf, param_index, ctx);
