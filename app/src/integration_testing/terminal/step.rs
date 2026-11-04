@@ -348,22 +348,6 @@ pub fn execute_echo_str(tab_idx: usize, str: &str) -> TestStep {
     )
 }
 
-/// Runs a performance test on a given tab idx.
-/// # Arguments
-/// * `tab_idx` - id number of the tab the step should be executed on;
-/// * `test_file` is a path to the bash file that will execute the test, and needs to be available
-/// for the test itself (use MockUserData structure to ensure it);
-/// * `repetitions` denotes how many times a test should be repeated;
-/// #Panics if the execution failed for some reason.
-pub fn performance_test(tab_idx: usize, test_file: &str, repetitions: usize) -> TestStep {
-    execute_command_for_single_terminal_in_tab(
-        tab_idx,
-        format!("multitime -n {repetitions} bash {test_file}"),
-        ExpectedExitStatus::Success,
-        (),
-    )
-}
-
 /// Clears the blocklist so that when we create a new block, its block index is 0.
 /// Otherwise, its index within the blocklist will be dependent on the shell bootstrapped.
 ///

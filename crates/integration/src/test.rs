@@ -118,8 +118,8 @@ use warp::integration_testing::terminal::{
     assert_waterfall_gap_empty_background_rendered, clear_blocklist_to_remove_bootstrapped_blocks,
     execute_command_for_single_terminal_in_tab, execute_echo, execute_long_running_command,
     execute_long_running_command_for_pane, execute_python_interpreter_in_tab,
-    open_context_menu_for_selected_block, performance_test, run_alt_grid_program, run_completer,
-    validate_git_branch, wait_until_bootstrapped_pane, wait_until_bootstrapped_single_pane_for_tab,
+    open_context_menu_for_selected_block, run_alt_grid_program, run_completer, validate_git_branch,
+    wait_until_bootstrapped_pane, wait_until_bootstrapped_single_pane_for_tab,
 };
 use warp::integration_testing::view_getters::{
     single_input_suggestions_view_for_tab, single_input_view_for_tab,
@@ -270,54 +270,6 @@ pub fn test_palette_opens_when_theme_chooser_is_open() -> Builder {
             ),
         )
         .with_step(open_command_palette())
-}
-
-/// Manually executed test that runs a long-line.sh script. Useful for debugging the performance
-/// of long output commands. Worth combining with cargo-flamegraph when running.
-pub fn test_with_long_line() -> Builder {
-    let test_name = "long-line.sh";
-    new_builder()
-        .with_setup(move |utils| {
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                test_name,
-                &utils.test_dir().join(test_name),
-            )
-        })
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        .with_step(performance_test(0, test_name, 3))
-}
-
-/// Manually executed test that runs a 24-bit-color.sh script. Useful for debugging the performance
-/// of background in the grid. Worth combining with cargo-flamegraph when running.
-pub fn test_with_24_bit_color() -> Builder {
-    let test_name = "24-bit-color.sh";
-    new_builder()
-        .with_setup(move |utils| {
-            integration_testing::create_file_from_assets(
-                TEST_ONLY_ASSETS,
-                test_name,
-                &utils.test_dir().join(test_name),
-            );
-        })
-        .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
-        .with_step(performance_test(0, test_name, 1))
-}
-
-/// Manually executed benchmark to see the memory usage of the block list.
-/// This workload executes `cd` and `ls` over and over again. It ends with a
-/// test step that pauses for five minutes, so you have time to check the
-/// memory usage. It does this by continually failing a test step.
-pub fn make_1000_blocks_memory_benchmark() -> Builder {
-    let mut builder = new_builder().with_step(wait_until_bootstrapped_single_pane_for_tab(0));
-    for _ in 0..1000 {
-        builder = builder.with_step(execute_echo(0));
-    }
-    builder.with_step(
-        TestStep::new("always fail")
-            .add_assertion(|_, _| AssertionOutcome::failure("always fail".to_string()))
-            .set_timeout(Duration::from_secs(300)),
-    )
 }
 
 pub fn test_completions_with_autocd() -> Builder {
