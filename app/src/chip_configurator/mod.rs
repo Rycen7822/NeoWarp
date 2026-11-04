@@ -287,6 +287,8 @@ pub enum ChipConfiguratorLayout {
 
 pub struct ChipConfigurator {
     layout: ChipConfiguratorLayout,
+    // The position cache is window-wide; several editors can be visible together.
+    position_namespace: warpui::EntityId,
 
     pub used_chips: Vec<ConfigurableItem>,
     pub left_chips: Vec<ConfigurableItem>,
@@ -299,6 +301,7 @@ impl ChipConfigurator {
     pub fn new(layout: ChipConfiguratorLayout) -> Self {
         Self {
             layout,
+            position_namespace: warpui::EntityId::new(),
             used_chips: vec![],
             left_chips: vec![],
             right_chips: vec![],
@@ -424,23 +427,28 @@ impl ChipConfigurator {
         }
     }
 
-    fn chip_save_position_id(location: ChipLocation) -> String {
+    fn chip_save_position_id(&self, location: ChipLocation) -> String {
         let area = match location {
             ChipLocation::Used { .. } => "u",
             ChipLocation::Left { .. } => "l",
             ChipLocation::Right { .. } => "r",
             ChipLocation::Unused { .. } => "n",
         };
-        format!("chip_cfg_{area}_{}", location.index())
+        format!(
+            "chip_cfg_{}_{area}_{}",
+            self.position_namespace,
+            location.index()
+        )
     }
 
-    fn drop_target_position_id(location: ChipLocation) -> &'static str {
-        match location {
+    fn drop_target_position_id(&self, location: ChipLocation) -> String {
+        let area = match location {
             ChipLocation::Used { .. } => USED_CHIPS_POSITION_ID,
             ChipLocation::Left { .. } => LEFT_CHIPS_POSITION_ID,
             ChipLocation::Right { .. } => RIGHT_CHIPS_POSITION_ID,
             ChipLocation::Unused { .. } => UNUSED_CHIPS_POSITION_ID,
-        }
+        };
+        format!("{area}_{}", self.position_namespace)
     }
 
     fn find_new_location_for_index<V: View>(
@@ -453,7 +461,7 @@ impl ChipConfigurator {
         ctx: &mut ViewContext<V>,
     ) -> Option<ChipLocation> {
         let chip_location = chip_index_to_location(index);
-        let chip_position_id = Self::chip_save_position_id(chip_location);
+        let chip_position_id = self.chip_save_position_id(chip_location);
         let chip_position = ctx.element_position_by_id(chip_position_id)?;
 
         let dragged_at_adequate_height = chip_position.min_y() <= dragged_position.center().y()
@@ -494,7 +502,7 @@ impl ChipConfigurator {
         ctx: &mut ViewContext<V>,
     ) -> Option<ChipLocation> {
         if chips_count == 0 {
-            let target_id = Self::drop_target_position_id(chip_index_to_location(0));
+            let target_id = self.drop_target_position_id(chip_index_to_location(0));
             if let Some(target_pos) = ctx.element_position_by_id(target_id)
                 && target_pos.intersects(dragged_position)
             {
@@ -520,7 +528,7 @@ impl ChipConfigurator {
                 // Verify the dragged center is still within the zone's drop
                 // target before accepting an append match.
                 if new_location.index() >= chips_count {
-                    let target_id = Self::drop_target_position_id(new_location);
+                    let target_id = self.drop_target_position_id(new_location);
                     if let Some(target_pos) = ctx.element_position_by_id(target_id) {
                         let center_x = dragged_position.center().x();
                         if center_x < target_pos.min_x() || center_x > target_pos.max_x() {
@@ -652,7 +660,7 @@ impl ChipConfigurator {
             // user's drag center crosses the boundary, even though the chip rect
             // still partially overlaps the old zone.
             if !new_location.in_same_area_as(&location) {
-                let current_zone_id = Self::drop_target_position_id(location);
+                let current_zone_id = self.drop_target_position_id(location);
                 if let Some(target_pos) = ctx.element_position_by_id(current_zone_id) {
                     let center = dragged_position.center();
                     let center_in_zone = center.x() >= target_pos.min_x()
@@ -675,7 +683,7 @@ impl ChipConfigurator {
     fn handle_chip_dropped<V: View>(&mut self, drop_position: RectF, ctx: &mut ViewContext<V>) {
         if let Some(state) = &self.current_dragging_state {
             let expected = state.current_location;
-            let target_id = Self::drop_target_position_id(expected);
+            let target_id = self.drop_target_position_id(expected);
             if let Some(target_pos) = ctx.element_position_by_id(target_id)
                 && !target_pos.intersects(drop_position)
             {
@@ -725,8 +733,9 @@ impl ChipConfigurator {
                     }));
                 })
                 .finish(),
-            &Self::chip_save_position_id(location),
+            &self.chip_save_position_id(location),
         )
+        .for_single_frame()
         .finish()
     }
 
@@ -783,8 +792,9 @@ impl ChipConfigurator {
                 wrap_chip_action,
                 appearance,
             ),
-            UNUSED_CHIPS_POSITION_ID,
+            &self.drop_target_position_id(ChipLocation::Unused { index: 0 }),
         )
+        .for_single_frame()
         .finish()
     }
 
@@ -851,6 +861,7 @@ impl ChipConfigurator {
             .finish(),
             position_id,
         )
+        .for_single_frame()
         .finish()
     }
 
@@ -864,7 +875,7 @@ impl ChipConfigurator {
             &self.used_chips,
             |i| ChipLocation::Used { index: i },
             |i| ChipLocation::Used { index: i },
-            USED_CHIPS_POSITION_ID,
+            &self.drop_target_position_id(ChipLocation::Used { index: 0 }),
             on_click_action,
             wrap_chip_action,
             appearance,
@@ -881,7 +892,7 @@ impl ChipConfigurator {
             &self.left_chips,
             |i| ChipLocation::Left { index: i },
             |i| ChipLocation::Left { index: i },
-            LEFT_CHIPS_POSITION_ID,
+            &self.drop_target_position_id(ChipLocation::Left { index: 0 }),
             on_click_action,
             wrap_chip_action,
             appearance,
@@ -898,7 +909,7 @@ impl ChipConfigurator {
             &self.right_chips,
             |i| ChipLocation::Right { index: i },
             |i| ChipLocation::Right { index: i },
-            RIGHT_CHIPS_POSITION_ID,
+            &self.drop_target_position_id(ChipLocation::Right { index: 0 }),
             on_click_action,
             wrap_chip_action,
             appearance,
