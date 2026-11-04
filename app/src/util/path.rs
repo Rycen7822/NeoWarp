@@ -8,6 +8,14 @@ use crate::remote_server::manager::RemoteServerManager;
 /// Matches the fallback in `terminal::writeable_pty::remote_server_controller::connection_label_from_user_and_host`.
 const UNKNOWN_HOST_LABEL: &str = "Remote host";
 
+/// Formats a local I/O path without exposing the Windows WSL provider prefix.
+pub fn display_local_path(path: &std::path::Path) -> String {
+    match parse_wsl_unc_path(path) {
+        Some(wsl) => format!("{}:{}", wsl.distro, wsl.linux_path),
+        None => path.display().to_string(),
+    }
+}
+
 /// Returns the display name of a local or remote path, prefixed with the
 /// host label for remote paths.
 pub fn display_name_with_host(path: &LocalOrRemotePath, ctx: &AppContext) -> String {
@@ -40,9 +48,9 @@ pub fn display_path_with_host(
                 dirs::home_dir()
                     .and_then(|home| local_path.strip_prefix(&home).ok())
                     .map(|relative| format!("~/{}", relative.display()))
-                    .unwrap_or_else(|| local_path.display().to_string())
+                    .unwrap_or_else(|| display_local_path(local_path))
             } else {
-                path.display_path()
+                display_local_path(local_path)
             }
         }
         LocalOrRemotePath::Remote(remote) => {

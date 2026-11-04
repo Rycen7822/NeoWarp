@@ -91,7 +91,7 @@ use crate::editor::{
     AutosuggestionLocation, AutosuggestionType, BaselinePositionComputationMethod,
     CommandXRayAnchor, DisplayPoint, EditOrigin, EditorAction, EditorDecoratorElements,
     EditorOptions, EditorSnapshot, EditorView, Event as EditorEvent, InteractionState,
-    PathTransformerFn, PlainTextEditorViewAction, Point as BufferPoint, PropagateAndNoOpEscapeKey,
+    PlainTextEditorViewAction, Point as BufferPoint, PropagateAndNoOpEscapeKey,
     PropagateAndNoOpNavigationKeys, PropagateHorizontalNavigationKeys, default_cursor_colors,
     position_id_for_cached_point, position_id_for_cursor, position_id_for_first_cursor,
 };
@@ -4488,9 +4488,9 @@ impl Input {
             .session_id()
             .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id));
         if let Some(session) = active_session {
-            let transformer: Option<PathTransformerFn> = session
+            let transformer = session
                 .windows_path_converter()
-                .map(|convert| Box::new(convert) as PathTransformerFn);
+                .map(|convert| Box::new(convert) as crate::editor::PathTransformerFn);
             self.editor.update(ctx, |editor, _| {
                 editor.set_shell_family(session.shell().shell_type().into());
                 editor.set_drag_drop_path_transformer(transformer);

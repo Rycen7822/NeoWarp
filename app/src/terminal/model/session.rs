@@ -1037,14 +1037,20 @@ impl Session {
 
     /// Returns the function that converts a Windows-native path into this session's native
     /// representation, or `None` when no conversion is appropriate.
-    pub fn windows_path_converter(&self) -> Option<fn(&str) -> String> {
-        if self.is_wsl() {
-            Some(warp_util::path::convert_windows_path_to_wsl)
-        } else if self.is_msys2() {
-            Some(warp_util::path::convert_windows_path_to_msys2)
-        } else {
-            None
+    pub fn windows_path_converter(&self) -> Option<impl Fn(&str) -> String + use<>> {
+        let distro = self.wsl_distro_name().map(str::to_owned);
+        if distro.is_none() && !self.is_msys2() {
+            return None;
         }
+        Some(move |path: &str| match &distro {
+            Some(distro) => match warp_util::path::parse_wsl_unc_path(Path::new(path)) {
+                Some(unc) if unc.distro.eq_ignore_ascii_case(distro) => unc.linux_path,
+                // Never reinterpret another distribution's path inside this one.
+                Some(_) => path.to_owned(),
+                None => warp_util::path::convert_windows_path_to_wsl(path),
+            },
+            None => warp_util::path::convert_windows_path_to_msys2(path),
+        })
     }
 
     pub fn alias_names(&self) -> impl Iterator<Item = &str> {

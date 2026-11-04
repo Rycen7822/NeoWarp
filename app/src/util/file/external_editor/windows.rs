@@ -174,31 +174,31 @@ impl Editor {
         full_path: &Path,
     ) -> Option<Command> {
         let command = match self {
-            Editor::VSCode => {
+            Editor::VSCode | Editor::Cursor | Editor::Windsurf => {
+                let scheme = match self {
+                    Editor::VSCode => "vscode",
+                    Editor::Cursor => "cursor",
+                    _ => "windsurf",
+                };
                 let mut command = Command::new("explorer.exe");
                 let suffix = line_column_number
                     .as_ref()
                     .map(LineAndColumnArg::to_string_suffix)
                     .unwrap_or_default();
-                command.arg(format!("vscode://file/{}{suffix}", full_path.display()));
-                command
-            }
-            Editor::Cursor => {
-                let mut command = Command::new("explorer.exe");
-                let suffix = line_column_number
-                    .as_ref()
-                    .map(LineAndColumnArg::to_string_suffix)
-                    .unwrap_or_default();
-                command.arg(format!("cursor://file/{}{suffix}", full_path.display()));
-                command
-            }
-            Editor::Windsurf => {
-                let mut command = Command::new("explorer.exe");
-                let suffix = line_column_number
-                    .as_ref()
-                    .map(LineAndColumnArg::to_string_suffix)
-                    .unwrap_or_default();
-                command.arg(format!("windsurf://file/{}{suffix}", full_path.display()));
+                let path = full_path.to_str()?.replace('\\', "/");
+                let path = if let Some(unc) = path.strip_prefix("//?/UNC/") {
+                    format!("//{unc}")
+                } else {
+                    path.strip_prefix("//?/").unwrap_or(&path).to_owned()
+                };
+                let path = if path.starts_with('/') {
+                    path
+                } else {
+                    format!("/{path}")
+                };
+                let mut uri = url::Url::parse(&format!("{scheme}://file/")).ok()?;
+                uri.set_path(&format!("{}{suffix}", path.replace('%', "%25")));
+                command.arg(uri.as_str());
                 command
             }
             Editor::Zed | Editor::Typora => {

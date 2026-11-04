@@ -11691,14 +11691,10 @@ impl TerminalView {
                 return;
             }
 
-            // For WSL sessions on Windows, convert paths to /mnt/<drive>/... format
-            // so the WSL session can read the file at the correct path.
+            // Use the same distribution-aware conversion as the regular input.
             let paths_converted;
-            let paths = if session.is_wsl() {
-                paths_converted = paths
-                    .iter()
-                    .map(|p| warp_util::path::convert_windows_path_to_wsl(p))
-                    .collect::<Vec<_>>();
+            let paths = if let Some(convert) = session.windows_path_converter() {
+                paths_converted = paths.iter().map(|path| convert(path)).collect::<Vec<_>>();
                 paths_converted.as_slice()
             } else {
                 paths

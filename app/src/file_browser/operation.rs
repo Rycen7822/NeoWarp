@@ -213,7 +213,7 @@ impl View for FileOperationView {
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(12.);
-        column.add_child(text(self.path.to_string_lossy().into_owned()));
+        column.add_child(text(crate::util::path::display_local_path(&self.path)));
         if self.operation == Operation::Delete {
             column.add_child(text(
                 tr("Permanently delete this item and its contents? This cannot be undone.").into(),

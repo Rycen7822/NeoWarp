@@ -719,7 +719,7 @@ impl View for GitReviewView {
         header.add_child(
             Expanded::new(
                 1.,
-                Text::new_inline(self.root.display().to_string(), font, 12.)
+                Text::new_inline(crate::util::path::display_local_path(&self.root), font, 12.)
                     .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
             )

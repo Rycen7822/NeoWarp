@@ -111,12 +111,21 @@ pub(crate) fn draft(
     let path = active
         .path_if_local(window)
         .context("Select a local or WSL terminal folder first")?;
-    let wsl = warp_util::path::parse_wsl_unc_path(path);
-    let (host, mut directory) = match wsl {
-        Some(path) if session.wsl_distro_name().is_some() => {
-            (Host::Wsl(path.distro), path.linux_path)
+    let (host, mut directory) = match session.wsl_distro_name() {
+        Some(distro) => {
+            let directory = match warp_util::path::parse_wsl_unc_path(path) {
+                Some(path) => {
+                    anyhow::ensure!(
+                        path.distro.eq_ignore_ascii_case(distro),
+                        "Folder belongs to another WSL distribution"
+                    );
+                    path.linux_path
+                }
+                None => warp_util::path::convert_windows_path_to_wsl(&path.to_string_lossy()),
+            };
+            (Host::Wsl(distro.into()), directory)
         }
-        _ => (Host::Local, path.to_string_lossy().into_owned()),
+        None => (Host::Local, path.to_string_lossy().into_owned()),
     };
     if let Some(project) = project {
         anyhow::ensure!(
