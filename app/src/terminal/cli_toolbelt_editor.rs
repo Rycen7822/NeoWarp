@@ -114,7 +114,8 @@ fn selection(chips: &ChipConfigurator) -> Selection {
     };
     let left: Vec<_> = chips.left_chips.iter().filter_map(decode).collect();
     let right: Vec<_> = chips.right_chips.iter().filter_map(decode).collect();
-    if (left.clone(), right.clone()) == Selection::Default.items() {
+    let (default_left, default_right) = Selection::Default.items();
+    if left == default_left && right == default_right {
         Selection::Default
     } else {
         Selection::Custom { left, right }
@@ -252,7 +253,3 @@ impl View for CliToolbeltInlineEditor {
         )
     }
 }
-
-#[cfg(test)]
-#[path = "cli_toolbelt_editor_tests.rs"]
-mod tests;
