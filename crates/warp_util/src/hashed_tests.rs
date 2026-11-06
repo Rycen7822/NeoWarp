@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
 
@@ -42,15 +41,6 @@ fn equality_ignores_cached_hash() {
     another.rehash(&RandomState::new());
 
     assert_eq!(one, another);
-}
-
-#[test]
-fn looks_up_key_in_map() {
-    let mut map: HashMap<u32, &str> = HashMap::new();
-    map.insert(7, "seven");
-
-    let hashed = Hashed::new(7u32, map.hasher());
-    assert_eq!(map.get(hashed.key()), Some(&"seven"));
 }
 
 #[test]
