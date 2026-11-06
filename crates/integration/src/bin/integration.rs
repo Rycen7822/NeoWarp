@@ -135,6 +135,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_typeahead);
     register_test!(test_input_reporting_posix_shells);
     register_test!(test_input_reporting_powershell);
+    #[cfg(not(windows))]
     register_test!(test_background_output);
     register_test!(test_home_key_should_not_appear_in_input);
     register_test!(test_change_font_size);

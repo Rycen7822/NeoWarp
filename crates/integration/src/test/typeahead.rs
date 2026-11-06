@@ -284,12 +284,6 @@ time.sleep(100)
         )
 }
 
-#[cfg(windows)]
-// TODO(CORE-2302): enable this test for windows
-pub fn test_background_output() -> Builder {
-    new_builder()
-}
-
 /// Require (as a test precondition) that a long-running block is executing.
 /// Use this instead of [`assert_long_running_block_executing`] with `sleep` commands
 /// to turn the race condition of the sleep ending too soon into a flake.

@@ -31,6 +31,7 @@ integration_tests! {
     test_input_reporting_posix_shells,
     test_input_reporting_powershell,
     // Test background output behavior.
+    #[cfg(not(windows))]
     test_background_output,
     // Must run against zsh.
     test_zshrc_keypress,

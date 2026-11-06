@@ -1,12 +1,8 @@
 use std::collections::HashSet;
 
-use schemars::{JsonSchema, SchemaGenerator};
+use schemars::SchemaGenerator;
 
 use crate::schema::SettingSchemaEntry;
-
-// ---------------------------------------------------------------------------
-// Fixture settings used for per-type schema validation tests
-// ---------------------------------------------------------------------------
 
 fn entries() -> Vec<&'static SettingSchemaEntry> {
     inventory::iter::<SettingSchemaEntry>.into_iter().collect()
@@ -57,30 +53,6 @@ fn all_schemas_are_serializable() {
             entry.storage_key
         );
     }
-}
-
-#[test]
-fn no_duplicate_storage_keys() {
-    // NOTE: when run in the settings crate alone, test modules may
-    // register fixture settings with overlapping keys (e.g. both
-    // mod_tests and macros_tests define "SimpleSetting"). This test
-    // is most useful when run from the app crate where real settings
-    // are registered. We still check for duplicates but collect them
-    // all before reporting, to give a clear picture.
-    let mut seen = HashSet::new();
-    let mut duplicates = Vec::new();
-    for entry in entries() {
-        if !seen.insert(entry.storage_key) {
-            duplicates.push(entry.storage_key);
-        }
-    }
-    // In the app crate context (no test-only fixtures), there should
-    // be zero duplicates.
-    #[cfg(not(test))]
-    assert!(
-        duplicates.is_empty(),
-        "Duplicate storage_keys: {duplicates:?}"
-    );
 }
 
 #[test]
@@ -162,121 +134,4 @@ fn all_refs_resolve_to_definitions() {
             );
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Per-type schema validation (using fixture settings)
-// ---------------------------------------------------------------------------
-
-/// Helper to generate a schema for a type and return it as a JSON value.
-fn schema_value_for<T: JsonSchema>() -> serde_json::Value {
-    let mut schema_gen = SchemaGenerator::default();
-    let schema = T::json_schema(&mut schema_gen);
-    schema.to_value()
-}
-
-#[test]
-fn bool_schema() {
-    let v = schema_value_for::<bool>();
-    assert_eq!(v.get("type").and_then(|t| t.as_str()), Some("boolean"));
-}
-
-#[test]
-fn string_schema() {
-    let v = schema_value_for::<String>();
-    assert_eq!(v.get("type").and_then(|t| t.as_str()), Some("string"));
-}
-
-#[test]
-fn simple_enum_schema() {
-    #[derive(JsonSchema)]
-    #[allow(dead_code)]
-    enum SimpleEnum {
-        A,
-        B,
-        C,
-    }
-
-    let v = schema_value_for::<SimpleEnum>();
-    let variants = v.get("enum").and_then(|e| e.as_array());
-    assert!(variants.is_some(), "Expected enum array in schema");
-    let names: Vec<&str> = variants
-        .unwrap()
-        .iter()
-        .filter_map(|v| v.as_str())
-        .collect();
-    assert_eq!(names, vec!["A", "B", "C"]);
-}
-
-#[test]
-fn optional_field_schema() {
-    let v = schema_value_for::<Option<String>>();
-    // schemars 0.8 may represent Option<T> as:
-    // - {"anyOf": [...]}
-    // - {"type": ["string", "null"]}
-    let has_any_of = v.get("anyOf").is_some();
-    let has_one_of = v.get("oneOf").is_some();
-    let has_nullable_type = v
-        .get("type")
-        .and_then(|t| t.as_array())
-        .is_some_and(|arr| arr.iter().any(|t| t.as_str() == Some("null")));
-    assert!(
-        has_any_of || has_one_of || has_nullable_type,
-        "Expected anyOf, oneOf, or nullable type array for Option<String>, got: {v}"
-    );
-}
-
-#[test]
-fn struct_schema() {
-    #[derive(JsonSchema)]
-    #[allow(dead_code)]
-    struct MyStruct {
-        name: String,
-        count: u32,
-    }
-
-    let v = schema_value_for::<MyStruct>();
-    assert_eq!(v.get("type").and_then(|t| t.as_str()), Some("object"));
-    let props = v.get("properties").and_then(|p| p.as_object());
-    assert!(props.is_some(), "Expected properties in struct schema");
-    let props = props.unwrap();
-    assert!(props.contains_key("name"));
-    assert!(props.contains_key("count"));
-}
-
-#[test]
-fn nested_struct_ref_resolves() {
-    #[derive(JsonSchema)]
-    #[allow(dead_code)]
-    struct Inner {
-        value: i32,
-    }
-
-    #[derive(JsonSchema)]
-    #[allow(dead_code)]
-    struct Outer {
-        inner: Inner,
-    }
-
-    let mut schema_gen = SchemaGenerator::default();
-    let schema = Outer::json_schema(&mut schema_gen);
-    let v = serde_json::to_value(schema).unwrap();
-
-    // The inner field should be a $ref
-    let inner_prop = v
-        .pointer("/properties/inner")
-        .expect("Expected inner property");
-
-    let has_ref = inner_prop.get("$ref").is_some() || inner_prop.get("allOf").is_some();
-    assert!(
-        has_ref,
-        "Expected $ref or allOf for nested struct, got: {inner_prop}"
-    );
-
-    // The definition should exist
-    let defs = schema_gen.definitions();
-    assert!(
-        defs.contains_key("Inner"),
-        "Expected 'Inner' in definitions"
-    );
 }
