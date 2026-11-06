@@ -1903,23 +1903,10 @@ pub fn test_add_many_sessions() -> Builder {
     builder
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub fn test_ctrl_tab_session_switching() -> Builder {
-    #[allow(unused_mut, unused_assignments)]
-    let mut builder = new_builder();
-
-    // If linux return early.  For reasons unknown and not worth the time to debug currently
-    // this test fails on linux at the step where the command palette is expected to show.
-    // The feature does work on linux though - there's some underlying issue with our integration
-    // test here.
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     {
-        return builder;
-    }
-
-    // if we are on linux, allow unreachable code
-    #[allow(unreachable_code)]
-    {
-        builder = new_builder()
+        let mut builder = new_builder()
             .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
             .with_step(execute_echo(0))
             .with_step(

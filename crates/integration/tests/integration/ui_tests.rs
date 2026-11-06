@@ -8,6 +8,7 @@ use super::integration_tests;
 
 integration_tests! {
     test_add_many_sessions,
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     test_ctrl_tab_session_switching,
     test_hover_over_menu,
     test_shell_reinitializing,

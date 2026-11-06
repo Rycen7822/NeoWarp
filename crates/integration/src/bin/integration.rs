@@ -102,6 +102,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_single_command);
     register_test!(test_add_and_close_session);
     register_test!(test_add_many_sessions);
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     register_test!(test_ctrl_tab_session_switching);
     register_test!(test_ctrl_d_eot);
     register_test!(test_ctrl_d_exit);
