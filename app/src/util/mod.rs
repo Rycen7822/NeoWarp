@@ -48,21 +48,6 @@ pub fn dedupe_from_last(lines: Vec<String>) -> Vec<String> {
     unique_elements
 }
 
-pub fn parse_ascii_u32(bytes: &[u8]) -> Option<u32> {
-    if bytes.is_empty() {
-        return None;
-    }
-
-    let mut result: u32 = 0;
-    for &byte in bytes {
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        result = result.checked_mul(10)?.checked_add((byte - b'0') as u32)?;
-    }
-    Some(result)
-}
-
 #[test]
 fn test_dedupe() {
     let history_lines = vec![
@@ -75,14 +60,4 @@ fn test_dedupe() {
         dedupe_from_last(history_lines),
         vec!["3".to_string(), "2".to_string(), "1".to_string()]
     );
-}
-
-#[test]
-fn test_parse_ascii_u32() {
-    assert_eq!(parse_ascii_u32(b"123"), Some(123));
-    assert_eq!(parse_ascii_u32(b"0"), Some(0));
-    assert_eq!(parse_ascii_u32(b"4294967295"), Some(4294967295)); // Max u32
-    assert_eq!(parse_ascii_u32(b"4294967296"), None); // Overflow
-    assert_eq!(parse_ascii_u32(b""), None);
-    assert_eq!(parse_ascii_u32(b"12a3"), None);
 }
