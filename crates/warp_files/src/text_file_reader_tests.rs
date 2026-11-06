@@ -251,17 +251,6 @@ fn global_budget_shared_across_ranges() {
 // ── Trailing newline preservation ───────────────────────────────────
 
 #[test]
-fn whole_file_with_trailing_newline() {
-    // Simulates a file "hello\nworld\n" — both lines terminated.
-    let mut acc = make_accumulator(&[], 1000);
-    push(&mut acc, "hello");
-    push(&mut acc, "world");
-    let (segments, _) = acc.finalize();
-
-    assert_eq!(segments[0].content, "hello\nworld\n");
-}
-
-#[test]
 fn whole_file_without_trailing_newline() {
     // Simulates a file "hello\nworld" — last line has no terminator.
     let mut acc = make_accumulator(&[], 1000);

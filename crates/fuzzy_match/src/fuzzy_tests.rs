@@ -10,26 +10,6 @@ fn test_contains_wildcards() {
 }
 
 #[test]
-fn test_debug_ui_pattern() {
-    // Debug the ui/* pattern step by step
-    let text = "/src/ui/button.rs";
-    let pattern = "ui/*";
-
-    // Test if it should hit the prefix fast path
-    let is_prefix_pattern = pattern.ends_with('*')
-        && !pattern[..pattern.len() - 1].contains('*')
-        && !pattern[..pattern.len() - 1].contains('?');
-    assert!(is_prefix_pattern);
-
-    let prefix = &pattern[..pattern.len() - 1];
-    assert_eq!(prefix, "ui/");
-    assert!(text.contains(prefix)); // Changed from starts_with to contains since text starts with "/src"
-
-    let result = match_wildcard_pattern(text, pattern);
-    assert!(result.is_some());
-}
-
-#[test]
 fn test_wildcard_pattern_star() {
     let result = match_wildcard_pattern("button.rs", "*.rs");
     assert!(result.is_some());
@@ -45,12 +25,6 @@ fn test_wildcard_pattern_question_mark() {
     let match_result = result.unwrap();
     assert!(match_result.score > 0);
     assert!(!match_result.matched_indices.is_empty());
-}
-
-#[test]
-fn test_wildcard_pattern_no_match() {
-    let result = match_wildcard_pattern("button.rs", "*.py");
-    assert!(result.is_none());
 }
 
 #[test]

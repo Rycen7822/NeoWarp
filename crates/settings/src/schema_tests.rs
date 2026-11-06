@@ -43,19 +43,6 @@ fn all_defaults_produce_valid_json() {
 }
 
 #[test]
-fn all_schemas_are_serializable() {
-    let mut schema_gen = SchemaGenerator::default();
-    for entry in entries() {
-        let schema = (entry.schema_fn)(&mut schema_gen);
-        assert!(
-            serde_json::to_string(&schema).is_ok(),
-            "schema_fn for '{}' produced a non-serializable schema",
-            entry.storage_key
-        );
-    }
-}
-
-#[test]
 fn all_supported_platforms_fn_succeed() {
     for entry in entries() {
         // Just call it to ensure it doesn't panic.
@@ -87,13 +74,6 @@ fn hierarchy_values_are_well_formed() {
 
 #[test]
 fn all_refs_resolve_to_definitions() {
-    let mut schema_gen = SchemaGenerator::default();
-
-    // Process all entries through the shared generator
-    for entry in entries() {
-        let _schema = (entry.schema_fn)(&mut schema_gen);
-    }
-
     // Collect all $ref pointers from the schemas
     fn collect_refs(value: &serde_json::Value, refs: &mut HashSet<String>) {
         match value {
@@ -114,16 +94,16 @@ fn all_refs_resolve_to_definitions() {
         }
     }
 
-    // Re-process to collect refs from the output
-    let mut schema_gen2 = SchemaGenerator::default();
+    // Process each schema to collect its refs and definitions.
+    let mut schema_gen = SchemaGenerator::default();
     let mut all_refs = HashSet::new();
     for entry in entries() {
-        let schema = (entry.schema_fn)(&mut schema_gen2);
+        let schema = (entry.schema_fn)(&mut schema_gen);
         let value = serde_json::to_value(&schema).unwrap();
         collect_refs(&value, &mut all_refs);
     }
 
-    let defs = schema_gen2.definitions();
+    let defs = schema_gen.definitions();
     for r in &all_refs {
         // schemars 1.x uses "#/$defs/TypeName"
         if let Some(type_name) = r.strip_prefix("#/$defs/") {
