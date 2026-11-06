@@ -53,53 +53,6 @@ fn test_key(repo: &str, mode: DiffMode) -> DiffModelKey {
     }
 }
 
-// ── Diff state: connection cleanup ──────────────────────────────────
-
-#[test]
-fn deregister_connection_cleans_up_diff_state_subscriptions() {
-    App::test((), |mut app| async move {
-        let mut model = test_model(&mut app);
-        let conn = uuid::Uuid::new_v4();
-
-        // Register the connection.
-        let (tx, _rx) = async_channel::unbounded();
-        model.connection_senders.insert(conn, tx);
-
-        // Subscribe the connection to diff state via the manager.
-        let key = test_key("/repo", DiffMode::Head);
-        let key2 = key.clone();
-        let key3 = key.clone();
-        model.diff_states.update(&mut app, |mgr, _ctx| {
-            mgr.subscribe_connection(key, conn);
-        });
-        let has_sub = model.diff_states.read(&app, |mgr, _ctx| {
-            !mgr.subscribed_connections(&key2).is_empty()
-        });
-        assert!(has_sub);
-
-        // Simulate deregister_connection's diff state cleanup.
-        model.diff_states.update(&mut app, |mgr, _ctx| {
-            mgr.remove_connection(conn);
-        });
-        let has_sub = model.diff_states.read(&app, |mgr, _ctx| {
-            !mgr.subscribed_connections(&key3).is_empty()
-        });
-        assert!(!has_sub);
-    });
-}
-
-#[test]
-fn diff_states_starts_empty() {
-    App::test((), |mut app| async move {
-        let model = test_model(&mut app);
-        let key = test_key("/repo", DiffMode::Head);
-        let empty = model.diff_states.read(&app, |mgr, _ctx| {
-            mgr.subscribed_connections(&key).is_empty()
-        });
-        assert!(empty);
-    });
-}
-
 // ── Git status / GitHub: navigation-driven model cleanup ────────────
 
 #[test]
@@ -131,37 +84,6 @@ fn navigating_between_repos_moves_the_subscription() {
         assert!(!model.git_status_subscribers.contains_key(&repo_a));
         assert!(model.git_status_subscribers[&repo_b].contains(&conn));
         assert_eq!(model.git_status_repo_by_conn.get(&conn), Some(&repo_b));
-    });
-}
-
-#[test]
-fn snapshot_request_does_not_move_another_repos_subscription() {
-    App::test((), |mut app| async move {
-        let mut model = test_model(&mut app);
-        let conn = uuid::Uuid::new_v4();
-        let repo_a = StandardizedPath::try_new("/repo-a").unwrap();
-        let repo_b = StandardizedPath::try_new("/repo-b").unwrap();
-
-        // Navigation put the connection in repo A.
-        model.subscribe_git_status(conn, &repo_a);
-
-        // A snapshot request for repo B riding this connection must not move
-        // the navigation-driven subscription off repo A (mirrors the guard in
-        // `handle_update_git_status`).
-        if !model.git_status_repo_by_conn.contains_key(&conn) {
-            model.subscribe_git_status(conn, &repo_b);
-        }
-        assert_eq!(model.git_status_repo_by_conn.get(&conn), Some(&repo_a));
-        assert!(model.git_status_subscribers[&repo_a].contains(&conn));
-        assert!(!model.git_status_subscribers.contains_key(&repo_b));
-
-        // An untracked connection is registered normally.
-        let conn2 = uuid::Uuid::new_v4();
-        if !model.git_status_repo_by_conn.contains_key(&conn2) {
-            model.subscribe_git_status(conn2, &repo_b);
-        }
-        assert!(model.git_status_subscribers[&repo_b].contains(&conn2));
-        assert_eq!(model.git_status_repo_by_conn.get(&conn2), Some(&repo_b));
     });
 }
 

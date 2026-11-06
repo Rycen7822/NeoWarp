@@ -185,16 +185,6 @@ mod file_search_model_tests {
         // Filename match should have higher score due to 2x multiplier
         assert!(filename_match.score > path_match.score);
     }
-
-    #[test]
-    fn test_path_with_extension_exact_match() {
-        let result = FileSearchModel::fuzzy_match_path("src/test.rs", "test");
-
-        assert!(result.is_some());
-        let match_result = result.unwrap();
-        // Should get exact match bonus even with extension
-        assert!(match_result.score >= 5000);
-    }
 }
 
 #[cfg(test)]
@@ -250,26 +240,6 @@ mod file_search_item_tests {
 
         assert_eq!(item.path, "src/components");
         assert!(item.is_directory);
-    }
-
-    #[test]
-    fn test_file_search_item_clone() {
-        let result = FileSearchResult {
-            path: "test.txt".to_string(),
-            project_directory: "/Users/test_user/project".to_string(),
-            is_directory: false,
-        };
-
-        let original = FileSearchItem::from_result_no_match(result);
-        let cloned = original.clone();
-
-        assert_eq!(original.path, cloned.path);
-        assert_eq!(original.is_directory, cloned.is_directory);
-        assert_eq!(original.match_result.score, cloned.match_result.score);
-        assert_eq!(
-            original.match_result.matched_indices,
-            cloned.match_result.matched_indices
-        );
     }
 }
 

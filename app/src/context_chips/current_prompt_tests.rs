@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -951,41 +951,15 @@ fn test_git_status_pr_info_updates_github_pr_chip_value() {
 #[derive(Debug, Default)]
 struct RecordingCommandExecutor {
     commands: Mutex<Vec<String>>,
-    response_queue: Mutex<VecDeque<CommandOutput>>,
 }
 
 impl RecordingCommandExecutor {
-    pub fn with_success_responses(responses: impl IntoIterator<Item = &'static str>) -> Self {
-        Self::with_outputs(
-            responses
-                .into_iter()
-                .map(Self::success_output)
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    pub fn with_outputs(outputs: impl IntoIterator<Item = CommandOutput>) -> Self {
-        Self {
-            commands: Mutex::default(),
-            response_queue: Mutex::new(outputs.into_iter().collect()),
-        }
-    }
-
     pub fn success_output(stdout: impl AsRef<[u8]>) -> CommandOutput {
         CommandOutput {
             stdout: stdout.as_ref().to_vec(),
             stderr: vec![],
             status: CommandExitStatus::Success,
             exit_code: Some(ExitCode::from(0)),
-        }
-    }
-
-    pub fn failure_output(stderr: impl AsRef<[u8]>, exit_code: ExitCode) -> CommandOutput {
-        CommandOutput {
-            stdout: vec![],
-            stderr: stderr.as_ref().to_vec(),
-            status: CommandExitStatus::Failure,
-            exit_code: Some(exit_code),
         }
     }
 
@@ -1005,12 +979,7 @@ impl CommandExecutor for RecordingCommandExecutor {
         _execute_command_options: ExecuteCommandOptions,
     ) -> anyhow::Result<CommandOutput> {
         self.commands.lock().push(command.to_string());
-        let output = self
-            .response_queue
-            .lock()
-            .pop_front()
-            .unwrap_or_else(|| Self::success_output("test"));
-        Ok(output)
+        Ok(Self::success_output("test"))
     }
 
     fn as_any(&self) -> &dyn Any {
