@@ -7,6 +7,7 @@ fn launch_modes_select_expected_logging_frontend() {
     };
     let test = LaunchMode::Test {
         driver: Box::new(None),
+        #[cfg(target_os = "macos")]
         is_integration_test: false,
     };
 

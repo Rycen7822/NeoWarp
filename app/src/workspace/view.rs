@@ -127,7 +127,6 @@ use crate::persistence::ModelEvent;
 use crate::prompt::editor_modal::{
     EditorModal as PromptEditorModal, EditorModalEvent as PromptEditorModalEvent,
 };
-use crate::quit_warning::UnsavedStateSummary;
 use crate::resource_center::{KeybindingsEvent, KeybindingsView};
 use crate::root_view::{NewWorkspaceSource, OpenLaunchConfigArg};
 use crate::search::command_palette::view::{
@@ -3520,11 +3519,9 @@ impl Workspace {
             ctx.notify();
             return;
         }
-        let closed = self.close_tabs(indices.into_iter(), false, true, ctx);
-        if closed {
-            self.tab_groups.remove(&group_id);
-            ctx.notify();
-        }
+        self.close_tabs(indices.into_iter(), false, true, ctx);
+        self.tab_groups.remove(&group_id);
+        ctx.notify();
     }
 
     /// Toggles the collapsed state of the given tab group.
@@ -5885,70 +5882,24 @@ impl Workspace {
         ctx.notify();
     }
 
-    /// Checks if the provided tab indices need to be confirmed before closing, unless skip_confirmation is true.
-    /// If none of them need confirmation (or the confirm setting is turned off), we close all the provided tabs.
-    /// Returns true iff all of the tabs were closed.
+    /// Flushes enabled auto-saves and closes the tabs in reverse index order.
     pub(crate) fn close_tabs(
         &mut self,
         tab_indices: impl Iterator<Item = usize>,
-        skip_confirmation: bool,
+        skip_auto_save: bool,
         add_to_undo_stack: bool,
         ctx: &mut ViewContext<Self>,
-    ) -> bool {
+    ) {
         let tab_indices_vec = tab_indices.collect_vec();
 
-        if !skip_confirmation {
-            let tabs = tab_indices_vec
+        if !skip_auto_save {
+            let editors = tab_indices_vec
                 .iter()
                 .filter_map(|i| self.get_pane_group_view(*i))
-                .map(|tab| tab.downgrade())
+                .flat_map(|tab| tab.as_ref(ctx).code_panes(ctx).map(|(_, editor)| editor))
                 .collect_vec();
-            let summary = UnsavedStateSummary::for_tabs(tabs, ctx);
-
-            if summary.save_unsaved_code_and_should_warn(ctx) {
-                // The quit-warning dialog uses app-scoped callbacks (ironically, because that's
-                // what Self::show_native_modal expects). That means we need a handle to the
-                // current workspace here.
-                let confirm_self = ctx.handle();
-                let navigate_self = ctx.handle();
-                let confirm_tabs = tab_indices_vec.clone();
-                let dialog = summary
-                    .dialog()
-                    .on_confirm(move |ctx| {
-                        if let Some(workspace) = confirm_self.upgrade(ctx) {
-                            workspace.update(ctx, |workspace, ctx| {
-                                workspace.close_tabs(
-                                    confirm_tabs.into_iter(),
-                                    true,
-                                    add_to_undo_stack,
-                                    ctx,
-                                );
-                            });
-                        }
-                    })
-                    .on_cancel(|_ctx| { /* No action needed besides dismissing the dialog. */ })
-                    .on_show_processes(move |ctx| {
-                        if let Some(workspace) = navigate_self.upgrade(ctx) {
-                            workspace.update(ctx, |workspace, ctx| {
-                                // TODO(ben): Ideally, this would filter to the relevant tabs.
-                                workspace.open_palette_action(
-                                    PaletteMode::Navigation,
-                                    PaletteSource::QuitModal,
-                                    Some("running"),
-                                    ctx,
-                                );
-                            })
-                        }
-                    })
-                    .build();
-
-                if cfg!(target_os = "macos") {
-                    AppContext::show_native_platform_modal(ctx, dialog);
-                    return false;
-                } else if cfg!(any(target_os = "linux", windows)) {
-                    self.show_native_modal(dialog, ctx);
-                    return false;
-                }
+            for editor in editors {
+                editor.update(ctx, |view, ctx| view.auto_save_all_unsaved_tabs(ctx));
             }
         }
 
@@ -5960,60 +5911,54 @@ impl Workspace {
         for i in tab_indices_vec.into_iter().sorted().rev() {
             self.remove_tab(i, add_to_undo_stack, true, ctx);
         }
-        true
     }
 
-    /// Opens a confirmation dialog if necessary, or closes immediately if not.
-    /// Always closes immediately if skip_confirmation is true.
+    /// The final tab delegates its window-close confirmation and auto-save to the app callback.
     fn close_tab(
         &mut self,
         index: usize,
-        skip_confirmation: bool,
+        skip_auto_save: bool,
         add_to_undo_stack: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let is_last_tab = self.tabs.len() == 1;
 
-        let tabs_closed = self.close_tabs(
+        self.close_tabs(
             vec![index].into_iter(),
-            skip_confirmation || is_last_tab, // If this is the last tab, the confirmation dialog will be handled by the window close.
+            skip_auto_save || is_last_tab,
             add_to_undo_stack,
             ctx,
         );
 
-        if tabs_closed {
-            ctx.dispatch_global_action("workspace:save_app", ());
-        }
+        ctx.dispatch_global_action("workspace:save_app", ());
     }
 
-    /// Opens a confirmation dialog if necessary, or closes immediately if not.
-    /// Always closes immediately if skip_confirmation is true.
+    /// Closes every tab except the specified one.
     pub fn close_other_tabs(
         &mut self,
         index: usize,
-        skip_confirmation: bool,
+        skip_auto_save: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         // Figure out what indices we want to delete for the "other tabs" case.
         let indices_to_remove = (0..self.tabs.len()).filter(|i| *i != index);
 
-        self.close_tabs(indices_to_remove, skip_confirmation, true, ctx);
+        self.close_tabs(indices_to_remove, skip_auto_save, true, ctx);
     }
 
-    /// Opens a confirmation dialog if necessary, or closes immediately if not.
-    /// Always closes immediately if skip_confirmation is true.
+    /// Closes tabs on one side of the specified tab.
     pub fn close_tabs_direction(
         &mut self,
         index: usize,
         direction: TabMovement,
-        skip_confirmation: bool,
+        skip_auto_save: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         let indices_to_remove = match direction {
             TabMovement::Left => 0..index,
             TabMovement::Right => (index + 1)..self.tabs.len(),
         };
-        self.close_tabs(indices_to_remove, skip_confirmation, true, ctx);
+        self.close_tabs(indices_to_remove, skip_auto_save, true, ctx);
     }
 
     /// Update this workspace when it is reopened after being closed.
@@ -7994,7 +7939,7 @@ impl Workspace {
                 self.focus_theme_chooser(ctx);
             } else if self.current_workspace_state.is_keybindings_open {
                 ctx.focus(&self.keybindings_view);
-            } else if self.current_workspace_state.is_native_quit_modal_open {
+            } else if self.current_workspace_state.is_native_modal_open {
                 ctx.focus(&self.native_modal);
             } else {
                 ctx.focus_self();
@@ -8070,7 +8015,7 @@ impl Workspace {
             .native_modal
             .update(ctx, |modal, ctx| modal.confirm_window_close(ctx));
         if !approved {
-            self.current_workspace_state.is_native_quit_modal_open = true;
+            self.current_workspace_state.is_native_modal_open = true;
             ctx.focus(&self.native_modal);
             ctx.notify();
         }
@@ -8086,42 +8031,19 @@ impl Workspace {
             view.set_alert_dialog(dialog);
             ctx.notify();
         });
-        self.current_workspace_state.is_native_quit_modal_open = true;
+        self.current_workspace_state.is_native_modal_open = true;
         ctx.focus(&self.native_modal);
         ctx.notify();
     }
 
     fn handle_native_modal_event(&mut self, event: &NativeModalEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            NativeModalEvent::Close | NativeModalEvent::CloseConfirmation => {
-                self.current_workspace_state.is_native_quit_modal_open = false;
-                if matches!(event, NativeModalEvent::CloseConfirmation) {
-                    ctx.focus_self();
-                }
+            NativeModalEvent::Close => {
+                self.current_workspace_state.is_native_modal_open = false;
+                ctx.focus_self();
                 ctx.notify();
             }
         }
-    }
-
-    /// Mock pressing a button on the native quit modal. This function has an unusual signature so
-    /// that the workspace view is not borrowed while the button press is handled.
-    #[cfg(any(test, feature = "integration_tests"))]
-    pub fn press_native_modal_button(
-        handle: &ViewHandle<Self>,
-        button_index: usize,
-        app: &mut AppContext,
-    ) {
-        use super::native_modal::NativeModalAction;
-        let modal_handle = handle.as_ref(app).native_modal.clone();
-        modal_handle.update(app, |modal, ctx| {
-            modal.handle_action(&NativeModalAction::TriggerButtonCallback(button_index), ctx);
-        });
-    }
-
-    #[cfg(any(test, feature = "integration_tests"))]
-    pub fn is_native_quit_modal_open(&self, ctx: &AppContext) -> bool {
-        self.current_workspace_state.is_native_quit_modal_open
-            && self.native_modal.as_ref(ctx).has_alert_dialog()
     }
 
     fn show_settings(&mut self, ctx: &mut ViewContext<Self>) {
@@ -10685,10 +10607,6 @@ impl Workspace {
             context.set.insert(flags::FOCUS_PANES_ON_HOVER_CONTEXT_FLAG);
         }
 
-        if *general_settings.show_warning_before_quitting.value() {
-            context.set.insert(flags::QUIT_WARNING_MODAL);
-        }
-
         if semantic_selection_settings.smart_select_enabled() {
             context.set.insert(flags::SMART_SELECT_FLAG);
         }
@@ -12463,7 +12381,7 @@ impl View for Workspace {
             stack.add_child(ChildView::new(lightbox_view).finish());
         }
 
-        if self.current_workspace_state.is_native_quit_modal_open {
+        if self.current_workspace_state.is_native_modal_open {
             stack.add_positioned_overlay_child(
                 ChildView::new(&self.native_modal).finish(),
                 OffsetPositioning::offset_from_parent(

@@ -74,14 +74,6 @@ define_settings_group!(GeneralSettings, settings: [
         private: false,
         toml_path: "general.default_tab_config_path",
     },
-    show_warning_before_quitting: ShowWarningBeforeQuitting {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        private: false,
-        toml_path: "general.show_warning_before_quitting",
-        description: "Whether to show a warning dialog before quitting Warp.",
-    },
     quit_on_last_window_closed: QuitOnLastWindowClosed {
         type: bool,
         default: false,

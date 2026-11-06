@@ -3,7 +3,7 @@ use warpui::{AppContext, ModelHandle, SingletonEntity, View, ViewContext, ViewHa
 
 use super::{DetachType, PaneConfiguration, PaneContent, PaneId, PaneView};
 use crate::app_state::{CodePaneSnapShot, CodePaneTabSnapshot, LeafContents};
-use crate::code::editor_management::{CodeEditorStatus, CodeManager, CodeSource};
+use crate::code::editor_management::{CodeManager, CodeSource};
 use crate::code::view::{CodeView, CodeViewEvent};
 use crate::pane_group::PaneGroup;
 
@@ -39,10 +39,6 @@ impl CodePane {
 
     pub fn file_view(&self, ctx: &AppContext) -> ViewHandle<CodeView> {
         self.view.as_ref(ctx).child(ctx)
-    }
-
-    pub fn editor_status(&self, app: &AppContext) -> CodeEditorStatus {
-        CodeEditorStatus::editor_status(&self.file_view(app), app)
     }
 }
 

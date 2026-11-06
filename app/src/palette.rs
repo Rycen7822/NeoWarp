@@ -13,7 +13,6 @@ pub enum PaletteSource {
     PrefixChange,
     Keybinding,
     CtrlTab { shift_pressed_initially: bool },
-    QuitModal,
     IntegrationTest,
     ContextChip,
     PaneHeader,

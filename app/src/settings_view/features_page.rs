@@ -357,21 +357,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     );
     toggle_binding_pairs.push(
         ToggleSettingActionPair::new(
-            "quit warning modal",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleShowWarningBeforeQuitting,
-            )),
-            context,
-            flags::QUIT_WARNING_MODAL,
-        )
-        .is_supported_on_current_platform(
-            GeneralSettings::as_ref(app)
-                .show_warning_before_quitting
-                .is_supported_on_current_platform(),
-        ),
-    );
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
             "mouse reporting",
             builder(SettingsAction::FeaturesPageToggle(
                 FeaturesPageAction::ToggleMouseReporting,
@@ -628,7 +613,6 @@ pub enum FeaturesPageAction {
     TogglePasswordPromptNotifications,
     ToggleNeedsAttentionNotifications,
     ToggleNotificationSound,
-    ToggleShowWarningBeforeQuitting,
     ToggleLoginItem,
     ToggleQuitOnLastWindowClosed,
     ToggleSmartSelection,
@@ -1210,15 +1194,6 @@ impl TypedActionView for FeaturesPageView {
                 GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.link_tooltip.toggle_and_save_value(ctx));
                 });
-            }
-            ToggleShowWarningBeforeQuitting => {
-                GeneralSettings::handle(ctx).update(ctx, |warning_settings, ctx| {
-                    report_if_error!(
-                        warning_settings
-                            .show_warning_before_quitting
-                            .toggle_and_save_value(ctx)
-                    );
-                })
             }
             ToggleSmartSelection => {
                 SemanticSelection::handle(ctx).update(ctx, |selection, ctx| {
@@ -1932,13 +1907,6 @@ impl FeaturesPageView {
 
         general_widgets.push(Box::new(SnackbarHeaderWidget::default()));
         general_widgets.push(Box::new(LinkTooltipWidget::default()));
-
-        if general_settings
-            .show_warning_before_quitting
-            .is_supported_on_current_platform()
-        {
-            general_widgets.push(Box::new(QuitWarningModalWidget::default()));
-        }
 
         if general_settings
             .quit_on_last_window_closed
@@ -3812,44 +3780,6 @@ impl SettingsWidget for LinkTooltipWidget {
                 .build()
                 .on_click(move |ctx, _, _| {
                     ctx.dispatch_typed_action(FeaturesPageAction::ToggleLinkTooltip);
-                })
-                .finish(),
-            None,
-        )
-    }
-}
-
-#[derive(Default)]
-struct QuitWarningModalWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for QuitWarningModalWidget {
-    type View = FeaturesPageView;
-
-    fn search_terms(&self) -> &str {
-        "warning popup modal dialog quit logout log out close"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let general_settings = GeneralSettings::as_ref(app);
-        let ui_builder = appearance.ui_builder();
-        render_body_item::<FeaturesPageAction>(
-            "Show warning before quitting/logging out".into(),
-            None,
-            ToggleState::Enabled,
-            appearance,
-            ui_builder
-                .switch(self.switch_state.clone())
-                .check(*general_settings.show_warning_before_quitting)
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(FeaturesPageAction::ToggleShowWarningBeforeQuitting);
                 })
                 .finish(),
             None,

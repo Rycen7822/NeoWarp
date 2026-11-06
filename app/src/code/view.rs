@@ -20,6 +20,7 @@ use warpui::elements::{
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::keymap::EditableBinding;
+use warpui::modals::{AlertDialogWithCallbacks, ModalButton};
 use warpui::text_layout::ClipConfig;
 use warpui::ui_components::components::UiComponent;
 use warpui::{
@@ -32,7 +33,6 @@ use super::editor::view::{CodeEditorEvent, CodeEditorView};
 use super::editor_management::CodeSource;
 use super::local_code_editor::{LocalCodeEditorEvent, LocalCodeEditorView};
 use crate::code::editor::view::CodeEditorRenderOptions;
-use crate::code::editor_management::CodeEditorStatus;
 use crate::code::global_buffer_model::GlobalBufferModel;
 use crate::code::{EditorTabBarDropTargetData, ImmediateSaveError, SaveOutcome, SaveStatus};
 use crate::input::Vector2F;
@@ -48,7 +48,6 @@ use crate::pane_group::{
     BackingView, CodePane, PaneConfiguration, PaneConfigurationEvent, PaneDragDropLocation,
     PaneEvent, TabBarAxis,
 };
-use crate::quit_warning::UnsavedStateSummary;
 use crate::search::ItemHighlightState;
 use crate::search::files::icon::icon_from_file_path;
 use crate::settings::CodeSettings;
@@ -57,7 +56,7 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
 use crate::util::path::{display_name_with_host, display_path_with_host};
 use crate::view_components::DismissibleToast;
-use crate::workspace::{ActiveSession, TabBarDropTargetData, ToastStack};
+use crate::workspace::{ActiveSession, TabBarDropTargetData, ToastStack, WorkspaceRegistry};
 
 type SaveCallback =
     Box<dyn FnOnce(SaveOutcome, &mut CodeView, &mut ViewContext<CodeView>) + Send + Sync + 'static>;
@@ -708,17 +707,16 @@ impl CodeView {
     }
 
     /// Flush-saves every unsaved tab that has a backing file, marking each save
-    /// as an auto-save so it stays silent (no "File saved." toast). Returns
-    /// `true` if any unsaved tab could NOT be auto-saved (e.g. an untitled
-    /// buffer with no path), so callers can still warn before discarding those.
-    pub fn auto_save_all_unsaved_tabs(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        let mut unsaveable_changes_remain = false;
+    /// as an auto-save so it stays silent (no "File saved." toast).
+    pub fn auto_save_all_unsaved_tabs(&mut self, ctx: &mut ViewContext<Self>) {
+        if !*CodeSettings::as_ref(ctx).auto_save {
+            return;
+        }
         for index in self.unsaved_indices(ctx) {
             // A tab can only be auto-saved if it has a backing file *and*, for
             // remote files, its host is still connected. A disconnected remote
             // buffer has a `file_id` but `save_local` would fail silently, so
-            // treat it as unsaveable and let the caller warn before discarding
-            // the edits.
+            // skip it instead of attempting a save that cannot succeed.
             let can_auto_save = self
                 .tab_at(index)
                 .is_some_and(|tab| tab.editor_view.as_ref(ctx).can_auto_save(ctx));
@@ -728,11 +726,8 @@ impl CodeView {
                         .update(ctx, |editor, _| editor.mark_next_save_as_auto_save());
                 }
                 self.save_local(index, None, ctx);
-            } else {
-                unsaveable_changes_remain = true;
             }
         }
-        unsaveable_changes_remain
     }
 
     /// Check whether there are unsaved changes and reset the pane title accordingly.
@@ -787,14 +782,8 @@ impl CodeView {
                 .as_ref()
                 .map(|loc| display_name_with_host(loc, ctx))
                 .filter(|n| !n.is_empty());
-            let summary = UnsavedStateSummary::for_editor_tab(
-                file_name,
-                vec![CodeEditorStatus::new(Self::has_unsaved_changes(tab, ctx))],
-                ctx,
-            );
-
             // If the tab being removed has unsaved changes, we attempt to show a modal before closing it.
-            if summary.should_display_warning(ctx)
+            if Self::has_unsaved_changes(tab, ctx)
                 && ChannelState::channel() != Channel::Integration
             {
                 // With auto-save enabled, closing a file that has a backing path
@@ -854,12 +843,34 @@ impl CodeView {
                         }
                     }
                 };
-                summary
-                    .dialog()
-                    .on_save_changes(handle_save_intent(PendingSaveIntent::Save))
-                    .on_discard_changes(handle_save_intent(PendingSaveIntent::Discard))
-                    .on_cancel(handle_save_intent(PendingSaveIntent::Cancel))
-                    .show(ctx);
+                let dialog = AlertDialogWithCallbacks::for_app(
+                    "Save changes?",
+                    format!(
+                        "Do you want to save the changes you made to {}?",
+                        file_name.as_deref().unwrap_or("this file")
+                    ),
+                    vec![
+                        ModalButton::for_app("Save", handle_save_intent(PendingSaveIntent::Save)),
+                        ModalButton::for_app(
+                            "Don't Save",
+                            handle_save_intent(PendingSaveIntent::Discard),
+                        ),
+                        ModalButton::for_app(
+                            "Cancel",
+                            handle_save_intent(PendingSaveIntent::Cancel),
+                        ),
+                    ],
+                    |_| {},
+                );
+                if cfg!(target_os = "macos") {
+                    AppContext::show_native_platform_modal(ctx, dialog);
+                } else if let Some(workspace) =
+                    WorkspaceRegistry::as_ref(ctx).get(ctx.window_id(), ctx)
+                {
+                    workspace.update(ctx, |workspace, ctx| {
+                        workspace.show_native_modal(dialog, ctx)
+                    });
+                }
             } else {
                 self.remove_tab_data_index(index, ctx);
             }

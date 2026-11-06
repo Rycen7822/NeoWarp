@@ -4,75 +4,11 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use warp_util::path::LineAndColumnArg;
-use warpui::{AppContext, Entity, EntityId, SingletonEntity, ViewHandle, WindowId};
+use warpui::{Entity, EntityId, SingletonEntity, WindowId};
 
 use super::buffer_location::LocalOrRemotePath;
-use super::view::CodeView;
-use crate::pane_group::{PaneGroup, PaneId};
+use crate::pane_group::PaneId;
 use crate::workspace::PaneViewLocator;
-
-pub struct CodeEditorSummary<'a> {
-    pub unsaved_changes: Vec<&'a CodeEditorStatus>,
-}
-
-impl<'a> CodeEditorSummary<'a> {
-    /// Create a summary from the currently open Code Editors.
-    pub fn new(editors: &'a [CodeEditorStatus]) -> Self {
-        let unsaved_changes = editors
-            .iter()
-            .filter(|editor| editor.unsaved_changes)
-            .collect();
-
-        Self { unsaved_changes }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct CodeEditorStatus {
-    unsaved_changes: bool,
-}
-
-impl CodeEditorStatus {
-    pub fn new(unsaved_changes: bool) -> Self {
-        Self { unsaved_changes }
-    }
-
-    /// Fetches all code editors open in the App.
-    pub fn all_editors(app: &AppContext) -> impl Iterator<Item = Self> + '_ {
-        app.window_ids()
-            .flat_map(move |window_id| Self::editors_in_window(window_id, app))
-    }
-
-    /// Fetches all code editors in a given window.
-    pub fn editors_in_window(
-        window_id: WindowId,
-        app: &AppContext,
-    ) -> impl Iterator<Item = Self> + '_ {
-        app.views_of_type::<CodeView>(window_id)
-            .into_iter()
-            .flat_map(move |editors| {
-                editors
-                    .into_iter()
-                    .map(move |editor| Self::editor_status(&editor, app))
-            })
-    }
-
-    /// Fetches all code editors in a given tab.
-    pub fn editors_in_tab<'a>(
-        tab: &ViewHandle<PaneGroup>,
-        app: &'a AppContext,
-    ) -> impl Iterator<Item = Self> + 'a + use<'a> {
-        tab.as_ref(app)
-            .code_panes(app)
-            .map(move |(_, editor)| Self::editor_status(&editor, app))
-    }
-
-    pub fn editor_status(editor: &ViewHandle<CodeView>, app: &AppContext) -> Self {
-        editor.read(app, |editor_view, ctx| Self {
-            unsaved_changes: editor_view.contains_unsaved_changes(ctx),
-        })
-    }
-}
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub enum CodeSource {

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use chrono::NaiveDateTime;
 use warpui::{AppContext, Entity, EntityId, WindowId};
 
@@ -147,48 +145,6 @@ impl SessionNavigationData {
                 }))
             })
             .flatten()
-    }
-}
-
-pub struct RunningSessionSummary<'a> {
-    /// Running commands in sessions that are not read-only.
-    pub long_running_cmds: Vec<&'a SessionNavigationData>,
-}
-
-impl<'a> RunningSessionSummary<'a> {
-    pub fn new(sessions: &'a [SessionNavigationData]) -> Self {
-        let long_running_cmds: Vec<_> = sessions
-            .iter()
-            .filter(|session| {
-                matches!(
-                    session.command_context(),
-                    CommandContext::RunningCommand { .. } | CommandContext::RunningAIBlock { .. }
-                ) && !session.is_read_only()
-            })
-            .collect();
-        Self { long_running_cmds }
-    }
-
-    pub fn windows_running(&self) -> HashSet<WindowId> {
-        self.long_running_cmds
-            .iter()
-            .map(|session| session.window_id())
-            .collect()
-    }
-
-    pub fn tabs_running(&self) -> HashSet<EntityId> {
-        self.long_running_cmds
-            .iter()
-            .map(|session| session.pane_view_locator().pane_group_id)
-            .collect()
-    }
-
-    pub fn processes_in_window(&self, window_id: &WindowId) -> Vec<&SessionNavigationData> {
-        self.long_running_cmds
-            .iter()
-            .filter(|&session| session.window_id() == *window_id)
-            .cloned()
-            .collect()
     }
 }
 

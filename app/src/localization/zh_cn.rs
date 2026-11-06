@@ -6,8 +6,8 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Confirmation timeout (seconds)" => "确认超时（秒）",
         "Close this window?" => "关闭此窗口？",
         "Close completely" => "完全关闭",
-        "This window stays open if you do not confirm within {seconds} seconds." => {
-            "若未在 {seconds} 秒内确认，此窗口将保持打开。"
+        "Confirm within {seconds}s, or closing will be cancelled." => {
+            "请在剩余 {seconds} 秒内确认，否则取消关闭。"
         }
         "Refresh changes" => "刷新更改",
         "Enable word wrap" => "开启自动换行",
@@ -196,7 +196,6 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Show the tab bar" => "显示标签栏",
         "Show tooltip on click on links" => "点击链接时显示提示",
         "Show vertical tabs panel in restored windows" => "恢复窗口时显示垂直标签页面板",
-        "Show warning before quitting/logging out" => "退出或注销前显示警告",
         "Split pane" => "拆分窗格",
         "Suggest corrected commands" => "建议修正命令",
         "Supports floating point values between 1 and 20." => "支持 1 到 20 之间的小数。",

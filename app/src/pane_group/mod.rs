@@ -52,7 +52,6 @@ use crate::palette::{PaletteMode, PaletteSource};
 use crate::pane_group::focus_state::PaneGroupFocusEvent;
 use crate::pane_group::pane::ActionOrigin;
 use crate::persistence::ModelEvent;
-use crate::quit_warning::UnsavedStateSummary;
 use crate::session_management::SessionNavigationData;
 use crate::settings::PaneSettings;
 use crate::settings_view::SettingsSection;
@@ -1970,41 +1969,11 @@ impl PaneGroup {
         self.panes.is_hidden_closed_pane(&pane_id)
     }
 
-    /// Emits an event for the workspace to show a confirmation dialog if necessary, or closes immediately if not.
-    /// If a dialog is opened, the workspace may call back into pane group to close the pane after the user confirms.
-    pub fn close_pane_with_confirmation(&mut self, pane_id: PaneId, ctx: &mut ViewContext<Self>) {
-        let summary = UnsavedStateSummary::for_pane(self, pane_id, ctx);
-        if summary.save_unsaved_code_and_should_warn(ctx)
-            && ChannelState::channel() != Channel::Integration
-        {
-            log::info!("Displaying unsaved changes warning for pane");
-            let confirm_self = ctx.handle();
-            let show_process_self = ctx.handle();
-            let dialog = summary
-                .dialog()
-                .on_confirm(move |ctx| {
-                    if let Some(pane_group) = confirm_self.upgrade(ctx) {
-                        pane_group.update(ctx, |pane_group, ctx| {
-                            pane_group.close_pane(pane_id, ctx);
-                        });
-                    }
-                })
-                .on_show_processes(move |ctx| {
-                    if let Some(pane_group) = show_process_self.upgrade(ctx) {
-                        pane_group.update(ctx, |_, ctx| {
-                            ctx.emit(Event::OpenPalette {
-                                mode: PaletteMode::Navigation,
-                                source: PaletteSource::QuitModal,
-                                query: Some("running".to_string()),
-                            });
-                        })
-                    }
-                })
-                .on_cancel(|_ctx| {});
-
-            if dialog.show(ctx) {
-                return;
-            }
+    /// Flushes enabled auto-saves before closing the pane.
+    pub fn close_pane_with_auto_save(&mut self, pane_id: PaneId, ctx: &mut ViewContext<Self>) {
+        if let Some(pane) = self.code_pane_by_id(pane_id) {
+            pane.file_view(ctx)
+                .update(ctx, |view, ctx| view.auto_save_all_unsaved_tabs(ctx));
         }
 
         self.close_pane(pane_id, ctx);
@@ -2324,7 +2293,7 @@ impl PaneGroup {
         }
     }
 
-    fn close_active_pane_with_confirmation(&mut self, ctx: &mut ViewContext<Self>) {
+    fn close_active_pane_with_auto_save(&mut self, ctx: &mut ViewContext<Self>) {
         if self.focused_pane_id(ctx).is_code_pane() {
             // If focused on a CodePane, close its active editor tab (optionally, the entire pane if it only has 1 tab).
             match self.code_view_from_pane_id(self.focused_pane_id(ctx), ctx) {
@@ -2335,11 +2304,11 @@ impl PaneGroup {
                     });
                 }
                 _ => {
-                    self.close_pane_with_confirmation(self.focused_pane_id(ctx), ctx);
+                    self.close_pane_with_auto_save(self.focused_pane_id(ctx), ctx);
                 }
             }
         } else {
-            self.close_pane_with_confirmation(self.focused_pane_id(ctx), ctx);
+            self.close_pane_with_auto_save(self.focused_pane_id(ctx), ctx);
         }
     }
 
@@ -3786,8 +3755,8 @@ impl TypedActionView for PaneGroup {
                 };
                 self.add_terminal_pane(*direction, chosen_shell, ctx);
             }
-            Remove(view_id) => self.close_pane_with_confirmation(*view_id, ctx),
-            RemoveActive => self.close_active_pane_with_confirmation(ctx),
+            Remove(view_id) => self.close_pane_with_auto_save(*view_id, ctx),
+            RemoveActive => self.close_active_pane_with_auto_save(ctx),
             Activate(view_id, reason) => self.focus_pane_on_mouse_event(*view_id, *reason, ctx),
             ResizeMove(position) => self.maybe_resize_pane(*position, ctx),
             StartResizing(border) => self.start_resizing(*border, ctx),

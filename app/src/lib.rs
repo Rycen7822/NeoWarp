@@ -39,7 +39,6 @@ mod platform;
 mod prefix;
 mod profiling;
 mod prompt;
-mod quit_warning;
 #[allow(dead_code)]
 mod remote_server;
 mod resource_limits;
@@ -98,8 +97,8 @@ pub mod themes;
 use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
 use code::persisted_workspace::PersistedWorkspace;
+use code::view::CodeView;
 use code_review::git_repo_model::GitRepoModels;
-use quit_warning::UnsavedStateSummary;
 #[cfg(feature = "local_fs")]
 use repo_metadata::{
     RepoMetadataModel, repositories::DetectedRepositories, watcher::DirectoryWatcher,
@@ -158,12 +157,10 @@ pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHa
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
 use crate::notification::NotificationContext;
-use crate::palette::{PaletteMode, PaletteSource};
 use crate::persistence::PersistenceWriter;
 use crate::root_view::{
     OpenFromRestoredArg, OpenPath, quake_mode_window_id, quake_mode_window_is_open,
 };
-use crate::session_management::{RunningSessionSummary, SessionNavigationData};
 use crate::settings::manager::SettingsManager;
 use crate::settings::{AccessibilitySettings, ScrollSettings, SelectionSettings};
 use crate::settings_view::DisplayCount;
@@ -177,7 +174,7 @@ use crate::user_config::WarpConfig;
 use crate::util::bindings::is_binding_cross_platform;
 use crate::vim_registers::VimRegisters;
 use crate::warp_managed_paths_watcher::{WarpManagedPathsWatcher, ensure_warp_watch_roots_exist};
-use crate::workspace::{ActiveSession, PaneViewLocator, ToastStack, Workspace, WorkspaceAction};
+use crate::workspace::{ActiveSession, PaneViewLocator, ToastStack, WorkspaceAction};
 
 /// Our embedded application assets.
 pub static ASSETS: warp_assets::Assets = warp_assets::Assets;
@@ -190,6 +187,7 @@ pub(crate) enum LaunchMode {
     /// Run a test - this may be an integration test or an eval.
     Test {
         driver: Box<Option<TestDriver>>,
+        #[cfg(target_os = "macos")]
         is_integration_test: bool,
     },
 
@@ -217,6 +215,7 @@ impl LaunchMode {
         }
     }
 
+    #[cfg(target_os = "macos")]
     fn is_integration_test(&self) -> bool {
         matches!(
             self,
@@ -391,9 +390,11 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
 
 /// Runs an integration test using the provided test driver.
 pub fn run_integration_test(driver: TestDriver) -> Result<()> {
+    #[cfg(target_os = "macos")]
     let is_integration_test = std::env::var("WARP_INTEGRATION").is_ok();
     let launch = LaunchMode::Test {
         driver: Box::new(Some(driver)),
+        #[cfg(target_os = "macos")]
         is_integration_test,
     };
     run_internal(launch)
@@ -564,7 +565,7 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     let pty_spawner =
         terminal::local_tty::spawner::PtySpawner::new().context("Failed to create pty spawner")?;
 
-    let callbacks = app_callbacks(launch_mode.is_integration_test());
+    let callbacks = app_callbacks();
     let mut app_builder = if launch_mode.is_gui() {
         warpui::platform::AppBuilder::new(
             callbacks,
@@ -981,7 +982,7 @@ pub(crate) fn initialize_app(
     app_state
 }
 
-pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppCallbacks {
+pub(crate) fn app_callbacks() -> warpui::platform::AppCallbacks {
     warpui::platform::AppCallbacks {
         on_internet_reachability_changed: Some(Box::new(move |reachable, ctx| {
             NetworkStatus::handle(ctx)
@@ -1065,67 +1066,32 @@ pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppC
                 return ApproveTerminateResult::Cancel;
             }
 
-            let summary = UnsavedStateSummary::for_window(window_id, ctx);
-
-            // Don't show dialog on integration test. Machine can't press buttons.
-            if !is_integration_test && summary.save_unsaved_code_and_should_warn(ctx) {
-                let shown = summary
-                    .dialog()
-                    .on_confirm(move |ctx| {
-                        ctx.windows()
-                            .close_window(window_id, TerminationMode::ForceTerminate);
-                    })
-                    .on_cancel(move |ctx| {
-                        on_close_window_cancelled(window_id, false, ctx);
-                    })
-                    .on_show_processes(move |ctx| {
-                        on_close_window_cancelled(window_id, true, ctx);
-                    })
-                    .show(ctx);
-                if shown {
-                    ApproveTerminateResult::Cancel
-                } else {
-                    ApproveTerminateResult::Terminate
-                }
-            } else {
-                ApproveTerminateResult::Terminate
+            for editor in ctx
+                .views_of_type::<CodeView>(window_id)
+                .into_iter()
+                .flatten()
+            {
+                editor.update(ctx, |view, ctx| view.auto_save_all_unsaved_tabs(ctx));
             }
+            ApproveTerminateResult::Terminate
         })),
         on_should_terminate_app: Some(Box::new(move |source, ctx| {
-            // Never interrupt a system-initiated termination (logout / restart /
-            // scheduled OS update): the quit-warning dialog can return
-            // `ApproveTerminateResult::Cancel`, which macOS interprets as Warp
-            // refusing to quit. That can abort a scheduled OS update while the
-            // quit-warning modal has no visible window to attach to, leaving
-            // Warp waiting on a prompt nobody can see (#12441).
+            // System shutdown must not wait for application UI or file saves.
             if source == TerminationRequestSource::System {
                 return ApproveTerminateResult::Terminate;
             }
 
-            let summary = UnsavedStateSummary::for_app(ctx);
-            // Don't show dialog on integration test. Machine can't press buttons.
-            if !is_integration_test && summary.save_unsaved_code_and_should_warn(ctx) {
-                let shown = summary
-                    .dialog()
-                    .on_confirm(|ctx| ctx.terminate_app(TerminationMode::ForceTerminate, None))
-                    .on_show_processes(|ctx| on_close_app_cancelled(true, ctx))
-                    .on_cancel(|ctx| on_close_app_cancelled(false, ctx))
-                    .show(ctx);
-                if shown {
-                    return ApproveTerminateResult::Cancel;
+            for window_id in ctx.window_ids().collect_vec() {
+                for editor in ctx
+                    .views_of_type::<CodeView>(window_id)
+                    .into_iter()
+                    .flatten()
+                {
+                    editor.update(ctx, |view, ctx| view.auto_save_all_unsaved_tabs(ctx));
                 }
             }
 
             ApproveTerminateResult::Terminate
-        })),
-        on_disable_warning_modal: Some(Box::new(move |ctx| {
-            GeneralSettings::handle(ctx).update(ctx, |general_settings, ctx| {
-                report_if_error!(
-                    general_settings
-                        .show_warning_before_quitting
-                        .toggle_and_save_value(ctx)
-                );
-            });
         })),
         on_notification_clicked: Some(Box::new(move |notification_response, ctx| {
             if let Some(notification_data) = notification_response.data() {
@@ -1211,85 +1177,6 @@ pub(crate) fn app_callbacks(is_integration_test: bool) -> warpui::platform::AppC
             ctx.dispatch_global_action("workspace:save_app", &());
         })),
         ..Default::default()
-    }
-}
-
-fn on_close_app_cancelled(open_navigation_palette: bool, ctx: &mut AppContext) {
-    let sessions = SessionNavigationData::all_sessions(ctx).collect_vec();
-    let sessions_summary = RunningSessionSummary::new(&sessions);
-
-    // If open_navigation_palette is false, return early. Otherwise, we honor the open_navigation_palette
-    // param which is true if the user clicked the modal button for that. However, if the running
-    // processes in this window have finished since the modal popped, there is nothing to do now and we
-    // can return early
-    if !open_navigation_palette || sessions_summary.long_running_cmds.is_empty() {
-        return;
-    }
-
-    let windowing_model = ctx.windows();
-    let active_window_id = windowing_model.active_window();
-    // show the nav palette in the active window. if there is no active window,
-    // arbitrarily pick one of the windows having a running process
-    let window_id_to_focus = active_window_id.unwrap_or_else(|| {
-        *sessions_summary
-            .windows_running()
-            .iter()
-            .next()
-            .expect("already checked len > 0")
-    });
-
-    windowing_model.show_window_and_focus_app(window_id_to_focus);
-
-    // open the nav palette in the selected window
-    if let Some(workspaces) = ctx.views_of_type::<Workspace>(window_id_to_focus)
-        && let Some(handle) = workspaces.first()
-    {
-        ctx.dispatch_typed_action_for_view(
-            window_id_to_focus,
-            handle.id(),
-            &WorkspaceAction::OpenPalette {
-                mode: PaletteMode::Navigation,
-                source: PaletteSource::QuitModal,
-                query: Some("running".to_owned()),
-            },
-        );
-    }
-}
-
-fn on_close_window_cancelled(
-    window_id: WindowId,
-    open_navigation_palette: bool,
-    ctx: &mut AppContext,
-) {
-    let sessions = SessionNavigationData::all_sessions(ctx).collect_vec();
-    let sessions_summary = RunningSessionSummary::new(&sessions);
-    let num_processes_in_window = sessions_summary.processes_in_window(&window_id).len();
-
-    // If open_navigation_palette is false, return early. Otherwise, we honor the
-    // open_navigation_palette param which is true if the user clicked the modal
-    // button for that. However, if the running processes in this window have finished
-    // since the modal popped, there is nothing to do now and we can return early
-    if !open_navigation_palette || num_processes_in_window == 0 {
-        return;
-    }
-
-    ctx.windows().show_window_and_focus_app(window_id);
-
-    // if we haven't returned early, it means open_navigation_palette is true as the
-    // user pressed the modal button for opening the navigation palette to show their
-    // running processes
-    if let Some(workspaces) = ctx.views_of_type::<Workspace>(window_id)
-        && let Some(handle) = workspaces.first()
-    {
-        ctx.dispatch_typed_action_for_view(
-            window_id,
-            handle.id(),
-            &WorkspaceAction::OpenPalette {
-                mode: PaletteMode::Navigation,
-                source: PaletteSource::QuitModal,
-                query: Some("running".to_owned()),
-            },
-        );
     }
 }
 
