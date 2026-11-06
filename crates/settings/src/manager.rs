@@ -1,12 +1,9 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 
 use anyhow::{Result, anyhow};
-use warp_features::FeatureFlag;
 use warpui_core::{AppContext, Entity, SingletonEntity};
-use warpui_extras::user_preferences::UserPreferences;
 
-use super::{PrivatePreferences, SupportedPlatforms};
+use super::SupportedPlatforms;
 
 type UpdateFn = Box<dyn FnMut(String, &mut AppContext) -> Result<()>>;
 
@@ -134,45 +131,6 @@ impl SettingsManager {
             .map(|info| &info.supported_platforms)
     }
 
-    /// Returns whether the setting with the given storage key is private.
-    pub fn is_private_for_storage_key(&self, storage_key: &str) -> bool {
-        self.settings
-            .get(storage_key)
-            .map(|info| info.is_private)
-            .unwrap_or(false)
-    }
-
-    /// Reads a setting's current local value from the correct preferences
-    /// backend, routing private settings to the private store and public
-    /// settings to the main (potentially TOML-backed) store.
-    pub fn read_local_setting_value(
-        &self,
-        storage_key: &str,
-        ctx: &AppContext,
-    ) -> Result<Option<String>> {
-        let private: &dyn UserPreferences =
-            <PrivatePreferences as SingletonEntity>::as_ref(ctx).deref();
-        let prefs: &dyn UserPreferences = if self.is_private_for_storage_key(storage_key) {
-            private
-        } else if FeatureFlag::SettingsFile.is_enabled() {
-            <super::PublicPreferences as SingletonEntity>::as_ref(ctx).as_preferences()
-        } else {
-            // When the settings file is disabled, fall back to the private
-            // backend so both paths share a single instance.
-            private
-        };
-        let info = self.settings.get(storage_key);
-        let key = if prefs.is_settings_file() {
-            info.map_or(storage_key, |i| i.toml_key)
-        } else {
-            storage_key
-        };
-        let hierarchy = info.and_then(|i| i.hierarchy);
-        prefs
-            .read_value_with_hierarchy(key, hierarchy)
-            .map_err(|e| anyhow!("failed to read setting {storage_key}: {e}"))
-    }
-
     /// Updates the setting with the given storage key to a new value, returning
     /// a result indicating whether the update was successful.
     pub fn update_setting_with_storage_key(
@@ -237,9 +195,8 @@ impl SettingsManager {
 
     /// Reloads all public (non-private) settings from the preferences backend.
     ///
-    /// Call this after the backing store has been refreshed from disk (e.g.
-    /// via [`UserPreferences::reload_from_disk`]) so that every in-memory
-    /// setting picks up the new values.
+    /// Call this after the preferences backend has been refreshed from disk
+    /// so that every in-memory setting picks up the new values.
     ///
     /// Uses [`load_setting`](Self::load_setting) to update in-memory values
     /// without writing back to the preferences backend, avoiding write-back
