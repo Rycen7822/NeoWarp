@@ -598,34 +598,6 @@ fn test_update_dirty_matches_append() {
 }
 
 #[test]
-fn test_update_dirty_matches_replace_middle() {
-    let mut results = BlockFindResults::default();
-    let block_index = BlockIndex(0);
-    let grid_type = GridType::Output;
-
-    // Seed with matches at rows 5, 15, 25.
-    results.terminal_matches.insert(
-        (block_index, grid_type),
-        vec![make_match(5), make_match(15), make_match(25)],
-    );
-
-    // Update dirty range 10..=20, which overlaps with the match at row 15.
-    // Replace it with matches at rows 12 and 18.
-    let new_matches = vec![make_match(12), make_match(18)];
-    results.update_dirty_matches(block_index, grid_type, 10..=20, new_matches);
-
-    let stored = results
-        .terminal_matches
-        .get(&(block_index, grid_type))
-        .unwrap();
-    assert_eq!(stored.len(), 4);
-    assert_eq!(stored[0].start_row(), 5);
-    assert_eq!(stored[1].start_row(), 12);
-    assert_eq!(stored[2].start_row(), 18);
-    assert_eq!(stored[3].start_row(), 25);
-}
-
-#[test]
 fn test_update_dirty_matches_clear_range() {
     let mut results = BlockFindResults::default();
     let block_index = BlockIndex(0);

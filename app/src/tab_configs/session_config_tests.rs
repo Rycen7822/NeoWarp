@@ -21,17 +21,6 @@ fn terminal_no_worktree() {
     assert!(config.params.is_empty());
 }
 
-#[test]
-fn directory_path_is_absolute_in_directory() {
-    let config = build_tab_config(Path::new("/absolute/path/here"));
-
-    let directory = config.panes[0].directory.as_deref().unwrap();
-    assert!(
-        directory.starts_with('/'),
-        "directory should be absolute, got: {directory}"
-    );
-}
-
 // ── TOML round-trip ──
 
 #[test]

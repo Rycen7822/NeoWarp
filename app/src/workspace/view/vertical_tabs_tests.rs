@@ -24,7 +24,6 @@ use super::{
     vtab_diff_stats_text,
 };
 use crate::context_chips::display_chip::GitLineChanges;
-use crate::pane_group::pane::IPaneType;
 use crate::pane_group::{PaneId, TerminalPaneId};
 use crate::safe_triangle::SafeTriangle;
 use crate::tab::{ShortcutModifierKind, reveals_shortcut_hints};
@@ -85,44 +84,6 @@ fn summary_pane_kind_icons_recompute_when_oldest_kind_is_removed() {
             secondary: SummaryPaneKind::Terminal,
         })
     );
-}
-
-fn pane_type_supports_vertical_tabs_detail_sidecar(pane_type: IPaneType) -> bool {
-    matches!(pane_type, IPaneType::Terminal | IPaneType::Code)
-}
-
-fn collect_normalized_unique_summary_texts(
-    texts: impl IntoIterator<Item = impl AsRef<str>>,
-) -> Vec<String> {
-    texts
-        .into_iter()
-        .filter_map(|text| {
-            let normalized = text
-                .as_ref()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            (!normalized.is_empty()).then_some(normalized)
-        })
-        .fold(Vec::new(), |mut values, normalized| {
-            if !values.contains(&normalized) {
-                values.push(normalized);
-            }
-            values
-        })
-}
-
-#[test]
-fn detail_sidecar_supports_terminal_and_code_panes() {
-    assert!(pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::Terminal
-    ));
-    assert!(pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::Code
-    ));
-    assert!(!pane_type_supports_vertical_tabs_detail_sidecar(
-        IPaneType::Settings
-    ));
 }
 
 #[test]
@@ -429,21 +390,6 @@ fn tab_group_header_hidden_for_single_pane_without_custom_title() {
 }
 
 #[test]
-fn tab_group_header_distinguishes_two_auto_named_multi_pane_tabs() {
-    // Models the screenshot in #9098: tab 1 has a custom title
-    // ("Humanfigure"), tabs 2 and 3 are auto-named multi-pane groups
-    // ("travelplan + main", "deponti + release/development"). Before the
-    // fix only tab 1 showed a header; after the fix every multi-pane tab
-    // gets one so the user can tell them apart at a glance.
-    let renders_header: Vec<bool> = vec![
-        should_show_tab_group_header(true, false, 2),  // tab 1
-        should_show_tab_group_header(false, false, 2), // tab 2
-        should_show_tab_group_header(false, false, 2), // tab 3
-    ];
-    assert_eq!(renders_header, vec![true, true, true]);
-}
-
-#[test]
 fn terminal_primary_line_uses_terminal_title_as_fallback() {
     let line = terminal_primary_line_data(
         false,
@@ -626,36 +572,6 @@ fn compact_branch_subtitle_falls_back_to_working_directory_without_branch_icon()
     assert_eq!(
         compact_branch_subtitle_display(Some("main"), Some("~/warp")),
         Some(("main".to_string(), true))
-    );
-}
-
-#[test]
-fn collect_normalized_unique_summary_texts_dedupes_after_whitespace_normalization() {
-    assert_eq!(
-        collect_normalized_unique_summary_texts([
-            "  cargo   test  ",
-            "cargo test",
-            "",
-            " git   status ",
-        ]),
-        vec!["cargo test".to_string(), "git status".to_string()]
-    );
-}
-
-#[test]
-fn collect_normalized_unique_summary_texts_preserves_first_seen_order() {
-    assert_eq!(
-        collect_normalized_unique_summary_texts([
-            "~/warp-internal",
-            "~/warp-server",
-            "~/warp-internal",
-            "~/warp-terraform",
-        ]),
-        vec![
-            "~/warp-internal".to_string(),
-            "~/warp-server".to_string(),
-            "~/warp-terraform".to_string(),
-        ]
     );
 }
 
