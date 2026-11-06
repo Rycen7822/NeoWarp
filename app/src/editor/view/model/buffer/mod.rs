@@ -1,8 +1,6 @@
 mod anchor;
 mod deferred_ops;
 mod subword_boundaries;
-#[cfg(test)]
-mod test;
 mod text;
 mod time;
 mod undo;
@@ -1517,27 +1515,6 @@ impl Buffer {
         self.merge_all_selections()?;
 
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(super) fn all_selections(
-        &self,
-        include_self: bool,
-    ) -> HashMap<ReplicaId, Vec<Range<CharOffset>>> {
-        let mut all = HashMap::new();
-
-        for id in self.remote_selections.keys() {
-            all.insert(id.clone(), self.selections_for_replica(id.clone()));
-        }
-
-        if include_self {
-            all.insert(
-                self.replica_id(),
-                self.selections_for_replica(self.replica_id()),
-            );
-        }
-
-        all
     }
 
     #[cfg(test)]

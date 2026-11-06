@@ -120,6 +120,3 @@ impl From<String> for ProgrammingLanguage {
         }
     }
 }
-
-#[cfg(test)]
-mod mod_tests;

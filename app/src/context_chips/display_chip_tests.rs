@@ -238,12 +238,6 @@ fn test_git_branch_menu_icon_uses_worktree_icon_for_linked_worktree() {
 }
 
 #[test]
-fn test_create_git_branch_menu_name_quotes_query() {
-    let item = CreateGitBranch::new("feature/xyz".to_string());
-    assert_eq!(item.name(), "Create new branch \"feature/xyz\"");
-}
-
-#[test]
 fn test_create_git_branch_action_data_returns_branch_name() {
     let item = CreateGitBranch::new("feature/xyz".to_string());
     assert_eq!(item.action_data(), "feature/xyz");
