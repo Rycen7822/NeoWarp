@@ -56,6 +56,8 @@ use warpui::elements::{
     PositionedElementAnchor, PositionedElementOffsetBounds, Radius, Rect, SavePosition, Shrinkable,
     SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
 };
+#[cfg(feature = "local_fs")]
+use warpui::elements::{DragBarSide, Resizable, ResizableStateHandle, resizable_state_handle};
 use warpui::event::KeyState;
 use warpui::fonts::{Properties, Weight};
 use warpui::geometry::vector::{Vector2F, vec2f};
@@ -506,6 +508,8 @@ pub struct Workspace {
     keybindings_view: ViewHandle<KeybindingsView>,
     #[cfg(feature = "local_fs")]
     git_review_view: Option<ViewHandle<crate::code_review::review::GitReviewView>>,
+    #[cfg(feature = "local_fs")]
+    git_review_width: ResizableStateHandle,
     #[cfg(feature = "local_fs")]
     sidebar: super::sidebar::Sidebar,
     #[cfg(feature = "local_fs")]
@@ -1453,6 +1457,8 @@ impl Workspace {
             keybindings_view,
             #[cfg(feature = "local_fs")]
             git_review_view: None,
+            #[cfg(feature = "local_fs")]
+            git_review_width: resizable_state_handle(800.),
             #[cfg(feature = "local_fs")]
             sidebar: super::sidebar::Sidebar::Closed(super::SidebarTab::Files),
             #[cfg(feature = "local_fs")]
@@ -10345,18 +10351,29 @@ impl Workspace {
             }
         }
 
-        // Resource center is a workspace-level panel, not configurable.
         #[cfg(feature = "local_fs")]
         if let Some(review) = &self.git_review_view {
+            let sidebar_width = if self.sidebar.is_open() { 281. } else { 0. };
             panels_view = panels_view.with_child(
-                self.wrap_in_panel_surface(
-                    Appearance::as_ref(app),
-                    &PanelPosition::Right,
-                    ConstrainedBox::new(ChildView::new(review).finish())
-                        .with_width(800.)
-                        .finish(),
-                    *PANEL_CORNER_RADIUS,
-                ),
+                Resizable::new(
+                    self.git_review_width.clone(),
+                    self.wrap_in_panel_surface(
+                        Appearance::as_ref(app),
+                        &PanelPosition::Right,
+                        ChildView::new(review).finish(),
+                        *PANEL_CORNER_RADIUS,
+                    ),
+                )
+                .with_dragbar_side(DragBarSide::Left)
+                .with_bounds_callback(Box::new(move |window_size| {
+                    let available =
+                        (window_size.x() - sidebar_width - 2. * WORKSPACE_PADDING - 2.).max(0.);
+                    // Keep room for the terminal; very narrow windows share the available space.
+                    let max_width = (available - 240.).max(available * 0.5);
+                    (320_f32.min(max_width), max_width)
+                }))
+                .on_resize(|ctx, _| ctx.notify())
+                .finish(),
             );
         }
         if self.current_workspace_state.is_right_panel_open() {
