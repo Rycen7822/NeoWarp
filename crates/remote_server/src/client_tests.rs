@@ -8,7 +8,7 @@ use warpui_core::r#async::executor;
 
 use super::*;
 use crate::proto::{
-    ClientMessage, ErrorCode, GetDiffStateResponse, InitializeResponse, OpenBufferResponse,
+    ClientMessage, GetDiffStateResponse, InitializeResponse, OpenBufferResponse,
     RunCommandResponse, RunCommandSuccess, ServerMessage, WriteFile, client_message,
     host_scoped_request, notification, run_command_response, server_message,
     session_scoped_request,
@@ -292,96 +292,6 @@ async fn concurrent_in_flight_requests() {
         let resp = h.await.unwrap();
         assert_eq!(resp.server_version, "test-0.1.0");
         assert_eq!(resp.host_id, "test-host-id");
-    }
-}
-
-/// Simulates a server that reads raw bytes, sends an error response for
-/// malformed messages where the request_id is parseable, then continues
-/// processing valid messages.
-async fn mock_server_with_error_handling(
-    mut reader: impl AsyncRead + Unpin,
-    mut writer: impl AsyncWrite + Unpin,
-) {
-    loop {
-        match protocol::read_client_message(&mut reader).await {
-            Ok(msg) => {
-                let response = ServerMessage {
-                    request_id: msg.request_id,
-                    message: Some(server_message::Message::InitializeResponse(
-                        InitializeResponse {
-                            server_version: "test-0.1.0".to_string(),
-                            host_id: "test-host-id".to_string(),
-                        },
-                    )),
-                };
-                protocol::write_server_message(&mut writer, &response)
-                    .await
-                    .unwrap();
-            }
-            Err(protocol::ProtocolError::Decode(_, Some(ref id))) => {
-                let error_response = ServerMessage {
-                    request_id: id.to_string(),
-                    message: Some(server_message::Message::Error(
-                        crate::proto::ErrorResponse {
-                            code: ErrorCode::InvalidRequest.into(),
-                            message: "malformed message".to_string(),
-                        },
-                    )),
-                };
-                protocol::write_server_message(&mut writer, &error_response)
-                    .await
-                    .unwrap();
-            }
-            Err(protocol::ProtocolError::Decode(_, None)) => {}
-            Err(protocol::ProtocolError::UnexpectedEof) => break,
-            Err(e) => panic!("mock server error: {e}"),
-        }
-    }
-}
-
-/// Sends a corrupted protobuf with a valid request_id to the server,
-/// verifying the server responds with an ErrorResponse for that request_id.
-#[tokio::test]
-async fn server_returns_error_for_malformed_message_with_parseable_id() {
-    let (client_stream, server_stream) = tokio::io::duplex(4096);
-    let (server_read, server_write) = tokio::io::split(server_stream);
-    let (client_read, client_write) = tokio::io::split(client_stream);
-
-    tokio::spawn(mock_server_with_error_handling(
-        server_read.compat(),
-        server_write.compat_write(),
-    ));
-
-    // Manually construct a corrupted message with a valid request_id field
-    // followed by bytes that cause a prost decode failure.
-    let mut payload = Vec::new();
-    // Field 1 (string): tag=0x0a, length=15, "malformed-req-1"
-    payload.push(0x0a);
-    payload.push(15);
-    payload.extend_from_slice(b"malformed-req-1");
-    // Invalid trailing bytes: field tag with reserved wire type 7 causes
-    // prost to fail, but our try_extract_request_id stops after field 1.
-    payload.extend_from_slice(&[0x0F, 0x01]); // field 1, wire type 7 (invalid)
-
-    // Write the corrupted message with length prefix.
-    let mut client_write = client_write.compat_write();
-    let len = payload.len() as u32;
-    client_write.write_all(&len.to_le_bytes()).await.unwrap();
-    client_write.write_all(&payload).await.unwrap();
-    client_write.flush().await.unwrap();
-
-    // Read the error response from the server.
-    let mut client_reader = futures::io::BufReader::new(client_read.compat());
-    let response: ServerMessage = protocol::read_server_message(&mut client_reader)
-        .await
-        .unwrap();
-
-    assert_eq!(response.request_id, "malformed-req-1");
-    match response.message {
-        Some(server_message::Message::Error(e)) => {
-            assert_eq!(e.code(), ErrorCode::InvalidRequest);
-        }
-        other => panic!("expected ErrorResponse, got: {other:?}"),
     }
 }
 

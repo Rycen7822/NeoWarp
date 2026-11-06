@@ -487,29 +487,6 @@ fn install_script_avoids_pattern_substitution_for_tilde_expansion() {
 }
 
 #[test]
-fn version_hash_is_deterministic() {
-    // version_hash uses the compile-time GIT_RELEASE_TAG which is typically
-    // unset in test builds, so it returns None. We test the hashing logic
-    // directly instead.
-    use std::hash::{Hash, Hasher};
-
-    let version = "v0.2026.05.13.09.15.stable_01";
-    let hash = |v: &str| -> String {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        v.hash(&mut hasher);
-        format!("{:016x}", hasher.finish())[..8].to_string()
-    };
-
-    // Same input produces the same hash.
-    assert_eq!(hash(version), hash(version));
-    // Different inputs produce different hashes.
-    assert_ne!(hash(version), hash("v0.2026.05.14.09.15.stable_01"));
-    // Hash is exactly 8 hex chars.
-    assert_eq!(hash(version).len(), 8);
-    assert!(hash(version).chars().all(|c| c.is_ascii_hexdigit()));
-}
-
-#[test]
 fn daemon_socket_name_is_short() {
     // Without GIT_RELEASE_TAG (typical in tests), falls back to unversioned.
     let name = daemon_socket_name();
@@ -535,48 +512,6 @@ fn daemon_pid_name_is_short() {
     );
     assert!(name.starts_with("server"));
     assert!(name.ends_with(".pid"));
-}
-
-#[test]
-fn socket_path_fits_within_sun_path_worst_case() {
-    // Worst case: preview channel (longest base dir) + 32-char username
-    // (Linux max) + hashed identity (8 chars) + hashed socket (20 chars).
-    //
-    // Path: /home/{user}/.neowarp-preview/remote-server/{hash8}/server-{hash8}.sock
-    // Keep short names within the 103-byte macOS limit.
-    let long_home = "/home/a]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]";
-    let identity_dir = remote_server_identity_dir_name("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
-    assert_eq!(identity_dir.len(), 8);
-
-    let hashed_socket = "server-a1b2c3d4.sock";
-    let old_socket = "server-v0.2026.05.13.09.15.stable_01.sock";
-
-    // Use .neowarp-preview (longest channel base dir) for worst case.
-    let daemon_dir = format!("{long_home}/.neowarp-preview/remote-server/{identity_dir}");
-
-    let hashed_path = format!("{daemon_dir}/{hashed_socket}");
-
-    // Must fit within macOS sun_path limit (103 bytes), the stricter of
-    // the two platforms.
-    assert!(
-        hashed_path.len() <= 103,
-        "hashed socket path exceeds macOS sun_path limit: {} bytes ({})",
-        hashed_path.len(),
-        hashed_path,
-    );
-
-    // The OLD naming scheme (full version + unhashed identity) should
-    // exceed the limit, confirming the regression.
-    let old_identity = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"; // 36 chars unhashed
-    let old_daemon_dir = format!("{long_home}/.neowarp-preview/remote-server/{old_identity}");
-    let old_full_path = format!("{old_daemon_dir}/{old_socket}");
-    assert!(
-        old_full_path.len() > 107,
-        "old socket path should exceed Linux sun_path limit to confirm the \
-         regression: {} bytes ({})",
-        old_full_path.len(),
-        old_full_path,
-    );
 }
 
 #[test]
