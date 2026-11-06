@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use warpui::{App, AssetProvider, View, ViewHandle, WindowId};
+use warpui::AssetProvider;
 
 pub mod assertions;
 pub mod block;
@@ -28,14 +28,6 @@ pub mod themes;
 pub mod view_getters;
 pub mod window;
 pub mod workspace;
-
-pub fn view_of_type<T: View>(app: &App, window_id: WindowId, tab_index: usize) -> ViewHandle<T> {
-    app.views_of_type(window_id)
-        .expect("should be views for window")
-        .get(tab_index)
-        .expect("should be an input view at index")
-        .clone()
-}
 
 pub fn create_file_from_assets(
     assets: impl AssetProvider,

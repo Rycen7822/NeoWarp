@@ -183,15 +183,3 @@ impl<T: ExpectedOutput> ExpectedOutput for Option<T> {
         }
     }
 }
-
-#[derive(Debug)]
-pub struct JsonEq(pub serde_json::Value);
-
-impl ExpectedOutput for JsonEq {
-    fn matches(&self, result: &str) -> bool {
-        match serde_json::from_str::<serde_json::Value>(result) {
-            Ok(actual) => actual == self.0,
-            Err(_) => false,
-        }
-    }
-}

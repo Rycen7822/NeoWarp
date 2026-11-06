@@ -6,7 +6,7 @@
 //! See https://github.com/warpdotdev/warp-internal/pull/4785#issue-1634862270
 
 use warpui::integration::AssertionCallback;
-use warpui::{App, Entity, View, ViewHandle, WindowId, async_assert};
+use warpui::{App, View, ViewHandle, WindowId, async_assert};
 
 use crate::input_suggestions::InputSuggestions;
 use crate::pane_group::{PaneGroup, PaneView};
@@ -18,7 +18,6 @@ use crate::settings_view::keybindings::KeybindingsView;
 use crate::terminal::TerminalView;
 use crate::terminal::input::Input;
 use crate::themes::theme_chooser::ThemeChooser;
-use crate::view_components::find::{Find, FindEvent, FindModel};
 use crate::workspace::Workspace;
 
 /// This identifier is useful when you'd like to weakly identify a terminal view
@@ -52,14 +51,6 @@ impl TerminalViewIdentifier {
     }
 }
 
-/// Panics if there isn't a single input suggestions view in the entire view hierarchy.
-pub fn single_input_suggestions_view(
-    app: &App,
-    window_id: WindowId,
-) -> ViewHandle<InputSuggestions> {
-    singleton_view_of_type(app, window_id)
-}
-
 pub fn single_input_suggestions_view_for_tab(
     app: &App,
     window_id: WindowId,
@@ -67,19 +58,6 @@ pub fn single_input_suggestions_view_for_tab(
 ) -> ViewHandle<InputSuggestions> {
     single_input_view_for_tab(app, window_id, tab_index)
         .read(app, |input, _| input.input_suggestions().to_owned())
-}
-
-/// Panics if there isn't a single find view in the entire view hierarchy.
-pub fn single_find_view<T: FindModel + Entity<Event = FindEvent>>(
-    app: &App,
-    window_id: WindowId,
-) -> ViewHandle<Find<T>> {
-    singleton_view_of_type(app, window_id)
-}
-
-/// Panics if there isn't a single input view in the entire view hierarchy.
-pub fn single_input_view(app: &App, window_id: WindowId) -> ViewHandle<Input> {
-    singleton_view_of_type(app, window_id)
 }
 
 /// Panics if there isn't a single input view in the given tab.
