@@ -109,6 +109,10 @@ impl ProjectsView {
 
     fn sync(&mut self, ctx: &mut ViewContext<Self>) {
         let store = ProjectSessions::as_ref(ctx);
+        self.collapsed.retain(|id| store.project(*id).is_some());
+        if self.selected.is_some_and(|id| store.project(id).is_none()) {
+            self.selected = None;
+        }
         let cutoff = chrono::Utc::now().timestamp_millis() - 72 * 60 * 60 * 1000;
         let mut projects: Vec<_> = store.catalog.projects.iter().collect();
         projects.sort_by_key(|project| {

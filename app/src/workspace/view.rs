@@ -4503,7 +4503,7 @@ impl Workspace {
                 WorkspaceAction::ToggleProjectPin(id)
             })
             .into_item();
-        let items = if session {
+        let mut items = if session {
             vec![
                 MenuItemFields::new(tr("Modify"))
                     .with_on_select_action(WorkspaceAction::EditProjectSession(id))
@@ -4518,6 +4518,16 @@ impl Workspace {
                 pin,
             ]
         };
+        items.push(MenuItem::Separator);
+        items.push(
+            MenuItemFields::new(tr("Delete"))
+                .with_on_select_action(if session {
+                    WorkspaceAction::RemoveProjectSession(id)
+                } else {
+                    WorkspaceAction::RemoveProject(id)
+                })
+                .into_item(),
+        );
         self.context_menu
             .update(ctx, |menu, ctx| menu.set_items(items, ctx));
         self.context_menu_position = Some(position);
@@ -11554,27 +11564,43 @@ impl TypedActionView for Workspace {
             #[cfg(feature = "local_fs")]
             EditProjectSession(id) => self.show_project_session_editor(Some(*id), None, ctx),
             #[cfg(feature = "local_fs")]
-            ToggleProjectPin(id) | ToggleProjectSessionPin(id) => {
+            ToggleProjectPin(id)
+            | ToggleProjectSessionPin(id)
+            | RemoveProject(id)
+            | RemoveProjectSession(id) => {
                 use crate::project_sessions::ProjectSessions;
                 use crate::project_sessions::config::Entry;
                 let store = ProjectSessions::handle(ctx);
-                let entry = if matches!(action, ToggleProjectSessionPin(_)) {
-                    store
-                        .as_ref(ctx)
-                        .entry(*id)
-                        .map(|(project, _)| Entry::Session {
-                            project: project.id,
-                            session: *id,
-                        })
-                } else {
-                    Some(Entry::Project(*id))
-                };
+                let removing = matches!(action, RemoveProject(_) | RemoveProjectSession(_));
+                let entry =
+                    if matches!(action, ToggleProjectSessionPin(_) | RemoveProjectSession(_)) {
+                        store
+                            .as_ref(ctx)
+                            .entry(*id)
+                            .map(|(project, _)| Entry::Session {
+                                project: project.id,
+                                session: *id,
+                            })
+                    } else {
+                        Some(Entry::Project(*id))
+                    };
                 if let Some(entry) = entry
-                    && let Err(error) = store.update(ctx, |store, ctx| store.toggle_pin(entry, ctx))
+                    && let Err(error) = store.update(ctx, |store, ctx| {
+                        if removing {
+                            store.remove(entry, ctx)
+                        } else {
+                            store.toggle_pin(entry, ctx)
+                        }
+                    })
                 {
+                    let operation = if removing {
+                        "remove project entry"
+                    } else {
+                        "pin"
+                    };
                     self.toast_stack.update(ctx, |stack, ctx| {
                         stack.add_ephemeral_toast(
-                            DismissibleToast::error(format!("Cannot pin: {error:#}")),
+                            DismissibleToast::error(format!("Cannot {operation}: {error:#}")),
                             ctx,
                         )
                     });

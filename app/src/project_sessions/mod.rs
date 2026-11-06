@@ -209,6 +209,55 @@ impl ProjectSessions {
         self.replace_catalog(next, ctx)
     }
 
+    pub(crate) fn remove(&mut self, entry: Entry, ctx: &mut ModelContext<Self>) -> Result<()> {
+        let mut next = self.catalog.clone();
+        match entry {
+            Entry::Project(id) => {
+                let index = next
+                    .projects
+                    .iter()
+                    .position(|project| project.id == id)
+                    .ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
+                next.projects.remove(index);
+            }
+            Entry::Session { project, session } => {
+                let project = next
+                    .projects
+                    .iter_mut()
+                    .find(|candidate| candidate.id == project)
+                    .ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
+                let index = project
+                    .sessions
+                    .iter()
+                    .position(|candidate| candidate.id == session)
+                    .ok_or_else(|| anyhow::anyhow!("Session no longer exists"))?;
+                project.sessions.remove(index);
+            }
+        }
+        next.projects
+            .retain(|project| project.pinned || !project.sessions.is_empty());
+        anyhow::ensure!(
+            !self.live.values().any(|live| live.running.is_none()
+                && self.catalog.session(live.session_id).is_some()
+                && next.session(live.session_id).is_none()
+                && live.terminal.upgrade(ctx).is_some()),
+            "Wait for the session terminal to finish starting before modifying it"
+        );
+        self.replace_catalog(next, ctx)?;
+        // Keep live blocks so repeated observations cannot recreate deleted records.
+        for live in self.live.values_mut() {
+            if self.catalog.session(live.session_id).is_none()
+                && let Some(lookup) = live
+                    .running
+                    .as_mut()
+                    .and_then(|running| running.lookup.take())
+            {
+                lookup.abort();
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn reorder(
         &mut self,
         source: Entry,
