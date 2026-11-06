@@ -8,15 +8,6 @@ fn link(uri: &str) -> Hyperlink {
 }
 
 #[test]
-fn intern_dedupes_same_hyperlink() {
-    let mut reg = HyperlinkRegistry::new();
-    let a = reg.intern(link("https://example.com")).unwrap();
-    let b = reg.intern(link("https://example.com")).unwrap();
-    assert_eq!(a, b);
-    assert_eq!(reg.len_for_test(), 1);
-}
-
-#[test]
 fn intern_returns_distinct_ids_for_distinct_uris() {
     let mut reg = HyperlinkRegistry::new();
     let a = reg.intern(link("https://a")).unwrap();

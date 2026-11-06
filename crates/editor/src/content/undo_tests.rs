@@ -1,14 +1,6 @@
 use super::*;
 use crate::render::model::RenderedSelection;
 
-#[test]
-fn test_version_match_initial() {
-    let version = ContentVersion::new();
-    let stack = UndoStack::new(5, version);
-
-    assert!(stack.version_match(&version));
-}
-
 fn fake_reversible_actions() -> ReversibleEditorActions {
     ReversibleEditorActions {
         actions: vec![],

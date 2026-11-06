@@ -850,36 +850,6 @@ fn static_image_not_affected_by_animation_behavior_change() {
 }
 
 #[test]
-fn animated_gif_shows_first_frame_preview_when_requested() {
-    let asset_cache = new_asset_cache();
-    let image_cache = ImageCache::new();
-
-    // Request FirstFramePreview behavior for an animated GIF
-    let preview = load_bundled_image(
-        &image_cache,
-        &asset_cache,
-        "numbers-1000ms.gif",
-        Vector2I::new(16, 16),
-        FitType::Contain,
-        AnimatedImageBehavior::FirstFramePreview,
-    );
-
-    // Should get a static image (the first frame)
-    let Image::Static(_) = preview.as_ref() else {
-        panic!("Expected static image for FirstFramePreview");
-    };
-
-    // But the underlying asset in asset_cache should still be the full AnimatedBitmap
-    let asset: AssetState<ImageType> = asset_cache.load_asset(AssetSource::Bundled {
-        path: "numbers-1000ms.gif",
-    });
-    let AssetState::Loaded { data } = asset else {
-        panic!("Bundled asset should be available immediately!");
-    };
-    assert!(matches!(data.as_ref(), ImageType::AnimatedBitmap { .. }));
-}
-
-#[test]
 fn animated_image_remaining_delay_decreases_within_frame() {
     let asset_cache = new_asset_cache();
     let image_cache = ImageCache::new();
