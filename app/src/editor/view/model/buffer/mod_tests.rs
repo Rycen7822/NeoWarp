@@ -3,9 +3,8 @@
 #![allow(clippy::single_range_in_vec_init)]
 
 use std::cmp::Ordering;
-use std::pin::{Pin, pin};
+use std::pin::pin;
 
-use async_channel::Receiver;
 use futures::StreamExt;
 use rand::prelude::StdRng;
 use warpui::color::ColorU;
@@ -26,30 +25,6 @@ fn visible_text_styles(buffer: &Buffer) -> Vec<Option<TextStyle>> {
                 .then_some(fragment.text.text_style)
         })
         .collect()
-}
-
-type OpsReceiver = Pin<Box<Receiver<Rc<Vec<Operation>>>>>;
-
-/// Creates a new [`Buffer`], registers it as a model in the App
-/// and creates a proxy receiver for any [`Event::UpdatePeers`] events
-/// emitted by the buffer.
-fn new_buffer_with_ops_receiver(
-    app: &mut App,
-    replica_id: ReplicaId,
-    text: &str,
-) -> (ModelHandle<Buffer>, OpsReceiver) {
-    let model = app.add_model(|_| Buffer::new_with_replica_id(replica_id, text));
-    let (tx, rx) = async_channel::unbounded();
-
-    app.update(|ctx| {
-        ctx.subscribe_to_model(&model, move |_, event, _| {
-            if let Event::UpdatePeers { operations } = event {
-                tx.try_send(operations.clone()).expect("can send message");
-            }
-        });
-    });
-
-    (model, Box::pin(rx))
 }
 
 impl ToCharOffset for usize {
@@ -1559,74 +1534,32 @@ fn test_text_styles_delete_until_highlight() -> Result<()> {
 fn test_edit_events() {
     App::test((), |mut app| async move {
         let base_text = "abcdef";
-        let (buffer_1_tx, buffer_1_rx) = async_channel::unbounded();
-        let (buffer_2_tx, buffer_2_rx) = async_channel::unbounded();
-
-        let buffer1 = app.add_model(|_| Buffer::new_with_replica_id(ReplicaId::new(1), base_text));
-        let buffer2 = app.add_model(|_| Buffer::new_with_replica_id(ReplicaId::new(2), base_text));
+        let (tx, rx) = async_channel::unbounded();
+        let buffer = app.add_model(|_| Buffer::new(base_text));
 
         app.update(|ctx| {
-            ctx.subscribe_to_model(&buffer1, move |_, event, _| {
-                buffer_1_tx
-                    .try_send(event.to_owned())
-                    .expect("Can send over buffer_2_tx")
-            });
-
-            ctx.subscribe_to_model(&buffer2, move |_, event, _| {
-                buffer_2_tx
-                    .try_send(event.to_owned())
-                    .expect("Can send over buffer_2_tx")
+            ctx.subscribe_to_model(&buffer, move |_, event, _| {
+                tx.try_send(event.to_owned())
+                    .expect("Can send buffer event")
             });
         });
 
-        buffer1.update(&mut app, |buffer, ctx| {
+        buffer.update(&mut app, |buffer, ctx| {
             buffer
                 .edit_for_test(Some(2..4), "XYZ", EditOrigin::UserInitiated, ctx)
                 .unwrap()
         });
 
-        let mut buffer_1_rx = pin!(buffer_1_rx);
-        let buffer_1_edit_event = buffer_1_rx
-            .next()
-            .await
-            .expect("buffer 1 has an edited event");
+        let mut rx = pin!(rx);
+        let edit_event = rx.next().await.expect("buffer has an edited event");
         assert_eq!(
-            buffer_1_edit_event,
+            edit_event,
             Event::Edited {
                 edits: vec![Edit {
                     old_range: to_char_index_range(2..4),
                     new_range: to_char_index_range(2..5)
                 }],
                 edit_origin: EditOrigin::UserInitiated,
-            }
-        );
-
-        let buffer_1_event = buffer_1_rx
-            .next()
-            .await
-            .expect("buffer 1 has an update peers event");
-        let operations = match buffer_1_event {
-            Event::UpdatePeers { operations } => operations.to_vec(),
-            _ => panic!("Expected to receive an UpdatePeers event but got {buffer_1_event:?}"),
-        };
-
-        buffer2.update(&mut app, |buffer, ctx| {
-            buffer.apply_ops(operations, ctx).unwrap();
-        });
-
-        let mut buffer_2_rx = pin!(buffer_2_rx);
-        let buffer_2_edit_event = buffer_2_rx
-            .next()
-            .await
-            .expect("buffer 2 has an edited event");
-        assert_eq!(
-            buffer_2_edit_event,
-            Event::Edited {
-                edits: vec![Edit {
-                    old_range: to_char_index_range(2..4),
-                    new_range: to_char_index_range(2..5)
-                }],
-                edit_origin: EditOrigin::RemoteEdit,
             }
         );
     })
@@ -2277,29 +2210,24 @@ fn test_record_edits() -> Result<()> {
 fn test_undo_should_restore_selection() {
     App::test((), |mut app| async move {
         // In this test, the buffer begins as "abc".
-        // Replica 1 selects 'a' and then removes it.
-        // If replica 1 undoes that action, the selection should be restored.
+        // Select 'a' and then remove it.
+        // Undoing that action should restore the selection.
         let base_text: &str = "abc";
-        let (replica_1_id, replica_2_id) = (ReplicaId::new(1), ReplicaId::new(2));
-        let (buffer_1, mut buffer_1_rx) =
-            new_buffer_with_ops_receiver(&mut app, replica_1_id.clone(), base_text);
-        let (buffer_2, _buffer_2_rx) =
-            new_buffer_with_ops_receiver(&mut app, replica_2_id.clone(), base_text);
+        let replica_id = ReplicaId::new(1);
+        let buffer = app.add_model(|_| Buffer::new_with_replica_id(replica_id.clone(), base_text));
 
-        buffer_1.update(&mut app, |buffer, ctx| {
+        buffer.update(&mut app, |buffer, ctx| {
             buffer
                 .change_selections_for_test(vec![to_char_index_range(0..1)], ctx)
-                .expect("can change selections for replica 1");
+                .expect("can change selections");
 
             assert_eq!(buffer.text(), "abc");
             assert_eq!(
-                buffer.selections_for_replica(replica_1_id.clone()),
+                buffer.selections_for_replica(replica_id.clone()),
                 vec![to_char_index_range(0..1)]
             );
         });
-        let buffer_1_selection_update = buffer_1_rx.next().await.unwrap().to_vec();
-
-        buffer_1.update(&mut app, |buffer, ctx| {
+        buffer.update(&mut app, |buffer, ctx| {
             buffer
                 .edit_for_test(
                     vec![to_char_index_range(0..1)],
@@ -2307,51 +2235,20 @@ fn test_undo_should_restore_selection() {
                     EditOrigin::UserInitiated,
                     ctx,
                 )
-                .expect("can edit replica 1");
+                .expect("can edit buffer");
 
             assert_eq!(buffer.text(), "bc");
             assert_eq!(
-                buffer.selections_for_replica(replica_1_id.clone()),
+                buffer.selections_for_replica(replica_id.clone()),
                 vec![to_char_index_range(0..0)]
             );
         });
-        let buffer_1_edit = buffer_1_rx.next().await.unwrap().to_vec();
-
-        buffer_2.update(&mut app, |buffer, ctx| {
-            buffer
-                .apply_ops(buffer_1_selection_update, ctx)
-                .expect("can apply selection change to replica 2");
-
-            buffer
-                .apply_ops(buffer_1_edit, ctx)
-                .expect("can apply edit to replica 2");
-
-            assert_eq!(buffer.text(), "bc");
-            assert_eq!(
-                buffer.selections_for_replica(replica_1_id.clone()),
-                vec![to_char_index_range(0..0)]
-            );
-        });
-
-        buffer_1.update(&mut app, |buffer, ctx| {
+        buffer.update(&mut app, |buffer, ctx| {
             buffer.undo(ctx);
 
             assert_eq!(buffer.text(), "abc");
             assert_eq!(
-                buffer.selections_for_replica(replica_1_id.clone()),
-                vec![to_char_index_range(0..1)]
-            );
-        });
-        let buffer_1_undo = buffer_1_rx.next().await.unwrap().to_vec();
-
-        buffer_2.update(&mut app, |buffer, ctx| {
-            buffer
-                .apply_ops(buffer_1_undo, ctx)
-                .expect("can apply undo to replica 2");
-
-            assert_eq!(buffer.text(), "abc");
-            assert_eq!(
-                buffer.selections_for_replica(replica_1_id.clone()),
+                buffer.selections_for_replica(replica_id.clone()),
                 vec![to_char_index_range(0..1)]
             );
         });
