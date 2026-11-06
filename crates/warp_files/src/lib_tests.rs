@@ -181,16 +181,12 @@ fn test_load_missing_file() {
         let event = receiver.recv().await.expect("Could not receive the result");
         match event {
             TestFileModelEvent::FailedToLoad(err) => {
-                // File not found error strings differ across operating systems.
-                #[cfg(not(windows))]
-                let os_error_message = "No such file or directory";
-                #[cfg(windows)]
-                let os_error_message = "The system cannot find the file specified.";
-
+                // The OS localizes its error message; keep the expected code and wrapper exact.
                 assert_eq!(
                     err,
                     format!(
-                        "IOError(Os {{ code: 2, kind: NotFound, message: \"{os_error_message}\" }})"
+                        "{:?}",
+                        FileLoadError::IOError(std::io::Error::from_raw_os_error(2))
                     )
                 );
             }
