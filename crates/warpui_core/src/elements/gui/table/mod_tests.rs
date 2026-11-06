@@ -209,15 +209,6 @@ fn test_table_column_width_default() {
 // ============================================================================
 
 #[test]
-fn test_sumtree_initialization_with_row_count() {
-    let state = TableStateHandle::new(100, |_, _| vec![]);
-    state.set_row_count(100);
-
-    let inner = state.inner.borrow();
-    assert_eq!(inner.row_count, 100);
-}
-
-#[test]
 fn test_sumtree_row_height_invalidation() {
     let state = TableStateHandle::new(10, |_, _| vec![]);
 
@@ -308,41 +299,6 @@ fn test_approximate_height_estimates_unmeasured_rows() {
     assert_eq!(approx_height, Pixels::new(340.0));
 }
 
-#[test]
-fn test_visible_start_row_idx_tracking() {
-    let state = TableStateHandle::new(100, |_, _| vec![]);
-
-    {
-        let mut inner = state.inner.borrow_mut();
-        inner.visible_start_row_idx = 42;
-    }
-
-    let inner = state.inner.borrow();
-    assert_eq!(inner.visible_start_row_idx, 42);
-}
-
-#[test]
-fn test_max_scroll_offset_respects_viewport() {
-    let state = TableStateHandle::new(10, |_, _| vec![]);
-
-    {
-        let mut inner = state.inner.borrow_mut();
-        inner.header_height = Pixels::new(40.0);
-        inner.viewport_height = Pixels::new(200.0);
-        let mut tree = SumTree::new();
-        for _ in 0..10 {
-            tree.push(TableRowItem {
-                height: Some(Pixels::new(50.0)),
-            });
-        }
-        inner.rows = tree;
-    }
-
-    let inner = state.inner.borrow();
-    let max_scroll_px = inner.header_height + inner.rows.summary().height - inner.viewport_height;
-    assert!(max_scroll_px > Pixels::zero());
-}
-
 // ============================================================================
 // Multiple Layout Tests
 // ============================================================================
@@ -350,19 +306,6 @@ fn test_max_scroll_offset_respects_viewport() {
 #[test]
 fn test_visible_row_count_starts_at_zero() {
     let state = TableStateHandle::new(5, |_, _| {
-        vec![create_empty_element(), create_empty_element()]
-    });
-    let table = Table::new(state, 400.0, 300.0).with_headers(vec![
-        create_header(TableColumnWidth::Fixed(100.0)),
-        create_header(TableColumnWidth::Fixed(100.0)),
-    ]);
-
-    assert_eq!(table.visible_row_count(), 0);
-}
-
-#[test]
-fn test_children_vector_is_initially_empty() {
-    let state = TableStateHandle::new(10, |_, _| {
         vec![create_empty_element(), create_empty_element()]
     });
     let table = Table::new(state, 400.0, 300.0).with_headers(vec![

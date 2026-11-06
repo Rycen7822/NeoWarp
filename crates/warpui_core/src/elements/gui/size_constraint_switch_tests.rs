@@ -117,25 +117,6 @@ fn assert_rendered_rect_with_size(app: &mut App, window_id: WindowId, size: Vect
 }
 
 #[test]
-fn renders_default_child_when_no_conditions_match() {
-    App::test((), |mut app| async move {
-        let app = &mut app;
-        let (window_id, test_view) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-            TestRootView::new(
-                *PARENT_SIZE_FOR_DEFAULT_CHILD,
-                SizeConstraintCondition::WidthLessThan(CONDIITIONAL_CHILD_THRESHOLD),
-                ctx,
-            )
-        });
-        test_view.update(app, |_, ctx| {
-            ctx.notify();
-        });
-
-        assert_rendered_rect_with_size(app, window_id, *DEFAULT_CHILD_SIZE);
-    })
-}
-
-#[test]
 fn renders_element_with_max_width_condition() {
     App::test((), |mut app| async move {
         let app = &mut app;

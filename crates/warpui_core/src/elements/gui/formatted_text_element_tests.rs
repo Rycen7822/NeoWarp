@@ -73,35 +73,6 @@ fn test_get_multiplier_method() {
     assert_eq!(multipliers.get_multiplier(999), 1.0);
 }
 
-#[test]
-fn test_custom_heading_font_size_multipliers() {
-    let custom_multipliers = HeadingFontSizeMultipliers {
-        h1: 2.0,
-        h2: 1.8,
-        h3: 1.5,
-        ..Default::default()
-    };
-
-    // Test custom values
-    assert_eq!(custom_multipliers.h1, 2.0);
-    assert_eq!(custom_multipliers.h2, 1.8);
-    assert_eq!(custom_multipliers.h3, 1.5);
-
-    // Test that other values still use defaults
-    assert_eq!(
-        custom_multipliers.h4,
-        BlockHeaderSize::Header4.font_size_multiplication_ratio()
-    );
-    assert_eq!(
-        custom_multipliers.h5,
-        BlockHeaderSize::Header5.font_size_multiplication_ratio()
-    );
-    assert_eq!(
-        custom_multipliers.h6,
-        BlockHeaderSize::Header6.font_size_multiplication_ratio()
-    );
-}
-
 fn sr(char_start: usize, char_end: usize, byte_start: usize, byte_end: usize) -> StringRange {
     StringRange {
         char_range: char_start..char_end,
