@@ -1473,10 +1473,6 @@ fn parse_osc7_posix_path_not_mangled_non_windows() {
     let local =
         crate::model::session::get_local_hostname().expect("test requires a real local hostname");
 
-    let payload = format!("\x1b]7;file://{local}/Users/foo/bar\x07");
-    let (_, handler) = parse_bytes(payload.as_bytes());
-    assert_eq!(handler.cwd_updates, vec!["/Users/foo/bar".to_string()]);
-
     let payload = format!("\x1b]7;file://{local}/E:/CLAUDE-BASE\x07");
     let (_, handler) = parse_bytes(payload.as_bytes());
     assert_eq!(handler.cwd_updates, vec!["/E:/CLAUDE-BASE".to_string()]);

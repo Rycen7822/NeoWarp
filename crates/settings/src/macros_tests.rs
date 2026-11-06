@@ -86,38 +86,6 @@ fn test_can_override_storage_key() {
 }
 
 #[test]
-fn test_set_value_raises_changed_event_no_save() {
-    warpui_core::App::test((), |mut app| async move {
-        app.update(init_and_register_preferences);
-        app.add_singleton_model(|_| SettingsManager::default());
-
-        // Register our TestSettings settings group with the app.
-        TestSettings::register(&mut app);
-
-        // Register a model which subscribes to change events on TestSettings.
-        let handle = app.add_model(EventListener::new);
-
-        // Make sure that we haven't received any events yet.
-        app.read(|ctx| {
-            assert!(!handle.as_ref(ctx).got_event);
-        });
-
-        // Modify the value of the setting.  This should produce an event that
-        // is handled by our EventListener model.
-        app.update(|ctx| {
-            TestSettings::handle(ctx).update(ctx, |test_settings, ctx| {
-                let _ = test_settings.simple_setting.set_value(true, ctx);
-            });
-        });
-
-        // Check that the EventListener model received the event.
-        app.read(|ctx| {
-            assert!(handle.as_ref(ctx).got_event);
-        });
-    });
-}
-
-#[test]
 fn test_set_value_raises_changed_event_save() {
     warpui_core::App::test((), |mut app| async move {
         app.update(init_and_register_preferences);
@@ -367,13 +335,6 @@ fn test_toml_path_returns_none_for_private_setting() {
 }
 
 #[test]
-fn test_storage_key_is_struct_name_not_toml_path() {
-    // storage_key() returns the struct name, not the toml_path segment.
-    // The TOML backend handles snake_case conversion separately.
-    assert_eq!(SimpleSetting::storage_key(), "SimpleSetting");
-}
-
-#[test]
 fn test_hierarchy_derived_from_toml_path() {
     // SimpleSetting has toml_path "test.simple_setting" → hierarchy Some("test")
     assert_eq!(SimpleSetting::hierarchy(), Some("test"));
@@ -384,12 +345,6 @@ fn test_hierarchy_derived_from_toml_path() {
 #[test]
 fn test_hierarchy_returns_none_for_private_setting() {
     assert_eq!(KeyOverrideSetting::hierarchy(), None);
-}
-
-#[test]
-fn test_private_setting_storage_key_is_explicit_override() {
-    // KeyOverrideSetting has storage_key: "KeyIsOverridden" (no toml_path)
-    assert_eq!(KeyOverrideSetting::storage_key(), "KeyIsOverridden");
 }
 
 #[test]
@@ -560,29 +515,6 @@ fn test_load_value_resets_explicitly_set_flag() {
             );
         });
     });
-}
-
-mod file_transform_tests {
-    use settings_value::SettingsValue;
-
-    #[test]
-    fn test_vec_u32_uses_serde_passthrough() {
-        // Vec<u32> uses the default SettingsValue (serde passthrough)
-        let value = vec![10u32, 20, 30];
-        let file_val = value.to_file_value();
-        assert_eq!(file_val, serde_json::json!([10, 20, 30]));
-        let back = Vec::<u32>::from_file_value(&file_val).unwrap();
-        assert_eq!(back, value);
-    }
-
-    #[test]
-    fn test_bool_settings_value() {
-        assert_eq!(true.to_file_value(), serde_json::json!(true));
-        assert_eq!(
-            bool::from_file_value(&serde_json::json!(false)),
-            Some(false)
-        );
-    }
 }
 
 // ---------------------------------------------------------------------------

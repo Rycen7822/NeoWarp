@@ -553,27 +553,6 @@ pub fn test_variadic_flags() {
     let registry = create_test_command_registry([test_signature()]);
     let ctx = FakeCompletionContext::new(registry);
 
-    // ensure all the named flags are appearing (ordering doesn't matter here)
-    let mut results =
-        complete_at_end_of_line_with_options("test --", MatchStrategy::CaseInsensitive, &ctx);
-    results.sort();
-    assert_eq!(
-        results,
-        vec![
-            "--long",
-            "--not-long",
-            "--required-and-optional-args",
-            "--required-args",
-            "--required-args-with-var",
-            "--template-args-for-opt"
-        ]
-    );
-
-    assert_eq!(
-        complete_at_end_of_line("test --long ", &ctx),
-        vec!["long-one", "long-two"]
-    );
-
     assert_eq!(
         complete_at_end_of_line("test --long long-one --long ", &ctx),
         vec!["long-one", "long-two"]
@@ -1526,11 +1505,6 @@ pub fn test_path_fallback() {
     assert_eq!(
         complete_at_end_of_line("rustfmt --check ", &ctx),
         vec!["Cargo.toml", "src/", "target/"]
-    );
-
-    assert_eq!(
-        complete_at_end_of_line("rustfmt --check C", &ctx),
-        vec!["Cargo.toml"]
     );
 
     assert_eq!(

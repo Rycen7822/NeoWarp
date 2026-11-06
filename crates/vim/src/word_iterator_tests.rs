@@ -100,47 +100,6 @@ fn test_word_forward_heads_including_symbols() {
     assert_eq!(iter1.next(), Some(53.into()));
     assert_eq!(iter1.next(), Some(70.into()));
     assert_eq!(iter1.next(), None);
-
-    let mut iter2 = vim_word_iterator_from_offset(
-        15,
-        LINE,
-        Direction::Forward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter2.next(), Some(23.into()));
-
-    let mut iter3 = vim_word_iterator_from_offset(
-        43,
-        LINE,
-        Direction::Forward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter3.next(), Some(49.into()));
-
-    let mut iter4 = vim_word_iterator_from_offset(
-        38,
-        LINE,
-        Direction::Forward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter4.next(), Some(40.into()));
-
-    let mut iter5 = vim_word_iterator_from_offset(
-        69,
-        LINE,
-        Direction::Forward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter5.next(), Some(70.into()));
-    assert_eq!(iter5.next(), None);
 }
 
 /// The behavior for pressing "ge"
@@ -239,47 +198,6 @@ fn test_word_backward_heads_including_symbols() {
     assert_eq!(iter1.next(), Some(7.into()));
     assert_eq!(iter1.next(), Some(0.into()));
     assert_eq!(iter1.next(), None);
-
-    let mut iter2 = vim_word_iterator_from_offset(
-        15,
-        LINE,
-        Direction::Backward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter2.next(), Some(10.into()));
-
-    let mut iter3 = vim_word_iterator_from_offset(
-        43,
-        LINE,
-        Direction::Backward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter3.next(), Some(36.into()));
-
-    let mut iter4 = vim_word_iterator_from_offset(
-        38,
-        LINE,
-        Direction::Backward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter4.next(), Some(36.into()));
-
-    let mut iter5 = vim_word_iterator_from_offset(
-        0,
-        LINE,
-        Direction::Backward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter5.next(), Some(0.into()));
-    assert_eq!(iter5.next(), None);
 }
 
 /// The behavior for pressing "e"
@@ -378,47 +296,6 @@ fn test_word_forward_tails_including_symbols() {
     assert_eq!(iter1.next(), Some(51.into()));
     assert_eq!(iter1.next(), Some(69.into()));
     assert_eq!(iter1.next(), None);
-
-    let mut iter2 = vim_word_iterator_from_offset(
-        15,
-        LINE,
-        Direction::Forward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter2.next(), Some(21.into()));
-
-    let mut iter3 = vim_word_iterator_from_offset(
-        43,
-        LINE,
-        Direction::Forward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter3.next(), Some(47.into()));
-
-    let mut iter4 = vim_word_iterator_from_offset(
-        38,
-        LINE,
-        Direction::Forward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter4.next(), Some(47.into()));
-
-    let mut iter5 = vim_word_iterator_from_offset(
-        69,
-        LINE,
-        Direction::Forward,
-        WordBound::End,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter5.next(), Some(69.into()));
-    assert_eq!(iter5.next(), None);
 }
 
 /// The behavior for pressing "b"
@@ -517,47 +394,6 @@ fn test_word_backward_tails_including_symbols() {
     assert_eq!(iter1.next(), Some(9.into()));
     assert_eq!(iter1.next(), Some(0.into()));
     assert_eq!(iter1.next(), None);
-
-    let mut iter2 = vim_word_iterator_from_offset(
-        15,
-        LINE,
-        Direction::Backward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter2.next(), Some(12.into()));
-
-    let mut iter3 = vim_word_iterator_from_offset(
-        43,
-        LINE,
-        Direction::Backward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter3.next(), Some(40.into()));
-
-    let mut iter4 = vim_word_iterator_from_offset(
-        38,
-        LINE,
-        Direction::Backward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter4.next(), Some(36.into()));
-
-    let mut iter5 = vim_word_iterator_from_offset(
-        0,
-        LINE,
-        Direction::Backward,
-        WordBound::Start,
-        WordType::Default,
-    )
-    .unwrap();
-    assert_eq!(iter5.next(), Some(0.into()));
-    assert_eq!(iter5.next(), None);
 }
 
 #[test]

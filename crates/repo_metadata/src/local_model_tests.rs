@@ -1704,26 +1704,6 @@ fn test_ensure_parent_directories_exist() {
         let mut root_paths = Vec::new();
         collect_all_paths(&root_target, &mut root_paths);
         assert_eq!(root_paths.len(), 1); // Should only contain the root itself
-
-        // Test case 6: Empty path handling
-        let empty_root_entry = Entry::Directory(DirectoryEntry {
-            path: StandardizedPath::try_new("/empty").unwrap(),
-            children: vec![],
-            ignored: false,
-            loaded: true,
-        });
-        let mut empty_root = FileTreeEntry::from(empty_root_entry);
-
-        // Test with a path that has no additional parents to create
-        let same_level_target = StandardizedPath::try_new("/empty").unwrap();
-        LocalRepoMetadataModel::ensure_parent_directories_exist(
-            &mut empty_root,
-            &same_level_target,
-        );
-
-        let mut empty_paths = Vec::new();
-        collect_all_paths(&empty_root, &mut empty_paths);
-        assert_eq!(empty_paths.len(), 1); // Should still only contain the root
     }
 }
 

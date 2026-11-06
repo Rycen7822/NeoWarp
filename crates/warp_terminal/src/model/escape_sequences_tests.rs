@@ -271,16 +271,6 @@ fn test_cursor_movement_keystroke_without_modifier_to_escape_sequence() {
 
     // with cursor keys mode
     terminal_model_mock.set_mode(TermMode::APP_CURSOR);
-    for (key, expected_result) in app_cursor_term_mode_test_cases.iter() {
-        let result = KeystrokeWithDetails {
-            keystroke: key,
-            key_without_modifiers: None,
-            chars: None,
-        }
-        .to_escape_sequence(&terminal_model_mock);
-        log::debug!("Key: {}", key.key);
-        assert_eq!(Some(expected_result), result.as_ref());
-    }
     validate_keystroke_test_cases(app_cursor_term_mode_test_cases, &terminal_model_mock);
 }
 

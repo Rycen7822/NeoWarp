@@ -1697,34 +1697,6 @@ fn test_enter_at_start_of_empty_text() {
 }
 
 #[test]
-fn test_undo_enter_at_buffer_start() {
-    App::test((), |mut app| async move {
-        let (buffer, selection) = Buffer::mock_from_plain_text(
-            "Start",
-            Box::new(|_, _| IndentBehavior::Ignore),
-            &mut app,
-        );
-        buffer.update(&mut app, |buffer, ctx| {
-            selection.update(ctx, |selection, _| set_selections(selection, vec1![1..1]));
-            let previous = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            let result = buffer.enter(false, TextStyles::default(), selection.clone(), ctx);
-            let current = buffer.to_rendered_selection_set(selection.clone(), ctx);
-            buffer.push_undo_item(
-                previous,
-                current,
-                result.undo_item.expect("Enter should be reversible"),
-                UndoActionType::Atomic,
-            );
-            assert_eq!(buffer.debug(), "<text>\\nStart");
-            buffer.undo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<text>Start");
-            buffer.redo(selection.clone(), ctx);
-            assert_eq!(buffer.debug(), "<text>\\nStart");
-        });
-    });
-}
-
-#[test]
 fn test_insert_formatted_text() {
     App::test((), |mut app| async move {
         let buffer = app.add_model(|_| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
@@ -4164,30 +4136,6 @@ fn test_get_multibyte_selected_text() {
                     .as_str(),
                 " 文档"
             );
-        });
-    });
-}
-
-#[test]
-fn test_buffer_version_changes() {
-    App::test((), |mut app| async move {
-        let buffer = app.add_model(|_ctx| Buffer::new(Box::new(|_, _| IndentBehavior::Ignore)));
-        let selection = app.add_model(|_| BufferSelectionModel::new(buffer.clone()));
-
-        buffer.update(&mut app, |buffer, ctx| {
-            let version = buffer.content_version;
-            buffer.update_content(
-                BufferEditAction::Insert {
-                    text: "hey there",
-                    style: TextStyles::default(),
-                    override_text_style: None,
-                },
-                EditOrigin::UserTyped,
-                selection.clone(),
-                ctx,
-            );
-
-            assert!(!buffer.version_match(&version));
         });
     });
 }

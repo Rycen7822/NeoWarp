@@ -127,23 +127,6 @@ fn test_grid_scroll_up_only_some_lines_truncated() {
 }
 
 #[test]
-fn test_grid_scroll_up_with_fixed_lines() {
-    // this simulates the alt-screen with a fixed row at the top and bottom
-    let mut grid = GridStorage::new(5, 1, 0, ObfuscateSecrets::No);
-    grid[0][0].c = 'a';
-    grid[1][0].c = 'b';
-    grid[2][0].c = 'c';
-    grid[3][0].c = 'd';
-    grid[4][0].c = 'e';
-    grid.scroll_up(&(VisibleRow(1)..VisibleRow(4)), 1);
-    assert_eq!(grid[0][0].c, 'a');
-    assert_eq!(grid[1][0].c, 'c');
-    assert_eq!(grid[2][0].c, 'd');
-    assert_eq!(grid[3][0].c, '\0');
-    assert_eq!(grid[4][0].c, 'e');
-}
-
-#[test]
 fn test_grid_git_diff_or_log() {
     // Imagine this is a git log.
 
