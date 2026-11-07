@@ -414,8 +414,14 @@ impl ProjectSessions {
         terminal: WeakViewHandle<TerminalView>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.live
-            .retain(|_, live| live.terminal.upgrade(ctx).is_some());
+        log::debug!(target: "project_sessions", "projects event=begin_launch record={id} terminal={:?}", terminal.id());
+        self.live.retain(|terminal, live| {
+            let keep = live.terminal.upgrade(ctx).is_some();
+            if !keep {
+                log::debug!(target: "project_sessions", "projects event=prune_live record={} terminal={terminal:?}", live.session_id);
+            }
+            keep
+        });
         self.live.insert(
             terminal.id(),
             LiveSession {
@@ -447,9 +453,19 @@ impl ProjectSessions {
             return;
         }
         let terminal_id = observation.terminal.id();
+        log::debug!(target: "project_sessions",
+            "projects event=observe terminal={terminal_id:?} block={} record={:?} bound_block={:?} launched={} parsed={}",
+            observation.block, self.live.get(&terminal_id).map(|live| live.session_id),
+            self.live.get(&terminal_id).and_then(|live| live.running.as_ref()).map(|running| &running.block),
+            observation.launched, observation.parsed.is_some());
         // The notifying terminal is temporarily taken out of the UI table during its update.
-        self.live
-            .retain(|id, live| *id == terminal_id || live.terminal.upgrade(ctx).is_some());
+        self.live.retain(|id, live| {
+            let keep = *id == terminal_id || live.terminal.upgrade(ctx).is_some();
+            if !keep {
+                log::debug!(target: "project_sessions", "projects event=prune_live record={} terminal={id:?}", live.session_id);
+            }
+            keep
+        });
         if self
             .live
             .get(&terminal_id)
@@ -600,6 +616,9 @@ impl ProjectSessions {
         } else {
             project.sessions.insert(0, session);
         }
+        log::debug!(target: "project_sessions",
+            "projects event=catalog_observe project={} record={id} terminal={terminal_id:?} block={block} inserted={} count={}",
+            project.id, existing.is_none(), project.sessions.len());
         self.register_running(id, terminal, block, query, ctx);
         self.save(ctx);
     }
@@ -634,6 +653,8 @@ impl ProjectSessions {
             }
         }
         let terminal_id = terminal.id();
+        log::debug!(target: "project_sessions",
+            "projects event=register_running record={id} terminal={terminal_id:?} block={block} unresolved={unresolved}");
         self.live.insert(
             terminal_id,
             LiveSession {
@@ -667,6 +688,8 @@ impl ProjectSessions {
         let query = running.query.clone();
         let provider = query.provider;
         let block = running.block.clone();
+        log::debug!(target: "project_sessions",
+            "projects event=lookup_scheduled record={} terminal={terminal_id:?} block={block}", self.live[&terminal_id].session_id);
         let task = ctx.spawn(
             async move {
                 Timer::after(Duration::from_secs(2)).await;
@@ -688,6 +711,9 @@ impl ProjectSessions {
                 let active = live.terminal.upgrade(ctx).is_some_and(|terminal| {
                     terminal.as_ref(ctx).project_session_is_running(&block)
                 });
+                log::debug!(target: "project_sessions",
+                    "projects event=lookup_result record={id} terminal={terminal_id:?} block={block} active={active} candidates={:?}",
+                    result.as_ref().ok().map(Vec::len));
                 if !running.ambiguous
                     && let Ok(candidates) = result
                 {
@@ -731,6 +757,9 @@ impl ProjectSessions {
         let Some(live) = self.live.get(&terminal) else {
             return;
         };
+        log::debug!(target: "project_sessions",
+            "projects event=end_request record={} terminal={terminal:?} block={block:?} bound_block={:?}",
+            live.session_id, live.running.as_ref().map(|running| &running.block));
         if let Some(block) = block
             && live
                 .running
@@ -742,6 +771,7 @@ impl ProjectSessions {
         let Some(live) = self.live.remove(&terminal) else {
             return;
         };
+        log::debug!(target: "project_sessions", "projects event=end_live record={} terminal={terminal:?}", live.session_id);
         if let Some(running) = &live.running
             && !running.ambiguous
             && self
@@ -818,6 +848,9 @@ impl ProjectSessions {
                 live.session_id = existing_id;
             }
         }
+        log::debug!(target: "project_sessions",
+            "projects event=identity_bound project={} record={id} merged_into={existing_id:?} count={}",
+            project.id, project.sessions.len());
         self.save(ctx);
     }
 

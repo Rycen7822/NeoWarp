@@ -4544,7 +4544,9 @@ impl Workspace {
     ) -> anyhow::Result<()> {
         use crate::project_sessions::ProjectSessions;
         let sessions = ProjectSessions::handle(ctx);
+        log::debug!(target: "project_sessions", "projects event=restore_request record={id}");
         if let Some(terminal) = sessions.as_ref(ctx).active_terminal(id, ctx) {
+            log::debug!(target: "project_sessions", "projects event=restore_focus record={id} terminal={terminal:?}");
             anyhow::ensure!(
                 self.focus_terminal_view_locally(terminal, ctx)
                     || self.focus_terminal_view_in_other_window(terminal, ctx),

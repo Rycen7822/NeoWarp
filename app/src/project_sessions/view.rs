@@ -160,6 +160,25 @@ impl ProjectsView {
             }));
         }
         let previous = self.rows.len();
+        if log::log_enabled!(target: "project_sessions", log::Level::Debug) && rows != self.rows {
+            let catalog: Vec<_> = store
+                .catalog
+                .projects
+                .iter()
+                .map(|project| {
+                    (
+                        project.id,
+                        project
+                            .sessions
+                            .iter()
+                            .map(|session| session.id)
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect();
+            log::debug!(target: "project_sessions",
+                "projects event=sidebar_rows view={:?} catalog={catalog:?} rows={rows:?}", ctx.view_id());
+        }
         self.rows = rows;
         let visible: HashSet<_> = self.rows.iter().copied().collect();
         self.states.retain(|row, _| visible.contains(row));
@@ -195,6 +214,9 @@ impl ProjectsView {
         let terminal = session_id.and_then(|id| store.active_terminal(id, app));
         let selected = terminal.is_some()
             && terminal == ActiveSession::as_ref(app).terminal_view_id(self.window);
+        log::trace!(target: "project_sessions",
+            "projects event=row_render window={:?} index={index} project={project} record={session_id:?} terminal={terminal:?}",
+            self.window);
         let hovered = Hoverable::new(state.hover.clone(), |hover| {
             let show_controls = hover.is_hovered() || state.drag.is_dragging();
             let mut leading = Flex::row()

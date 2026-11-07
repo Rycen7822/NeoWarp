@@ -2818,11 +2818,16 @@ impl TerminalView {
             .active_block_session_id()
             .and_then(|id| self.sessions.as_ref(ctx).get(id))
         else {
+            log::debug!(target: "project_sessions",
+                "projects event=observe_skip terminal={:?} block={block} reason=no_session", ctx.view_id());
             return;
         };
         let launched = self.awaiting_pending_command_completion
             && ProjectSessions::as_ref(ctx).starting(ctx.view_id());
         let parsed = crate::project_sessions::command::parse(command, session.shell().shell_type());
+        log::debug!(target: "project_sessions",
+            "projects event=observe_ready terminal={:?} block={block} pending={} launched={launched} parsed={}",
+            ctx.view_id(), self.awaiting_pending_command_completion, parsed.is_some());
         let provider = parsed.as_ref().map(|parsed| parsed.provider).or_else(|| {
             launched
                 .then(|| ProjectSessions::as_ref(ctx).provider_for_terminal(ctx.view_id()))
@@ -3592,6 +3597,8 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         self.pending_command_queue = commands.into_iter().collect();
+        log::debug!(target: "project_sessions", "projects event=pending_queued terminal={:?} count={}",
+            ctx.view_id(), self.pending_command_queue.len());
         self.set_next_pending_command_from_queue(ctx);
     }
 
@@ -4828,6 +4835,7 @@ impl TerminalView {
                 }
             }
             ModelEvent::Exit { .. } => {
+                log::debug!(target: "project_sessions", "projects event=terminal_exit terminal={:?}", ctx.view_id());
                 #[cfg(feature = "local_fs")]
                 self.end_project_session(None, ctx);
                 // If the pty spawn has failed, we've already inserted a banner.
@@ -4858,6 +4866,10 @@ impl TerminalView {
                 }
             }
             ModelEvent::BlockCompleted(block_completed_event) => {
+                log::debug!(target: "project_sessions",
+                    "projects event=block_completed terminal={:?} block={} index={:?} pending={}",
+                    ctx.view_id(), block_completed_event.block_id, block_completed_event.block_index,
+                    self.awaiting_pending_command_completion);
                 #[cfg(feature = "local_fs")]
                 self.end_project_session(Some(&block_completed_event.block_id), ctx);
                 record_trace_event!("command_execution:block_completed");
@@ -4955,6 +4967,9 @@ impl TerminalView {
                 launch_env,
                 ..
             } => {
+                log::debug!(target: "project_sessions",
+                    "projects event=block_started terminal={:?} block={block_id} pending={} in_band={is_for_in_band_command}",
+                    ctx.view_id(), self.awaiting_pending_command_completion);
                 if *is_for_in_band_command {
                     return;
                 }
@@ -5110,6 +5125,10 @@ impl TerminalView {
                     | BlockType::Background(_)
                     | BlockType::Static => None,
                 };
+                log::debug!(target: "project_sessions",
+                    "projects event=after_block_completed terminal={:?} user_index={:?} pending={} succeeded={pending_command_succeeded:?}",
+                    ctx.view_id(), match block_type { BlockType::User(user) => Some(user.index), _ => None },
+                    self.awaiting_pending_command_completion);
 
                 // Emit PendingCommandCompleted when a pending command's block
                 // finishes (e.g. tab config setup commands like `git worktree add`).
@@ -5117,6 +5136,7 @@ impl TerminalView {
                     && let Some(command_succeeded) = pending_command_succeeded
                 {
                     self.awaiting_pending_command_completion = false;
+                    log::debug!(target: "project_sessions", "projects event=pending_completed terminal={:?}", ctx.view_id());
                     if command_succeeded && self.set_next_pending_command_from_queue(ctx) {
                         // The delayed pending-command scheduler below will
                         // submit the next queued command as a separate block.
@@ -5539,6 +5559,7 @@ impl TerminalView {
                 ctx.notify();
             }
             ModelEvent::BootstrapPrecmdDone => {
+                log::debug!(target: "project_sessions", "projects event=bootstrap_precmd terminal={:?}", ctx.view_id());
                 self.execute_pending_command((), ctx);
             }
             ModelEvent::PluggableNotification { title, body } => {
@@ -6533,6 +6554,12 @@ impl TerminalView {
         // for the resulting block to complete.
         if had_pending && !self.input.read(ctx, |input, _| input.has_pending_command()) {
             self.awaiting_pending_command_completion = true;
+        }
+        if had_pending {
+            log::debug!(target: "project_sessions",
+                "projects event=pending_attempt terminal={:?} retained={} awaiting={} block={}",
+                ctx.view_id(), self.input.as_ref(ctx).has_pending_command(), self.awaiting_pending_command_completion,
+                self.model.lock().active_block_id());
         }
     }
 
