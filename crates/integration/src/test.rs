@@ -106,9 +106,9 @@ use warp::integration_testing::terminal::{
     assert_active_block_output, assert_active_block_output_for_single_terminal_in_tab,
     assert_active_block_received_precmd, assert_alt_grid_active, assert_alt_screen_output,
     assert_command_executed_for_single_terminal_in_tab, assert_context_menu_is_open,
-    assert_focused_editor_in_tab, assert_gap_exists, assert_input_at_bottom_of_terminal,
-    assert_input_at_top_of_terminal, assert_input_mode,
-    assert_input_not_at_either_edge_of_terminal, assert_long_running_block_executing,
+    assert_gap_exists, assert_input_at_bottom_of_terminal, assert_input_at_top_of_terminal,
+    assert_input_mode, assert_input_not_at_either_edge_of_terminal,
+    assert_long_running_block_executing,
     assert_long_running_block_executing_for_single_terminal_in_tab, assert_model_term_mode,
     assert_pane_group_has_state, assert_scroll_position,
     assert_selected_block_index_is_first_renderable,
@@ -131,8 +131,8 @@ use warp::integration_testing::window::{
 };
 use warp::integration_testing::workspace::assert_tab_count;
 use warp::settings::{
-    CompletionsOpenWhileTyping, CtrlTabBehavior, INPUT_MODE, MonospaceFontSize,
-    NativeShellCompletionsEnabled, TabBehavior,
+    CompletionsOpenWhileTyping, INPUT_MODE, MonospaceFontSize, NativeShellCompletionsEnabled,
+    TabBehavior,
 };
 use warp::settings_view::keybindings::KeybindingsView;
 use warp::settings_view::{FeaturesPageAction, SettingsAction, SettingsSection, SettingsView};
@@ -141,7 +141,6 @@ use warp::terminal::available_shells::AvailableShells;
 use warp::terminal::block_list_viewport::{InputMode, ScrollLines, ScrollPosition};
 use warp::terminal::find::TerminalFindModel;
 use warp::terminal::input::{Input, InputSuggestionsMode};
-use warp::terminal::keys_settings::KeysSettings;
 use warp::terminal::local_tty::TerminalManager as LocalTtyTerminalManager;
 use warp::terminal::model::ansi::{Handler, InitShellValue};
 use warp::terminal::model::blocks::{BlockHeightItem, BlockHeightSummary, TotalIndex};
@@ -153,13 +152,10 @@ use warp::terminal::view::{
     ALIAS_EXPANSION_BANNER_SEEN_KEY, BlockVisibilityMode, TerminalAction, TerminalViewState,
 };
 use warp::terminal::{TerminalView, shell};
-use warp::util::bindings::CustomAction;
 use warp::workspace::{NEW_SESSION_MENU_BUTTON_POSITION_ID, NEW_TAB_BUTTON_POSITION_ID, Workspace};
 use warp::{cmd_or_ctrl_shift, integration_testing};
-use warpui_core::event::KeyState;
 use warpui_core::integration::{AssertionOutcome, StepData, TestStep};
 use warpui_core::keymap::{Keystroke, PerPlatformKeystroke, Trigger};
-use warpui_core::platform::keyboard::KeyCode;
 use warpui_core::platform::{OperatingSystem, TerminationMode};
 use warpui_core::units::Lines;
 use warpui_core::windowing::WindowManager;
@@ -1905,6 +1901,13 @@ pub fn test_add_many_sessions() -> Builder {
 
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 pub fn test_ctrl_tab_session_switching() -> Builder {
+    use warp::integration_testing::terminal::assert_focused_editor_in_tab;
+    use warp::settings::CtrlTabBehavior;
+    use warp::terminal::keys_settings::KeysSettings;
+    use warp::util::bindings::CustomAction;
+    use warpui_core::event::KeyState;
+    use warpui_core::platform::keyboard::KeyCode;
+
     {
         let mut builder = new_builder()
             .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
