@@ -28,7 +28,7 @@ impl GitReviewView {
         let summary_ready = self.refreshing.is_none()
             && !self.refresh_pending
             && (self.mode == DiffMode::Head || self.merge_base.is_some());
-        let pending = self.loading.as_ref().map(|(path, _)| path.clone());
+        let pending: Vec<_> = self.loading.iter().map(|read| read.path.clone()).collect();
         self.cancel_loading();
         if let Some(task) = self.refreshing.take() {
             task.abort();
@@ -49,7 +49,7 @@ impl GitReviewView {
                     .map(|editor| editor.as_ref(ctx).review_state(ctx))
                     .or(card.editor_state);
                 let body = if revision.is_some()
-                    && pending.as_ref() != Some(&card.entry.path)
+                    && !pending.contains(&card.entry.path)
                     && (!card.dirty || card.cached_current.is_some())
                 {
                     card.base.as_ref().and_then(|base| {

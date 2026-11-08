@@ -1,5 +1,5 @@
 //! Local, read-only Git review with independently collapsible file cards.
-//! Only visible, expanded cards load detail, one file at a time.
+//! Only visible, expanded cards load detail, up to three files at a time.
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,6 +44,14 @@ mod tests;
 #[path = "review_snapshot.rs"]
 mod snapshot;
 pub(crate) use snapshot::ReviewSnapshot;
+
+const MAX_CONCURRENT_READS: usize = 3;
+
+struct PendingRead {
+    path: String,
+    id: u64,
+    task: SpawnedFutureHandle,
+}
 
 struct FileCard {
     entry: FileChangeEntry,
@@ -90,7 +98,8 @@ pub struct GitReviewView {
     files: Vec<FileCard>,
     file_statuses: HashMap<String, GitFileStatus>,
     message: String,
-    loading: Option<(String, SpawnedFutureHandle)>,
+    loading: Vec<PendingRead>,
+    next_read_id: u64,
     list: ListState<()>,
     scroll: ScrollStateHandle,
     close_mouse: MouseStateHandle,
@@ -122,7 +131,10 @@ impl GitReviewView {
             let Some(card) = me.files.get(index) else {
                 return Empty::new().finish();
             };
-            if card.expanded && card.dirty && me.loading.is_none() {
+            if card.expanded
+                && card.dirty
+                && (me.loading.len() < MAX_CONCURRENT_READS || card.cached_current.is_some())
+            {
                 // Layout only reports demand; all state changes and I/O belong to the view.
                 let _ = visible_tx.try_send(index);
             }
@@ -159,6 +171,13 @@ impl GitReviewView {
                     {
                         card.dirty = true;
                         card.cached_current = None;
+                        if let Some(index) = me
+                            .loading
+                            .iter()
+                            .position(|read| read.path == card.entry.path)
+                        {
+                            me.loading.remove(index).task.abort();
+                        }
                     }
                 }
                 ctx.notify();
@@ -175,7 +194,8 @@ impl GitReviewView {
             files: Vec::new(),
             file_statuses: Default::default(),
             message: tr("Loading changes…").into(),
-            loading: None,
+            loading: Vec::new(),
+            next_read_id: 0,
             list,
             scroll: Default::default(),
             close_mouse: Default::default(),
@@ -204,6 +224,26 @@ impl GitReviewView {
             .review_files(ctx)
             .cloned()
             .unwrap_or_default();
+        self.set_snapshot(snapshot, ctx);
+    }
+
+    fn set_snapshot(&mut self, snapshot: DiffMetadataAgainstBase, ctx: &mut ViewContext<Self>) {
+        for card in &mut self.files {
+            if self.file_statuses.get(&card.entry.path)
+                != snapshot.file_statuses.get(&card.entry.path)
+            {
+                card.dirty = true;
+                card.base = None;
+                card.cached_current = None;
+                if let Some(index) = self
+                    .loading
+                    .iter()
+                    .position(|read| read.path == card.entry.path)
+                {
+                    self.loading.remove(index).task.abort();
+                }
+            }
+        }
         self.file_statuses = snapshot.file_statuses;
         self.set_files(snapshot.files, ctx);
     }
@@ -236,13 +276,13 @@ impl GitReviewView {
         for index in 0..self.files.len() {
             self.list.invalidate_height_for_index(index);
         }
-        if self
-            .loading
-            .as_ref()
-            .is_some_and(|(path, _)| !self.files.iter().any(|card| card.entry.path == *path))
-        {
-            self.cancel_loading();
-        }
+        self.loading.retain(|read| {
+            let keep = self.files.iter().any(|card| card.entry.path == read.path);
+            if !keep {
+                read.task.abort();
+            }
+            keep
+        });
         self.message = if self.files.is_empty() {
             tr(if self.mode == DiffMode::Head {
                 "No uncommitted changes"
@@ -302,8 +342,7 @@ impl GitReviewView {
                             }
                         }
                         me.merge_base = Some(base);
-                        me.file_statuses = snapshot.file_statuses;
-                        me.set_files(snapshot.files, ctx);
+                        me.set_snapshot(snapshot, ctx);
                     }
                     Err(error) => {
                         me.merge_base = None;
@@ -317,15 +356,14 @@ impl GitReviewView {
     }
 
     fn cancel_loading(&mut self) {
-        if let Some((_, task)) = self.loading.take() {
-            task.abort();
+        for read in self.loading.drain(..) {
+            read.task.abort();
         }
     }
 
     fn load_visible(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
         // The list may measure preceding items to estimate height; those are not load requests.
-        if self.loading.is_some()
-            || (self.mode != DiffMode::Head && self.merge_base.is_none())
+        if (self.mode != DiffMode::Head && self.merge_base.is_none())
             || index >= self.files.len()
             || (index != self.list.get_scroll_index()
                 && !self
@@ -335,7 +373,11 @@ impl GitReviewView {
             return;
         }
         let card = &mut self.files[index];
-        if !card.expanded || !card.dirty {
+        if !card.expanded
+            || !card.dirty
+            || self.loading.iter().any(|read| read.path == card.entry.path)
+            || (card.cached_current.is_none() && self.loading.len() >= MAX_CONCURRENT_READS)
+        {
             return;
         }
         card.dirty = false;
@@ -360,32 +402,45 @@ impl GitReviewView {
         let result_path = path.clone();
         let status = self.file_statuses.get(&path).cloned();
         let revision = self.merge_base.clone();
-        self.loading = Some((
-            path.clone(),
-            ctx.spawn(
+        self.next_read_id = self.next_read_id.wrapping_add(1);
+        let id = self.next_read_id;
+        self.loading.push(PendingRead {
+            path: path.clone(),
+            id,
+            task: ctx.spawn(
                 async move {
                     let status = status.context("review snapshot missing file status")?;
                     load_file(root, path, status, revision, base).await
                 },
                 move |me, result, ctx| {
-                    me.loading = None;
-                    let Some(index) = me
-                        .files
-                        .iter()
-                        .position(|card| card.entry.path == result_path)
-                    else {
-                        ctx.notify();
-                        return;
-                    };
-                    // A save or Git change during this read supersedes its snapshot.
-                    if me.files[index].dirty || !me.files[index].expanded {
-                        ctx.notify();
-                        return;
-                    }
-                    apply_file_result(me, index, result, ctx);
+                    me.finish_read(&result_path, id, result, ctx);
                 },
             ),
-        ));
+        });
+        ctx.notify();
+    }
+
+    fn finish_read(
+        &mut self,
+        path: &str,
+        id: u64,
+        result: Result<(Arc<String>, String)>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let Some(pending) = self
+            .loading
+            .iter()
+            .position(|read| read.path == path && read.id == id)
+        else {
+            return;
+        };
+        self.loading.remove(pending);
+        if let Some(index) = self.files.iter().position(|card| card.entry.path == path)
+            && !self.files[index].dirty
+            && self.files[index].expanded
+        {
+            apply_file_result(self, index, result, ctx);
+        }
         ctx.notify();
     }
 
@@ -403,12 +458,12 @@ impl GitReviewView {
             card.editor_state = Some(editor.as_ref(ctx).review_state(ctx));
         }
         if !expanded
-            && self
+            && let Some(index) = self
                 .loading
-                .as_ref()
-                .is_some_and(|(path, _)| *path == card.entry.path)
+                .iter()
+                .position(|read| read.path == card.entry.path)
         {
-            self.cancel_loading();
+            self.loading.remove(index).task.abort();
         }
         self.list.invalidate_height_for_index(index);
     }

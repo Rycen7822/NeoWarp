@@ -83,7 +83,7 @@ fn toolbar_folding_releases_bodies_and_reopens_lazily() {
                     .all(|card| card.expanded && card.dirty && card.editor.is_none())
             );
             assert!(
-                review.loading.is_none(),
+                review.loading.is_empty(),
                 "Expanding must defer body reads until cards are visible"
             );
         });
