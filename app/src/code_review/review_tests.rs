@@ -136,7 +136,6 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
         None,
     )
     .await
-    .unwrap()
     .unwrap();
     assert_eq!(*head_file.0, "base\ncommitted\n");
 
@@ -160,7 +159,6 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
         None,
     )
     .await
-    .unwrap()
     .unwrap();
     assert_eq!(*branch_file.0, "base\n");
     assert_eq!(branch_file.1, head_file.1);
@@ -186,7 +184,6 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
         Some(branch_file.0.clone()),
     )
     .await
-    .unwrap()
     .unwrap();
     assert!(Arc::ptr_eq(&updated.0, &branch_file.0));
     assert_eq!(updated.1, "base\ncommitted\nedited\nnext\n");
@@ -198,7 +195,6 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
         None,
     )
     .await
-    .unwrap()
     .unwrap();
     assert_eq!(*head_again.0, "base\ncommitted\n");
     assert_eq!(head_again.1, updated.1);

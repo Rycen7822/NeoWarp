@@ -8,16 +8,20 @@ use std::io::{self, BufRead, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use notify_debouncer_full::notify::{self, EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 
+mod reader;
+use reader::{ReadRequest, Reader};
+
 const BATCH_DELAY: Duration = Duration::from_millis(150);
+type Output = Mutex<io::BufWriter<io::Stdout>>;
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -29,6 +33,15 @@ enum Request {
         scope: WatchScope,
     },
     Unwatch {
+        id: u64,
+    },
+    Read {
+        id: u64,
+        root: PathBuf,
+        path: Option<PathBuf>,
+        base: Option<String>,
+    },
+    CancelRead {
         id: u64,
     },
 }
@@ -56,6 +69,10 @@ enum Response {
     Error {
         id: u64,
         message: String,
+    },
+    Read {
+        id: u64,
+        result: std::result::Result<reader::Contents, String>,
     },
 }
 
@@ -246,7 +263,10 @@ impl Repository {
     }
 }
 
-fn send(output: &mut impl Write, response: Response) -> Result<()> {
+fn send(output: &Output, response: Response) -> Result<()> {
+    let mut output = output
+        .lock()
+        .map_err(|_| anyhow::anyhow!("helper output poisoned"))?;
     serde_json::to_writer(&mut *output, &response)?;
     output.write_all(b"\n")?;
     output.flush()?;
@@ -278,10 +298,38 @@ fn prune(
     Ok(())
 }
 
-fn read_requests(tx: SyncSender<Input>, stopping: Arc<AtomicBool>) {
+fn read_requests(tx: SyncSender<Input>, reader: Arc<Reader>, output: Arc<Output>) {
     for line in io::stdin().lock().lines() {
         let input = match line {
             Ok(line) => match serde_json::from_str(&line) {
+                Ok(Request::Read {
+                    id,
+                    root,
+                    path,
+                    base,
+                }) => {
+                    if let Err(error) = reader.enqueue(ReadRequest {
+                        id,
+                        root,
+                        path,
+                        base,
+                    }) && send(
+                        &output,
+                        Response::Read {
+                            id,
+                            result: Err(error.to_string()),
+                        },
+                    )
+                    .is_err()
+                    {
+                        break;
+                    }
+                    continue;
+                }
+                Ok(Request::CancelRead { id }) => {
+                    reader.cancel(id);
+                    continue;
+                }
                 Ok(request) => Input::Request(request),
                 Err(error) => Input::Invalid(error.to_string()),
             },
@@ -291,7 +339,7 @@ fn read_requests(tx: SyncSender<Input>, stopping: Arc<AtomicBool>) {
             break;
         }
     }
-    stopping.store(true, Ordering::Relaxed);
+    reader.stop();
     let _ = tx.send(Input::Closed);
 }
 
@@ -299,6 +347,8 @@ pub(super) fn run() -> Result<()> {
     let (tx, rx) = mpsc::sync_channel(64);
     let overflow = Arc::new(AtomicBool::new(false));
     let stopping = Arc::new(AtomicBool::new(false));
+    let reader = Arc::new(Reader::new(stopping.clone()));
+    let output = Arc::new(Mutex::new(io::BufWriter::new(io::stdout())));
     let callback_tx = tx.clone();
     let callback_overflow = overflow.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
@@ -312,9 +362,26 @@ pub(super) fn run() -> Result<()> {
             callback_overflow.store(true, Ordering::Relaxed);
         }
     })?;
-    let thread_stop = stopping.clone();
-    std::thread::spawn(move || read_requests(tx, thread_stop));
-    run_loop(&rx, &mut watcher, &overflow, &stopping)
+    let reader_thread = {
+        let (reader, stopping, output, tx) =
+            (reader.clone(), stopping.clone(), output.clone(), tx.clone());
+        std::thread::spawn(move || {
+            if let Err(error) = reader.run(&output) {
+                stopping.store(true, Ordering::Relaxed);
+                let _ = tx.try_send(Input::Closed);
+                return Err(error);
+            }
+            Ok(())
+        })
+    };
+    let (input_reader, input_output) = (reader.clone(), output.clone());
+    std::thread::spawn(move || read_requests(tx, input_reader, input_output));
+    let result = run_loop(&rx, &mut watcher, &overflow, &stopping, &output);
+    reader.stop();
+    reader_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("helper reader panicked"))??;
+    result
 }
 
 fn run_loop(
@@ -322,13 +389,13 @@ fn run_loop(
     watcher: &mut impl Watcher,
     overflow: &AtomicBool,
     stopping: &AtomicBool,
+    output: &Output,
 ) -> Result<()> {
     let mut repositories = HashMap::<u64, Repository>::new();
     let mut registered = HashSet::new();
     let mut dirty = HashMap::<u64, Changes>::new();
     let mut rebuild = HashSet::new();
     let mut deadline = None::<Instant>;
-    let mut output = io::BufWriter::new(io::stdout().lock());
     loop {
         if stopping.load(Ordering::Relaxed) {
             return Ok(());
@@ -347,10 +414,10 @@ fn run_loop(
                 match Repository::scan(&path, scope, watcher, &mut registered, stopping) {
                     Ok(repository) => {
                         repositories.insert(id, repository);
-                        send(&mut output, Response::Ready { id })?;
+                        send(output, Response::Ready { id })?;
                     }
                     Err(error) => send(
-                        &mut output,
+                        output,
                         Response::Error {
                             id,
                             message: error.to_string(),
@@ -366,6 +433,9 @@ fn run_loop(
                 prune(&repositories, watcher, &mut registered)?;
                 // Stdin owns the process lifetime. A new Watch may already be
                 // queued when the last directory is collapsed and reopened.
+            }
+            Some(Input::Request(Request::Read { .. } | Request::CancelRead { .. })) => {
+                unreachable!("reads are dispatched by the input thread")
             }
             Some(Input::Files(event)) => {
                 let event = event?;
@@ -425,7 +495,7 @@ fn run_loop(
             for (id, changes) in dirty.drain() {
                 if repositories.contains_key(&id) {
                     send(
-                        &mut output,
+                        output,
                         Response::Dirty {
                             id,
                             paths: changes.paths,
@@ -447,7 +517,7 @@ fn run_loop(
                             repositories.insert(id, repository);
                             // Discovery may have raced an edit in a new directory.
                             send(
-                                &mut output,
+                                output,
                                 Response::Dirty {
                                     id,
                                     paths: HashSet::new(),
@@ -459,7 +529,7 @@ fn run_loop(
                         Err(error) => {
                             repositories.remove(&id);
                             send(
-                                &mut output,
+                                output,
                                 Response::Error {
                                     id,
                                     message: error.to_string(),

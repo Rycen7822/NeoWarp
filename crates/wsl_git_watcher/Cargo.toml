@@ -12,6 +12,7 @@ path = "src/main.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 anyhow.workspace = true
 ignore.workspace = true
+libc.workspace = true
 notify-debouncer-full.workspace = true
 serde.workspace = true
 serde_json.workspace = true

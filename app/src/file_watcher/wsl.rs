@@ -1,16 +1,17 @@
 //! WSL ext4 does not support Windows ReadDirectoryChangesW. A small Linux
-//! sidecar supplies invalidations over stdio; Git calculation stays in the app.
+//! sidecar supplies invalidations and bounded review content over stdio.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use async_channel::{Receiver, Sender};
 use command::r#async::Command;
+use futures::channel::oneshot;
 use futures::future::{Either, select};
 use futures::stream::{AbortHandle, Abortable};
 use futures_lite::StreamExt;
@@ -22,7 +23,13 @@ use warpui::r#async::executor::Background;
 
 use super::FileChanges;
 
-type Services = HashMap<String, Weak<Sender<Control>>>;
+struct Service {
+    control: Sender<Control>,
+    ready: Arc<AtomicBool>,
+    read_lock: futures::lock::Mutex<()>,
+}
+
+type Services = HashMap<String, Weak<Service>>;
 static SERVICES: LazyLock<Mutex<Services>> = LazyLock::new(Mutex::default);
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -43,6 +50,16 @@ enum Control {
     Unwatch {
         id: u64,
     },
+    Read {
+        id: u64,
+        root: String,
+        path: Option<String>,
+        base: Option<String>,
+        reply: oneshot::Sender<std::result::Result<ReviewContents, String>>,
+    },
+    CancelRead {
+        id: u64,
+    },
 }
 
 #[derive(Deserialize)]
@@ -60,10 +77,78 @@ enum Event {
         id: u64,
         message: String,
     },
+    Read {
+        id: u64,
+        result: std::result::Result<ReviewContents, String>,
+    },
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReviewContents {
+    pub base: Option<String>,
+    pub current: String,
+}
+
+struct ReadGuard<'a> {
+    service: &'a Service,
+    id: u64,
+}
+
+impl Drop for ReadGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self
+            .service
+            .control
+            .try_send(Control::CancelRead { id: self.id });
+    }
+}
+
+/// None means no healthy sidecar is available; reuse the ordinary local reader.
+pub(crate) async fn read_review_file(
+    root: &Path,
+    path: Option<&str>,
+    base: Option<String>,
+) -> Option<Result<ReviewContents>> {
+    let root = warp_util::path::parse_wsl_unc_path(root)?;
+    let service = SERVICES
+        .lock()
+        .get(&root.distro.to_ascii_lowercase())?
+        .upgrade()?;
+    if service.control.is_closed() || !service.ready.load(Ordering::Relaxed) {
+        return None;
+    }
+    let _permit = service.read_lock.lock().await;
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let (reply, result) = oneshot::channel();
+    let _guard = ReadGuard {
+        service: &service,
+        id,
+    };
+    Some(
+        async {
+            service
+                .control
+                .try_send(Control::Read {
+                    id,
+                    root: root.linux_path,
+                    path: path.map(str::to_owned),
+                    base,
+                    reply,
+                })
+                .context("WSL review pipe closed")?;
+            match select(result, async_io::Timer::after(Duration::from_secs(30))).await {
+                Either::Left((result, _)) => result
+                    .context("WSL review pipe closed")?
+                    .map_err(anyhow::Error::msg),
+                Either::Right(_) => bail!("WSL review read timed out"),
+            }
+        }
+        .await,
+    )
 }
 
 pub(crate) struct Subscription {
-    control: Arc<Sender<Control>>,
+    service: Arc<Service>,
     id: u64,
     pending: Arc<Mutex<FileChanges>>,
 }
@@ -76,7 +161,10 @@ impl Subscription {
 
 impl Drop for Subscription {
     fn drop(&mut self) {
-        let _ = self.control.try_send(Control::Unwatch { id: self.id });
+        let _ = self
+            .service
+            .control
+            .try_send(Control::Unwatch { id: self.id });
         // The registry is weak. The last subscription drops the last sender,
         // closing the actor and the helper's stdin without touching WSL itself.
     }
@@ -158,27 +246,32 @@ pub(crate) fn subscribe(
     let mut services = SERVICES.lock();
     services.retain(|_, sender| sender.strong_count() > 0);
     let key = path.distro.to_ascii_lowercase();
-    let control = services
+    let service = services
         .get(&key)
         .and_then(Weak::upgrade)
-        .filter(|sender| !sender.is_closed())
+        .filter(|service| !service.control.is_closed())
         .unwrap_or_else(|| {
             let (tx, rx) = async_channel::unbounded();
-            let tx = Arc::new(tx);
-            services.insert(key, Arc::downgrade(&tx));
+            let ready = Arc::new(AtomicBool::new(false));
+            let service = Arc::new(Service {
+                control: tx,
+                ready: ready.clone(),
+                read_lock: Default::default(),
+            });
+            services.insert(key, Arc::downgrade(&service));
             executor
                 .spawn(async move {
-                    if let Err(error) = run(&path.distro, rx).await {
+                    if let Err(error) = run(&path.distro, rx, ready).await {
                         log::warn!("WSL filesystem watcher unavailable: {error:#}");
                     }
                 })
                 .detach();
-            tx
+            service
         });
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (events, receiver) = async_channel::bounded(1);
     let pending = Arc::new(Mutex::new(FileChanges::default()));
-    let _ = control.try_send(Control::Watch {
+    let _ = service.control.try_send(Control::Watch {
         id,
         path: path.linux_path,
         scope,
@@ -187,7 +280,7 @@ pub(crate) fn subscribe(
     });
     Some((
         Subscription {
-            control,
+            service,
             id,
             pending,
         },
@@ -195,7 +288,7 @@ pub(crate) fn subscribe(
     ))
 }
 
-async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
+async fn run(distro: &str, control: Receiver<Control>, ready: Arc<AtomicBool>) -> Result<()> {
     let helper = std::env::current_exe()?.with_file_name("neowarp-wsl-watch");
     // Validate before starting wsl.exe, so ordinary development builds without
     // the sidecar immediately fall back rather than launching a failing child.
@@ -217,6 +310,7 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
     let mut input = child.stdin.take().context("missing helper stdin")?;
     let mut lines = BufReader::new(child.stdout.take().context("missing helper stdout")?).lines();
     let mut subscribers = HashMap::<u64, (Sender<()>, Arc<Mutex<FileChanges>>)>::new();
+    let mut reads = HashMap::new();
     let result = async {
         loop {
             // Keep the lines stream alive across cancelled selects; partially
@@ -245,6 +339,14 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                             subscribers.remove(&id);
                             json!({"op": "unwatch", "id": id})
                         }
+                        Control::Read { id, root, path, base, reply } => {
+                            reads.insert(id, reply);
+                            json!({"op": "read", "id": id, "root": root, "path": path, "base": base})
+                        }
+                        Control::CancelRead { id } => {
+                            reads.remove(&id);
+                            json!({"op": "cancel_read", "id": id})
+                        }
                     };
                     let mut request = serde_json::to_vec(&request)?;
                     request.push(b'\n');
@@ -257,15 +359,24 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
                     let (id, changes) = match serde_json::from_str(&line)
                         .context("invalid WSL watcher notification")?
                     {
-                        Event::Ready { id } => (
-                            id,
-                            FileChanges {
-                                full: true,
-                                git_changed: true,
-                                ..Default::default()
-                            },
-                        ),
+                        Event::Ready { id } => {
+                            ready.store(true, Ordering::Relaxed);
+                            (
+                                id,
+                                FileChanges {
+                                    full: true,
+                                    git_changed: true,
+                                    ..Default::default()
+                                },
+                            )
+                        }
                         Event::Dirty { id, changes } => (id, changes),
+                        Event::Read { id, result } => {
+                            if let Some(reply) = reads.remove(&id) {
+                                let _ = reply.send(result);
+                            }
+                            continue;
+                        }
                         Event::Error { id, message } => {
                             log::warn!("WSL filesystem watcher subscription failed: {message}");
                             subscribers.remove(&id);
@@ -287,6 +398,7 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
         Ok(())
     }
     .await;
+    ready.store(false, Ordering::Relaxed);
     control.close();
     while control.try_recv().is_ok() {}
     // Closing stdin requests a Linux-side exit, including while the helper is
@@ -294,6 +406,7 @@ async fn run(distro: &str, control: Receiver<Control>) -> Result<()> {
     drop(input);
     drop(lines);
     drop(subscribers);
+    drop(reads);
     let status = child.status();
     futures::pin_mut!(status);
     match select(status, async_io::Timer::after(Duration::from_secs(5))).await {

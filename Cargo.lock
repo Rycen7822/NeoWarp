@@ -12340,6 +12340,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ignore",
+ "libc",
  "notify-debouncer-full",
  "serde",
  "serde_json",

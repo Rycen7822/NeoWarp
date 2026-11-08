@@ -360,7 +360,7 @@ impl GitReviewView {
                         return;
                     }
                     match result {
-                        Ok(Some((base, current))) => {
+                        Ok((base, current)) => {
                             let editor = if let Some(editor) = &me.files[index].editor {
                                 editor.clone()
                             } else {
@@ -429,10 +429,6 @@ impl GitReviewView {
                             });
                             me.files[index].base = Some(base);
                             me.files[index].message.clear();
-                        }
-                        Ok(None) => {
-                            me.files[index].editor = None;
-                            me.files[index].message = tr("No text diff to display").into();
                         }
                         Err(error) => {
                             me.files[index].editor = None;
@@ -614,8 +610,33 @@ async fn load_file(
     status: GitFileStatus,
     revision: Option<String>,
     cached_base: Option<Arc<String>>,
-) -> Result<Option<(Arc<String>, String)>> {
+) -> Result<(Arc<String>, String)> {
     // Status and rename sources come from the summary that populated the cards.
+    #[cfg(windows)]
+    {
+        let base_path = match &status {
+            GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => old_path,
+            _ => &path,
+        };
+        let needs_base = cached_base.is_none()
+            && !matches!(status, GitFileStatus::New | GitFileStatus::Untracked);
+        let base_spec =
+            needs_base.then(|| format!("{}:{base_path}", revision.as_deref().unwrap_or("HEAD")));
+        let current_path = (!matches!(status, GitFileStatus::Deleted)).then_some(path.as_str());
+        if let Some(contents) =
+            crate::file_watcher::wsl::read_review_file(&root, current_path, base_spec).await
+        {
+            let contents = contents?;
+            let base = match cached_base {
+                Some(base) => base,
+                None if needs_base => {
+                    Arc::new(contents.base.context("missing comparison base content")?)
+                }
+                None => Arc::new(String::new()),
+            };
+            return validate_content(base, contents.current);
+        }
+    }
     let base = match (cached_base, &status) {
         (Some(base), _) => base,
         (_, GitFileStatus::New | GitFileStatus::Untracked) => Arc::new(String::new()),
@@ -638,10 +659,6 @@ async fn load_file(
             )
         }
     };
-    // Lossy UTF-8 decoding can expand the bounded raw output.
-    if base.len() > MAX_DIFF_SIZE {
-        anyhow::bail!("base content is too large to display");
-    }
     let current = if matches!(status, GitFileStatus::Deleted) {
         String::new()
     } else {
@@ -649,8 +666,23 @@ async fn load_file(
         if async_fs::metadata(&file).await?.len() > MAX_DIFF_SIZE as u64 {
             anyhow::bail!("file is too large to display");
         }
-        async_fs::read_to_string(file).await?
+        use futures_lite::io::AsyncReadExt;
+        let mut text = String::new();
+        async_fs::File::open(file)
+            .await?
+            .take((MAX_DIFF_SIZE + 1) as u64)
+            .read_to_string(&mut text)
+            .await?;
+        text
     };
+    validate_content(base, current)
+}
+
+fn validate_content(base: Arc<String>, current: String) -> Result<(Arc<String>, String)> {
+    // Lossy UTF-8 decoding and concurrent file growth can exceed the raw limit.
+    if base.len() > MAX_DIFF_SIZE || current.len() > MAX_DIFF_SIZE {
+        anyhow::bail!("file is too large to display");
+    }
     if base.contains('\0') || current.contains('\0') {
         anyhow::bail!("binary file; open it in an external editor");
     }
@@ -661,7 +693,7 @@ async fn load_file(
     {
         anyhow::bail!("line is too long to display; open it in an external editor");
     }
-    Ok(Some((base, current)))
+    Ok((base, current))
 }
 
 #[derive(Debug, Clone)]
