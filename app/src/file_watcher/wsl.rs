@@ -26,7 +26,7 @@ use super::FileChanges;
 struct Service {
     control: Sender<Control>,
     ready: Arc<AtomicBool>,
-    read_lock: futures::lock::Mutex<()>,
+    read_slots: tokio::sync::Semaphore,
 }
 
 type Services = HashMap<String, Weak<Service>>;
@@ -117,15 +117,19 @@ pub(crate) async fn read_review_file(
     if service.control.is_closed() || !service.ready.load(Ordering::Relaxed) {
         return None;
     }
-    let _permit = service.read_lock.lock().await;
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let (reply, result) = oneshot::channel();
-    let _guard = ReadGuard {
-        service: &service,
-        id,
-    };
     Some(
         async {
+            let _permit = service
+                .read_slots
+                .acquire()
+                .await
+                .context("WSL review queue closed")?;
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            let (reply, result) = oneshot::channel();
+            let _guard = ReadGuard {
+                service: &service,
+                id,
+            };
             service
                 .control
                 .try_send(Control::Read {
@@ -256,7 +260,8 @@ pub(crate) fn subscribe(
             let service = Arc::new(Service {
                 control: tx,
                 ready: ready.clone(),
-                read_lock: Default::default(),
+                // Match the sidecar's maximum active review requests.
+                read_slots: tokio::sync::Semaphore::new(3),
             });
             services.insert(key, Arc::downgrade(&service));
             executor

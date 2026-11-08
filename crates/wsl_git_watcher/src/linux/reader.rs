@@ -1,10 +1,11 @@
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,7 @@ use super::{Output, Response, send};
 
 const MAX_BYTES: usize = 4_375_000;
 const MAX_STDERR: usize = 64 * 1024;
+pub(super) const READ_CONCURRENCY: usize = 3;
 
 pub(super) struct ReadRequest {
     pub id: u64,
@@ -23,77 +25,98 @@ pub(super) struct ReadRequest {
     pub base: Option<String>,
 }
 
+#[derive(Default)]
+struct Queue {
+    pending: VecDeque<(ReadRequest, Arc<AtomicBool>)>,
+    cancellations: Vec<(u64, Arc<AtomicBool>)>,
+}
+
 pub(super) struct Reader {
-    pending: Mutex<Option<ReadRequest>>,
+    queue: Mutex<Queue>,
     available: Condvar,
-    cancelled: AtomicU64,
     stopping: Arc<AtomicBool>,
 }
 
 impl Reader {
     pub(super) fn new(stopping: Arc<AtomicBool>) -> Self {
         Self {
-            pending: Mutex::new(None),
+            queue: Mutex::new(Queue::default()),
             available: Condvar::new(),
-            cancelled: AtomicU64::new(0),
             stopping,
         }
     }
 
     pub(super) fn enqueue(&self, request: ReadRequest) -> Result<()> {
-        let mut pending = self
-            .pending
+        let mut queue = self
+            .queue
             .lock()
             .map_err(|_| anyhow::anyhow!("reader queue poisoned"))?;
         ensure!(
-            !self.stopping.load(Ordering::Relaxed) && pending.is_none(),
+            !self.stopping.load(Ordering::Relaxed) && queue.cancellations.len() < READ_CONCURRENCY,
             "reader is busy or closed"
         );
-        *pending = Some(request);
+        ensure!(
+            !queue.cancellations.iter().any(|(id, _)| *id == request.id),
+            "duplicate read request"
+        );
+        let cancelled = Arc::new(AtomicBool::new(false));
+        queue.cancellations.push((request.id, cancelled.clone()));
+        queue.pending.push_back((request, cancelled));
         self.available.notify_one();
         Ok(())
     }
 
     pub(super) fn cancel(&self, id: u64) {
-        self.cancelled.fetch_max(id, Ordering::Relaxed);
-        if let Ok(mut pending) = self.pending.lock()
-            && pending.as_ref().is_some_and(|request| request.id <= id)
-        {
-            pending.take();
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.cancellations.retain(|(request_id, flag)| {
+                if *request_id == id {
+                    flag.store(true, Ordering::Relaxed);
+                    return false;
+                }
+                true
+            });
+            queue.pending.retain(|(request, _)| request.id != id);
         }
     }
 
     pub(super) fn stop(&self) {
         self.stopping.store(true, Ordering::Relaxed);
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.take();
-            self.available.notify_one();
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.pending.clear();
+            for (_, flag) in queue.cancellations.drain(..) {
+                flag.store(true, Ordering::Relaxed);
+            }
+            self.available.notify_all();
         }
     }
 
     pub(super) fn run(&self, output: &Output) -> Result<()> {
         loop {
-            let request = {
-                let mut pending = self
-                    .pending
+            let (request, cancelled) = {
+                let mut queue = self
+                    .queue
                     .lock()
                     .map_err(|_| anyhow::anyhow!("reader queue poisoned"))?;
-                while pending.is_none() && !self.stopping.load(Ordering::Relaxed) {
-                    pending = self
+                while queue.pending.is_empty() && !self.stopping.load(Ordering::Relaxed) {
+                    queue = self
                         .available
-                        .wait(pending)
+                        .wait(queue)
                         .map_err(|_| anyhow::anyhow!("reader queue poisoned"))?;
                 }
                 if self.stopping.load(Ordering::Relaxed) {
                     return Ok(());
                 }
-                pending.take().context("missing queued read")?
+                queue.pending.pop_front().context("missing queued read")?
             };
             let id = request.id;
-            let result = read(request, &self.cancelled, &self.stopping)
-                .map_err(|error| format!("{error:#}"));
-            if self.cancelled.load(Ordering::Relaxed) < id && !self.stopping.load(Ordering::Relaxed)
-            {
+            let result =
+                read(request, &cancelled, &self.stopping).map_err(|error| format!("{error:#}"));
+            self.queue
+                .lock()
+                .map_err(|_| anyhow::anyhow!("reader queue poisoned"))?
+                .cancellations
+                .retain(|(request_id, flag)| *request_id != id || !Arc::ptr_eq(flag, &cancelled));
+            if !cancelled.load(Ordering::Relaxed) && !self.stopping.load(Ordering::Relaxed) {
                 send(output, Response::Read { id, result })?;
             }
         }
@@ -106,17 +129,17 @@ pub(super) struct Contents {
     current: String,
 }
 
-fn read(request: ReadRequest, cancelled: &AtomicU64, stopping: &AtomicBool) -> Result<Contents> {
+fn read(request: ReadRequest, cancelled: &AtomicBool, stopping: &AtomicBool) -> Result<Contents> {
     ensure!(
         request.root.is_absolute(),
         "repository root must be absolute"
     );
     let base = request
         .base
-        .map(|base| read_base(&request.root, &base, request.id, cancelled, stopping))
+        .map(|base| read_base(&request.root, &base, cancelled, stopping))
         .transpose()?;
     ensure!(
-        cancelled.load(Ordering::Relaxed) < request.id && !stopping.load(Ordering::Relaxed),
+        !cancelled.load(Ordering::Relaxed) && !stopping.load(Ordering::Relaxed),
         "read cancelled"
     );
     let current = if let Some(path) = request.path {
@@ -208,8 +231,7 @@ fn drain(pipe: &mut impl Read, bytes: &mut Vec<u8>, limit: usize) -> Result<Pipe
 fn read_base(
     root: &Path,
     base: &str,
-    id: u64,
-    cancelled: &AtomicU64,
+    cancelled: &AtomicBool,
     stopping: &AtomicBool,
 ) -> Result<String> {
     ensure!(
@@ -236,7 +258,7 @@ fn read_base(
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         ensure!(
-            cancelled.load(Ordering::Relaxed) < id && !stopping.load(Ordering::Relaxed),
+            !cancelled.load(Ordering::Relaxed) && !stopping.load(Ordering::Relaxed),
             "read cancelled"
         );
         ensure!(Instant::now() < deadline, "Git read timed out");

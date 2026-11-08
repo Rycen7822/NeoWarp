@@ -362,25 +362,32 @@ pub(super) fn run() -> Result<()> {
             callback_overflow.store(true, Ordering::Relaxed);
         }
     })?;
-    let reader_thread = {
-        let (reader, stopping, output, tx) =
-            (reader.clone(), stopping.clone(), output.clone(), tx.clone());
-        std::thread::spawn(move || {
-            if let Err(error) = reader.run(&output) {
-                stopping.store(true, Ordering::Relaxed);
-                let _ = tx.try_send(Input::Closed);
-                return Err(error);
-            }
-            Ok(())
+    let reader_threads: Vec<_> = (0..reader::READ_CONCURRENCY)
+        .map(|_| {
+            let (reader, stopping, output, tx) =
+                (reader.clone(), stopping.clone(), output.clone(), tx.clone());
+            std::thread::spawn(move || {
+                if let Err(error) = reader.run(&output) {
+                    stopping.store(true, Ordering::Relaxed);
+                    let _ = tx.try_send(Input::Closed);
+                    return Err(error);
+                }
+                Ok(())
+            })
         })
-    };
+        .collect();
     let (input_reader, input_output) = (reader.clone(), output.clone());
     std::thread::spawn(move || read_requests(tx, input_reader, input_output));
     let result = run_loop(&rx, &mut watcher, &overflow, &stopping, &output);
     reader.stop();
-    reader_thread
-        .join()
-        .map_err(|_| anyhow::anyhow!("helper reader panicked"))??;
+    // Join every worker before propagating an error, including their owned Git children.
+    let reader_results: Vec<_> = reader_threads
+        .into_iter()
+        .map(|thread| thread.join())
+        .collect();
+    for result in reader_results {
+        result.map_err(|_| anyhow::anyhow!("helper reader panicked"))??;
+    }
     result
 }
 
