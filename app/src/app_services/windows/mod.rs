@@ -37,6 +37,10 @@ pub enum StartupArgsForwardingError {
 pub fn pass_startup_args_to_existing_instance(
     args: &warp_cli::AppArgs,
 ) -> Result<(), StartupArgsForwardingError> {
+    // Isolated data profiles must not open windows in the user's running instance.
+    if warp_core::paths::runtime_root().is_some() {
+        return Err(StartupArgsForwardingError::NoExistingInstance);
+    }
     if crate::crash_recovery::is_crash_recovery_process(args) {
         return Err(StartupArgsForwardingError::IgnoredForCrashRecoveryProcess);
     }

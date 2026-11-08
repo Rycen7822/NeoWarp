@@ -96,6 +96,10 @@ impl SingleInstanceManager {
     /// holds the named mutex). This function enforces that a URI server is created iff the mutex
     /// is held.
     pub(super) fn new(ctx: &mut ModelContext<Self>) -> Self {
+        // Isolated instances neither claim the shared mutex nor serve the global URI pipe.
+        if warp_core::paths::runtime_root().is_some() {
+            return Self { _server: None };
+        }
         if let Ok(None) | Err(_) = &*SOLE_INSTANCE_MUTEX.lock() {
             return Self { _server: None };
         }
