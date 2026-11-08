@@ -70,13 +70,13 @@ impl GitRepoStatusModel {
     }
 
     /// Local review lists reuse the same numstat snapshot as terminal counters.
-    pub fn files<'a>(
+    pub fn review_files<'a>(
         &self,
         ctx: &'a AppContext,
-    ) -> Option<&'a [crate::util::git::FileChangeEntry]> {
+    ) -> Option<&'a crate::code_review::diff_state::DiffMetadataAgainstBase> {
         match self {
             #[cfg(feature = "local_fs")]
-            Self::Local(model) => Some(model.as_ref(ctx).files()),
+            Self::Local(model) => Some(model.as_ref(ctx).review_files()),
             Self::Remote(_) => None,
         }
     }

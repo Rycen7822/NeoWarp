@@ -112,6 +112,7 @@ impl TryFrom<&proto::DiffMetadataAgainstBase> for DiffMetadataAgainstBase {
                 .map(DiffStats::from)
                 .ok_or_else(|| "missing aggregate_stats in DiffMetadataAgainstBase".to_string())?,
             files: base.files.iter().map(FileChangeEntry::from).collect(),
+            file_statuses: Default::default(),
         })
     }
 }

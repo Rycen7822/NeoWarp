@@ -128,22 +128,34 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
         .unwrap();
     assert_eq!(head.aggregate_stats.files_changed, 2);
     assert_eq!(head.aggregate_stats.total_additions, 2);
-    let head_file = load_file(root.clone(), "file.txt".into(), DiffMode::Head, None, None)
-        .await
-        .unwrap()
-        .unwrap();
+    let head_file = load_file(
+        root.clone(),
+        "file.txt".into(),
+        head.file_statuses["file.txt"].clone(),
+        None,
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(*head_file.0, "base\ncommitted\n");
 
     let (base, files) = load_comparison(root.clone(), DiffMode::MainBranch, None)
         .await
         .unwrap();
-    assert_eq!(files.len(), 2);
-    assert_eq!(files.iter().map(|file| file.additions).sum::<usize>(), 3);
-    assert_eq!(files.iter().map(|file| file.deletions).sum::<usize>(), 0);
+    assert_eq!(files.files.len(), 2);
+    assert_eq!(
+        files.files.iter().map(|file| file.additions).sum::<usize>(),
+        3
+    );
+    assert_eq!(
+        files.files.iter().map(|file| file.deletions).sum::<usize>(),
+        0
+    );
     let branch_file = load_file(
         root.clone(),
         "file.txt".into(),
-        DiffMode::MainBranch,
+        files.file_statuses["file.txt"].clone(),
         Some(base.clone()),
         None,
     )
@@ -159,13 +171,17 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
         .await
         .unwrap();
     assert_eq!(
-        refreshed.iter().map(|file| file.additions).sum::<usize>(),
+        refreshed
+            .files
+            .iter()
+            .map(|file| file.additions)
+            .sum::<usize>(),
         4
     );
     let updated = load_file(
         root.clone(),
         "file.txt".into(),
-        DiffMode::MainBranch,
+        refreshed.file_statuses["file.txt"].clone(),
         Some(base),
         Some(branch_file.0.clone()),
     )
@@ -174,10 +190,16 @@ async fn comparison_counts_and_visible_content_follow_the_selected_base_after_ed
     .unwrap();
     assert!(Arc::ptr_eq(&updated.0, &branch_file.0));
     assert_eq!(updated.1, "base\ncommitted\nedited\nnext\n");
-    let head_again = load_file(root.clone(), "file.txt".into(), DiffMode::Head, None, None)
-        .await
-        .unwrap()
-        .unwrap();
+    let head_again = load_file(
+        root.clone(),
+        "file.txt".into(),
+        head.file_statuses["file.txt"].clone(),
+        None,
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(*head_again.0, "base\ncommitted\n");
     assert_eq!(head_again.1, updated.1);
     assert_eq!(

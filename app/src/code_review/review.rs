@@ -23,7 +23,7 @@ use warpui::{
 
 use super::diff_selector::DiffSelector;
 use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
-use super::diff_state::{DiffMode, GitFileStatus, LocalDiffStateModel};
+use super::diff_state::{DiffMetadataAgainstBase, DiffMode, GitFileStatus, LocalDiffStateModel};
 use super::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
 use crate::appearance::Appearance;
 use crate::code::editor::view::{
@@ -82,6 +82,7 @@ pub struct GitReviewView {
     refreshing: Option<SpawnedFutureHandle>,
     refresh_pending: bool,
     files: Vec<FileCard>,
+    file_statuses: HashMap<String, GitFileStatus>,
     message: String,
     loading: Option<(String, SpawnedFutureHandle)>,
     list: ListState<()>,
@@ -164,6 +165,7 @@ impl GitReviewView {
             refreshing: None,
             refresh_pending: false,
             files: Vec::new(),
+            file_statuses: Default::default(),
             message: tr("Loading changes…").into(),
             loading: None,
             list,
@@ -186,13 +188,14 @@ impl GitReviewView {
         if self.status.as_ref(ctx).metadata(ctx).is_none() {
             return;
         }
-        let files = self
+        let snapshot = self
             .status
             .as_ref(ctx)
-            .files(ctx)
-            .unwrap_or_default()
-            .to_vec();
-        self.set_files(files, ctx);
+            .review_files(ctx)
+            .cloned()
+            .unwrap_or_default();
+        self.file_statuses = snapshot.file_statuses;
+        self.set_files(snapshot.files, ctx);
     }
 
     fn set_files(&mut self, files: Vec<FileChangeEntry>, ctx: &mut ViewContext<Self>) {
@@ -280,7 +283,7 @@ impl GitReviewView {
                     return;
                 }
                 match result {
-                    Ok((base, files)) => {
+                    Ok((base, snapshot)) => {
                         if me.merge_base.as_ref() != Some(&base) {
                             me.cancel_loading();
                             for card in &mut me.files {
@@ -289,7 +292,8 @@ impl GitReviewView {
                             }
                         }
                         me.merge_base = Some(base);
-                        me.set_files(files, ctx);
+                        me.file_statuses = snapshot.file_statuses;
+                        me.set_files(snapshot.files, ctx);
                     }
                     Err(error) => {
                         me.merge_base = None;
@@ -331,12 +335,15 @@ impl GitReviewView {
         // Keep the cached snapshot available if an edit supersedes this cancellable read.
         let base = card.base.clone();
         let result_path = path.clone();
-        let mode = self.mode.clone();
+        let status = self.file_statuses.get(&path).cloned();
         let revision = self.merge_base.clone();
         self.loading = Some((
             path.clone(),
             ctx.spawn(
-                async move { load_file(root, path, mode, revision, base).await },
+                async move {
+                    let status = status.context("review snapshot missing file status")?;
+                    load_file(root, path, status, revision, base).await
+                },
                 move |me, result, ctx| {
                     me.loading = None;
                     let Some(index) = me
@@ -592,29 +599,23 @@ async fn load_comparison(
     root: PathBuf,
     mode: DiffMode,
     cached_base: Option<String>,
-) -> Result<(String, Vec<FileChangeEntry>)> {
+) -> Result<(String, DiffMetadataAgainstBase)> {
     let base = match cached_base {
         Some(base) => base,
         None => LocalDiffStateModel::compute_merge_base(&root, &mode).await?,
     };
     let metadata = LocalDiffStateModel::diff_metadata_against_base(&root, &base).await?;
-    Ok((base, metadata.files))
+    Ok((base, metadata))
 }
 
 async fn load_file(
     root: PathBuf,
     path: String,
-    mode: DiffMode,
+    status: GitFileStatus,
     revision: Option<String>,
     cached_base: Option<Arc<String>>,
 ) -> Result<Option<(Arc<String>, String)>> {
-    // The editor already computes and renders the diff. Querying a Git patch
-    // and its binary numstat first repeats that work and adds WSL launches.
-    let Some((_, status)) =
-        LocalDiffStateModel::file_status_for_path(&root, &path, &mode, revision.as_deref()).await?
-    else {
-        return Ok(None);
-    };
+    // Status and rename sources come from the summary that populated the cards.
     let base = match (cached_base, &status) {
         (Some(base), _) => base,
         (_, GitFileStatus::New | GitFileStatus::Untracked) => Arc::new(String::new()),

@@ -1,5 +1,6 @@
 //! Shared Git diff types and local diff state used by the remote server.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -268,6 +269,8 @@ pub struct DiffMetadataAgainstBase {
     /// is what lets the box populate for remote repos, where the list rides
     /// along in synced metadata.
     pub files: Vec<FileChangeEntry>,
+    /// Local detail reads retain status and rename sources from this snapshot.
+    pub file_statuses: HashMap<String, GitFileStatus>,
 }
 
 #[derive(Debug, Copy, Clone, Default)]

@@ -9,11 +9,11 @@ use warpui::r#async::SpawnedFutureHandle;
 use warpui::{Entity, ModelContext, ModelHandle};
 
 use super::{GitInvalidation, GitRepoStatusEvent, GitStatusMetadata};
-use crate::code_review::diff_state::diff_metadata_against_head;
+use crate::code_review::diff_state::{DiffMetadataAgainstBase, diff_metadata_against_head};
 use crate::context_chips::display_chip::GitBranchTrackingStatus;
 #[cfg(windows)]
 use crate::file_watcher::wsl;
-use crate::util::git::{FileChangeEntry, detect_current_branch_display, detect_main_branch};
+use crate::util::git::{detect_current_branch_display, detect_main_branch};
 
 /// Per-repository model that owns the filesystem watcher and exposes git status
 /// metadata. Consumers hold a `ModelHandle<GitRepoStatusModel>` and subscribe
@@ -28,7 +28,7 @@ pub struct LocalGitRepoStatusModel {
     repository: ModelHandle<Repository>,
     subscriber_id: Option<SubscriberId>,
     metadata: Option<GitStatusMetadata>,
-    files: Vec<FileChangeEntry>,
+    review_files: DiffMetadataAgainstBase,
     branches_dirty: bool,
     computing_metadata_abort_handle: Option<SpawnedFutureHandle>,
     refresh_pending: bool,
@@ -60,7 +60,7 @@ impl LocalGitRepoStatusModel {
             repository: repository_model.clone(),
             subscriber_id: None,
             metadata: None,
-            files: Vec::new(),
+            review_files: Default::default(),
             branches_dirty: true,
             computing_metadata_abort_handle: None,
             refresh_pending: false,
@@ -149,8 +149,8 @@ impl LocalGitRepoStatusModel {
         self.metadata.as_ref()
     }
 
-    pub fn files(&self) -> &[FileChangeEntry] {
-        &self.files
+    pub fn review_files(&self) -> &DiffMetadataAgainstBase {
+        &self.review_files
     }
 
     /// The path to the repository root.
@@ -252,13 +252,13 @@ impl LocalGitRepoStatusModel {
 
     fn handle_metadata_result(
         &mut self,
-        result: anyhow::Result<(GitStatusMetadata, Vec<FileChangeEntry>)>,
+        result: anyhow::Result<(GitStatusMetadata, DiffMetadataAgainstBase)>,
         ctx: &mut ModelContext<Self>,
     ) {
         match result {
             Ok((metadata, files)) => {
                 self.metadata = Some(metadata);
-                self.files = files;
+                self.review_files = files;
             }
             Err(e) => {
                 log::warn!("GitRepoStatusModel: metadata load failed: {e}");
@@ -361,11 +361,11 @@ impl LocalGitRepoStatusModel {
     async fn load_metadata(
         repo_path: PathBuf,
         cached: Option<GitStatusMetadata>,
-    ) -> anyhow::Result<(GitStatusMetadata, Vec<FileChangeEntry>)> {
+    ) -> anyhow::Result<(GitStatusMetadata, DiffMetadataAgainstBase)> {
         let stats_against_head = diff_metadata_against_head(&repo_path).await?;
         if let Some(mut metadata) = cached {
             metadata.stats_against_head = stats_against_head.aggregate_stats;
-            return Ok((metadata, stats_against_head.files));
+            return Ok((metadata, stats_against_head));
         }
         // Detect main branch.
         let main_branch_name = detect_main_branch(&repo_path).await?;
@@ -383,7 +383,7 @@ impl LocalGitRepoStatusModel {
                 stats_against_head: stats_against_head.aggregate_stats,
                 branch_tracking_status,
             },
-            stats_against_head.files,
+            stats_against_head,
         ))
     }
 }
@@ -400,7 +400,7 @@ impl LocalGitRepoStatusModel {
             repository,
             subscriber_id: None,
             metadata,
-            files: Vec::new(),
+            review_files: Default::default(),
             branches_dirty: true,
             computing_metadata_abort_handle: None,
             refresh_pending: false,

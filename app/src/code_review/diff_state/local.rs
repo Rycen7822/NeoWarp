@@ -1717,6 +1717,7 @@ impl LocalDiffStateModel {
                 total_deletions,
             },
             files,
+            file_statuses: changed_files.into_iter().collect(),
         })
     }
 
@@ -2443,6 +2444,7 @@ pub(crate) async fn diff_metadata_against_head(
             total_deletions,
         },
         files,
+        file_statuses: changed_files.into_iter().collect(),
     })
 }
 
