@@ -262,7 +262,35 @@ fn read_base(
         if !matches!(stdout_closed, PipeRead::Progress)
             && !matches!(stderr_closed, PipeRead::Progress)
         {
-            std::thread::sleep(Duration::from_millis(5));
+            let mut pipes = [
+                libc::pollfd {
+                    fd: if matches!(stdout_closed, PipeRead::Closed) {
+                        -1
+                    } else {
+                        stdout.as_raw_fd()
+                    },
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: if matches!(stderr_closed, PipeRead::Closed) {
+                        -1
+                    } else {
+                        stderr.as_raw_fd()
+                    },
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            // SAFETY: both descriptors remain owned by the pipes above. poll only
+            // waits for readiness; -1 excludes closed pipes so EOF cannot spin.
+            // Keep cancellation latency bounded without delaying available output.
+            if unsafe { libc::poll(pipes.as_mut_ptr(), pipes.len() as libc::nfds_t, 5) } < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    return Err(error.into());
+                }
+            }
         }
     }
 }
