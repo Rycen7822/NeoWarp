@@ -31,6 +31,7 @@ use crate::code::editor::view::{
 };
 use crate::code::editor::{add_color, remove_color};
 use crate::localization::tr;
+use crate::settings::CodeSettings;
 use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
 use crate::util::git::FileChangeEntry;
@@ -46,6 +47,7 @@ struct FileCard {
     editor_state: Option<ReviewEditorState>,
     base: Option<Arc<String>>,
     expanded: bool,
+    auto_collapse_pending: bool,
     dirty: bool,
     message: String,
     toggle_mouse: MouseStateHandle,
@@ -54,13 +56,14 @@ struct FileCard {
 }
 
 impl FileCard {
-    fn new(entry: FileChangeEntry) -> Self {
+    fn new(entry: FileChangeEntry, collapse_limit: u16) -> Self {
         Self {
             entry,
             editor: None,
             editor_state: None,
             base: None,
-            expanded: true,
+            expanded: collapse_limit != 0,
+            auto_collapse_pending: true,
             dirty: true,
             message: tr("Loading changes…").into(),
             toggle_mouse: Default::default(),
@@ -193,6 +196,7 @@ impl GitReviewView {
     }
 
     fn set_files(&mut self, files: Vec<FileChangeEntry>, ctx: &mut ViewContext<Self>) {
+        let collapse_limit = *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
         let old_len = self.files.len();
         let mut previous: HashMap<_, _> = self
             .files
@@ -206,7 +210,7 @@ impl GitReviewView {
                     card.entry = entry;
                     card
                 } else {
-                    FileCard::new(entry)
+                    FileCard::new(entry, collapse_limit)
                 }
             })
             .collect();
@@ -375,6 +379,23 @@ impl GitReviewView {
                                     {
                                         if matches!(event, CodeEditorEvent::DiffUpdated)
                                             && !me.files[index].dirty
+                                            && std::mem::take(
+                                                &mut me.files[index].auto_collapse_pending,
+                                            )
+                                        {
+                                            let model = editor.as_ref(ctx).model.as_ref(ctx);
+                                            let lines = model
+                                                .diff()
+                                                .as_ref(ctx)
+                                                .review_line_count(model.line_count(ctx) + 1);
+                                            let limit =
+                                                *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
+                                            if limit == 0 || lines > usize::from(limit) {
+                                                me.set_expanded(index, false, ctx);
+                                            }
+                                        }
+                                        if matches!(event, CodeEditorEvent::DiffUpdated)
+                                            && !me.files[index].dirty
                                             && let Some(state) = me.files[index].editor_state.take()
                                         {
                                             editor.update(ctx, |editor, ctx| {
@@ -422,6 +443,7 @@ impl GitReviewView {
 
     fn set_expanded(&mut self, index: usize, expanded: bool, ctx: &mut ViewContext<Self>) {
         let card = &mut self.files[index];
+        card.auto_collapse_pending = false;
         if card.expanded == expanded {
             return;
         }
@@ -512,7 +534,9 @@ impl GitReviewView {
                     .finish(),
             );
         if card.expanded {
-            if let Some(editor) = &card.editor {
+            if let Some(editor) = &card.editor
+                && !card.auto_collapse_pending
+            {
                 column.add_child(
                     ConstrainedBox::new(ChildView::new(editor).finish())
                         .with_max_height(1000.)

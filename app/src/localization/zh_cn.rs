@@ -2,6 +2,10 @@
 
 pub(super) fn lookup(english: &str) -> Option<&'static str> {
     Some(match english {
+        "Auto-collapse diff above (lines)" => "差异默认折叠阈值（行）",
+        "Counts displayed code and context lines. 0 collapses every file. Range: 0–10000." => {
+            "统计实际显示的代码与上下文行。0 表示全部默认折叠，范围为 0–10000。"
+        }
         "Confirm before closing" => "关闭前确认",
         "Confirmation timeout (seconds)" => "确认超时（秒）",
         "Close this window?" => "关闭此窗口？",

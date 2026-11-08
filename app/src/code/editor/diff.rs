@@ -283,6 +283,16 @@ impl DiffModel {
         hidden
     }
 
+    /// Code lines displayed by a default review, including deletions and visible context.
+    pub(crate) fn review_line_count(&self, line_count: usize) -> usize {
+        let hidden: usize = self
+            .unchanged_line_ranges(line_count, 3)
+            .iter()
+            .map(|range| (range.end - range.start).as_usize())
+            .sum();
+        line_count.saturating_sub(hidden) + self.status.get_diff_lines().1
+    }
+
     /// Get a single renderable diff hunk by its index.
     pub fn renderable_diff_hunk_by_index<'a>(
         &self,

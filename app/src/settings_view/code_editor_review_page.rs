@@ -5,7 +5,7 @@ use warp_errors::report_if_error;
 use warpui::elements::Element;
 #[cfg(feature = "local_fs")]
 use warpui::elements::{ChildView, Empty};
-use warpui::ui_components::components::UiComponent;
+use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
 
@@ -17,6 +17,7 @@ use super::settings_page::{
 };
 use super::{SettingsSection, ToggleState};
 use crate::appearance::Appearance;
+use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
 use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, CodeSettings};
 use crate::view_components::{Dropdown, DropdownItem};
 
@@ -27,6 +28,7 @@ pub struct EditorAndCodeReviewPageView {
     #[cfg(feature = "local_fs")]
     external_editor_view: Option<ViewHandle<ExternalEditorView>>,
     code_editor_line_number_mode_dropdown: ViewHandle<Dropdown<EditorAndCodeReviewPageAction>>,
+    diff_auto_collapse_editor: ViewHandle<EditorView>,
 }
 
 impl EditorAndCodeReviewPageView {
@@ -48,11 +50,43 @@ impl EditorAndCodeReviewPageView {
             ctx.notify();
         });
 
+        let diff_auto_collapse_editor = ctx.add_typed_action_view(|ctx| {
+            let mut editor = EditorView::single_line(
+                SingleLineEditorOptions {
+                    text: TextOptions::ui_text(None),
+                    ..Default::default()
+                },
+                ctx,
+            );
+            editor.set_buffer_text(
+                &CodeSettings::as_ref(ctx)
+                    .diff_auto_collapse_lines
+                    .to_string(),
+                ctx,
+            );
+            editor
+        });
+        ctx.subscribe_to_view(&diff_auto_collapse_editor, |me, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                if let Ok(lines) = editor.as_ref(ctx).buffer_text(ctx).trim().parse::<u16>() {
+                    CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
+                        report_if_error!(settings.diff_auto_collapse_lines.set_value(lines, ctx));
+                    });
+                }
+                me.update_diff_auto_collapse_editor(ctx);
+            }
+        });
+        ctx.subscribe_to_model(&CodeSettings::handle(ctx), |me, _, _, ctx| {
+            me.update_diff_auto_collapse_editor(ctx);
+            ctx.notify();
+        });
+
         Self {
             page: Self::build_page(ctx),
             #[cfg(feature = "local_fs")]
             external_editor_view,
             code_editor_line_number_mode_dropdown,
+            diff_auto_collapse_editor,
         }
     }
 
@@ -71,8 +105,16 @@ impl EditorAndCodeReviewPageView {
         }
 
         widgets.push(Box::new(AutoSaveToggleWidget::default()));
+        widgets.push(Box::new(DiffAutoCollapseWidget));
 
         PageType::new_uncategorized(widgets, Some(PageTitle::new(PAGE_TITLE)))
+    }
+
+    fn update_diff_auto_collapse_editor(&self, ctx: &mut ViewContext<Self>) {
+        let lines = *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
+        self.diff_auto_collapse_editor.update(ctx, |editor, ctx| {
+            editor.set_buffer_text(&lines.to_string(), ctx);
+        });
     }
 
     fn update_code_editor_line_number_mode_dropdown(
@@ -207,6 +249,43 @@ impl SettingsWidget for ExternalEditorCodeWidget {
         } else {
             Empty::new().finish()
         }
+    }
+}
+
+struct DiffAutoCollapseWidget;
+
+impl SettingsWidget for DiffAutoCollapseWidget {
+    type View = EditorAndCodeReviewPageView;
+
+    fn search_terms(&self) -> &str {
+        "diff review collapse lines threshold code 审查 差异 折叠 行数 阈值"
+    }
+
+    fn render(
+        &self,
+        view: &Self::View,
+        appearance: &Appearance,
+        _app: &AppContext,
+    ) -> Box<dyn Element> {
+        render_body_item::<EditorAndCodeReviewPageAction>(
+            "Auto-collapse diff above (lines)".into(),
+            None,
+            ToggleState::Enabled,
+            appearance,
+            appearance
+                .ui_builder()
+                .text_input(view.diff_auto_collapse_editor.clone())
+                .with_style(UiComponentStyles {
+                    width: Some(80.),
+                    ..Default::default()
+                })
+                .build()
+                .finish(),
+            Some(
+                "Counts displayed code and context lines. 0 collapses every file. Range: 0–10000."
+                    .into(),
+            ),
+        )
     }
 }
 
