@@ -26,7 +26,6 @@ use crate::code::editor::model::word_unit;
 use crate::code::editor::view::{CodeEditorView, VimMode};
 use crate::editor::InteractionState;
 use crate::features::FeatureFlag;
-use crate::localization::tr;
 use crate::util::bindings::CustomAction;
 
 /// Disable editing keybindings for read-only editors.
@@ -1014,19 +1013,6 @@ impl TypedActionView for CodeEditorView {
 impl warp_editor::editor::EditorView for CodeEditorView {
     type RichTextAction = CodeEditorViewAction;
 
-    fn hidden_section_label(lines: usize) -> String {
-        tr(if lines == 1 {
-            "{count} unmodified line"
-        } else {
-            "{count} unmodified lines"
-        })
-        .replace("{count}", &lines.to_string())
-    }
-
-    fn expand_all_lines_label() -> &'static str {
-        tr("Expand all lines")
-    }
-
     fn text_decorations<'a>(
         &'a self,
         viewport_ranges: RangeSet<CharOffset>,
@@ -1164,17 +1150,6 @@ impl RichTextAction<CodeEditorView> for CodeEditorViewAction {
         _ctx: &AppContext,
     ) -> Option<Self> {
         None
-    }
-
-    fn hidden_section_clicked(
-        line_range: Range<LineCount>,
-        _parent_view: &WeakViewHandle<CodeEditorView>,
-        _ctx: &AppContext,
-    ) -> Option<Self> {
-        Some(CodeEditorViewAction::HiddenSectionExpansion {
-            line_range,
-            expansion_type: ExpansionType::Both,
-        })
     }
 
     fn middle_mouse_down(_ctx: &AppContext) -> Option<Self> {

@@ -21,7 +21,7 @@ use warp_core::ui::Icon;
 use warp_core::ui::theme::Fill as ThemeFill;
 use warp_errors::report_error;
 use warpui_core::color::ColorU;
-use warpui_core::elements::{Fill, Margin, MouseStateHandle, Padding, ScrollData};
+use warpui_core::elements::{Fill, Margin, Padding, ScrollData};
 use warpui_core::fonts::{FamilyId, Properties, Weight};
 use warpui_core::geometry::rect::RectF;
 use warpui_core::geometry::vector::{Vector2F, vec2f};
@@ -698,7 +698,6 @@ pub fn gutter_expansion_button_types(
         }
     }
 }
-// The mouse state is Arc-backed, so hidden-range dedupe clones these configs.
 #[derive(Debug, Clone)]
 pub struct HiddenBlockConfig {
     line_count: LineCount,
@@ -706,11 +705,6 @@ pub struct HiddenBlockConfig {
     // The location of the block is set when the hidden section is first laid out,
     // and updated in RenderState.dedupe_hidden_ranges.
     block_location: BlockLocation,
-    // Persistent hover state for the full-width bar, so it can show a hover
-    // highlight and respond to a double-click. Created once per section and
-    // carried across re-layouts (including range dedupe, which preserves the
-    // accumulating range's handle).
-    mouse_state: MouseStateHandle,
 }
 
 impl HiddenBlockConfig {
@@ -723,12 +717,7 @@ impl HiddenBlockConfig {
             line_count,
             content_length,
             block_location,
-            mouse_state: MouseStateHandle::default(),
         }
-    }
-
-    pub fn mouse_state(&self) -> MouseStateHandle {
-        self.mouse_state.clone()
     }
 
     pub fn height(&self) -> Pixels {
@@ -2097,15 +2086,6 @@ impl RenderState {
         let content = self.content();
         let offset = block.viewport_item().block_offset();
         Some(start..start + content.block_at_offset(offset)?.item.lines())
-    }
-
-    /// The full line range of the block starting at `offset`, resolved without a
-    /// `RenderableBlock`. Used to compute a hidden section's complete range for
-    /// double-click full expansion.
-    pub fn line_range_at_offset(&self, offset: CharOffset) -> Option<Range<LineCount>> {
-        let content = self.content();
-        let block = content.block_at_offset(offset)?;
-        Some(block.start_line..block.start_line + block.item.lines())
     }
 }
 

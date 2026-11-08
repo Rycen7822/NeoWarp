@@ -1,5 +1,4 @@
 use std::fmt;
-use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -32,9 +31,7 @@ use self::hidden_section::RenderableHiddenSection;
 pub use self::paint::{CursorData, CursorDisplayType, RenderContext};
 use self::paragraph::RenderableParagraph;
 use super::model::viewport::{SizeInfo, ViewportItem};
-use super::model::{
-    BlockItem, ElementUpdate, LineCount, Location, RenderState, RichTextStyles, UNIT_MARGIN,
-};
+use super::model::{BlockItem, ElementUpdate, Location, RenderState, UNIT_MARGIN};
 use crate::content::version::BufferVersion;
 use crate::editor::EditorView;
 
@@ -344,18 +341,6 @@ pub trait RichTextAction<V>: Sized {
         parent_view: &WeakViewHandle<V>,
         ctx: &AppContext,
     ) -> Option<Self>;
-
-    /// Dispatch an event when a hidden-section bar is clicked, to fully
-    /// expand the entire hidden section it represents. `line_range` is the
-    /// section's complete hidden line range. Defaults to no action; only the
-    /// code-review editor implements it.
-    fn hidden_section_clicked(
-        _line_range: Range<LineCount>,
-        _parent_view: &WeakViewHandle<V>,
-        _ctx: &AppContext,
-    ) -> Option<Self> {
-        None
-    }
 
     /// Dispatch an event when the mouse wheel is clicked.
     fn middle_mouse_down(ctx: &AppContext) -> Option<Self>;
@@ -779,7 +764,7 @@ impl<V: EditorView> RichTextElement<V> {
 
     /// Builds a [`RenderableBlock`] for each block in the current viewport. This is done lazily,
     /// during layout.
-    fn renderable_blocks(&mut self, styles: &RichTextStyles, ctx: &AppContext) {
+    fn renderable_blocks(&mut self, ctx: &AppContext) {
         let _parent = match self.parent_view.upgrade(ctx) {
             Some(handle) => handle.as_ref(ctx),
             None => {
@@ -808,19 +793,7 @@ impl<V: EditorView> RichTextElement<V> {
                 } => RenderableTemporaryBlock::new(item, *decoration, text_decoration.clone())
                     .finish(),
                 BlockItem::TrailingNewLine(_) => Empty::new(item).finish(),
-                BlockItem::Hidden(config) => {
-                    let full_line_range = model.line_range_at_offset(item.block_offset);
-                    RenderableHiddenSection::new(
-                        item,
-                        config.mouse_state(),
-                        config.line_count(),
-                        full_line_range,
-                        styles,
-                        self.parent_view.clone(),
-                        ctx,
-                    )
-                    .finish()
-                }
+                BlockItem::Hidden(_) => RenderableHiddenSection::new(item).finish(),
             })
             .collect();
 
@@ -918,7 +891,7 @@ impl<V: EditorView> Element for RichTextElement<V> {
         let size = constraint.max;
         self.element_size = Some(size);
 
-        self.renderable_blocks(model.styles(), app);
+        self.renderable_blocks(app);
         match self.blocks.as_mut() {
             Some(blocks) => {
                 for block in blocks.iter_mut() {
