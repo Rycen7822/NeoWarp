@@ -31,7 +31,7 @@ fn toolbar_folding_releases_bodies_and_reopens_lazily() {
         let status =
             app.add_model(|ctx| GitRepoStatusModel::new_local_for_test(repository, None, ctx));
         let (_, review) = app.add_window(WindowStyle::NotStealFocus, |ctx| {
-            GitReviewView::new(directory.path().to_owned(), status, ctx)
+            GitReviewView::new(directory.path().to_owned(), status, None, ctx)
         });
         review.update(&mut app, |review, ctx| {
             review.set_files(

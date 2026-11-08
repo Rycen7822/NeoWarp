@@ -1,4 +1,4 @@
-use warpui::{AppContext, Entity, ModelContext, ModelHandle};
+use warpui::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 
 #[cfg(feature = "local_fs")]
 mod local;
@@ -77,6 +77,18 @@ impl GitRepoStatusModel {
         match self {
             #[cfg(feature = "local_fs")]
             Self::Local(model) => Some(model.as_ref(ctx).review_files()),
+            Self::Remote(_) => None,
+        }
+    }
+
+    /// Identity and invalidation generation of a reliably watched local repository.
+    pub(crate) fn review_revision(&self, ctx: &AppContext) -> Option<(EntityId, u64)> {
+        match self {
+            #[cfg(feature = "local_fs")]
+            Self::Local(model) => model
+                .as_ref(ctx)
+                .review_revision()
+                .map(|revision| (model.id(), revision)),
             Self::Remote(_) => None,
         }
     }

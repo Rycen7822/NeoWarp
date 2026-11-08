@@ -509,6 +509,8 @@ pub struct Workspace {
     #[cfg(feature = "local_fs")]
     git_review_view: Option<ViewHandle<crate::code_review::review::GitReviewView>>,
     #[cfg(feature = "local_fs")]
+    git_review_snapshot: Option<crate::code_review::review::ReviewSnapshot>,
+    #[cfg(feature = "local_fs")]
     git_review_width: ResizableStateHandle,
     #[cfg(feature = "local_fs")]
     sidebar: super::sidebar::Sidebar,
@@ -1457,6 +1459,8 @@ impl Workspace {
             keybindings_view,
             #[cfg(feature = "local_fs")]
             git_review_view: None,
+            #[cfg(feature = "local_fs")]
+            git_review_snapshot: None,
             #[cfg(feature = "local_fs")]
             git_review_width: resizable_state_handle(800.),
             #[cfg(feature = "local_fs")]
@@ -11511,7 +11515,10 @@ impl TypedActionView for Workspace {
             CloseGitReview => {
                 #[cfg(feature = "local_fs")]
                 {
-                    self.git_review_view = None;
+                    if let Some(review) = self.git_review_view.take() {
+                        self.git_review_snapshot =
+                            review.update(ctx, |view, ctx| view.snapshot(ctx));
+                    }
                     self.focus_active_tab(ctx);
                     ctx.notify();
                 }
@@ -11533,9 +11540,10 @@ impl TypedActionView for Workspace {
                             .update(ctx, |model, ctx| model.subscribe(&location, ctx));
                         match status {
                             Ok(status) => {
+                                let snapshot = self.git_review_snapshot.take();
                                 self.git_review_view = Some(ctx.add_typed_action_view(|ctx| {
                                     crate::code_review::review::GitReviewView::new(
-                                        root, status, ctx,
+                                        root, status, snapshot, ctx,
                                     )
                                 }));
                                 self.current_workspace_state.is_keybindings_open = false;

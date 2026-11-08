@@ -41,11 +41,16 @@ use crate::workspace::WorkspaceAction;
 #[path = "review_tests.rs"]
 mod tests;
 
+#[path = "review_snapshot.rs"]
+mod snapshot;
+pub(crate) use snapshot::ReviewSnapshot;
+
 struct FileCard {
     entry: FileChangeEntry,
     editor: Option<ViewHandle<CodeEditorView>>,
     editor_state: Option<ReviewEditorState>,
     base: Option<Arc<String>>,
+    cached_current: Option<Box<str>>,
     expanded: bool,
     auto_collapse_pending: bool,
     dirty: bool,
@@ -62,6 +67,7 @@ impl FileCard {
             editor: None,
             editor_state: None,
             base: None,
+            cached_current: None,
             expanded: collapse_limit != 0,
             auto_collapse_pending: true,
             dirty: true,
@@ -98,6 +104,7 @@ impl GitReviewView {
     pub fn new(
         root: PathBuf,
         status: ModelHandle<GitRepoStatusModel>,
+        snapshot: Option<ReviewSnapshot>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let selector =
@@ -151,6 +158,7 @@ impl GitReviewView {
                         || changes.paths.contains(&PathBuf::from(&card.entry.path))
                     {
                         card.dirty = true;
+                        card.cached_current = None;
                     }
                 }
                 ctx.notify();
@@ -176,7 +184,9 @@ impl GitReviewView {
             wrap_mouse: Default::default(),
             fold_mouse: Default::default(),
         };
-        view.update_files(ctx);
+        if !snapshot.is_some_and(|snapshot| view.restore_snapshot(snapshot, ctx)) {
+            view.update_files(ctx);
+        }
         view
     }
 
@@ -329,6 +339,19 @@ impl GitReviewView {
             return;
         }
         card.dirty = false;
+        if let Some(current) = card.cached_current.take() {
+            let base = card
+                .base
+                .clone()
+                .context("cached review missing base content");
+            apply_file_result(
+                self,
+                index,
+                base.map(|base| (base, current.into_string())),
+                ctx,
+            );
+            return;
+        }
         card.message = tr("Updating…").into();
         let path = card.entry.path.clone();
         let root = self.root.clone();
@@ -359,85 +382,7 @@ impl GitReviewView {
                         ctx.notify();
                         return;
                     }
-                    match result {
-                        Ok((base, current)) => {
-                            let editor = if let Some(editor) = &me.files[index].editor {
-                                editor.clone()
-                            } else {
-                                let editor = ctx.add_typed_action_view(|ctx| {
-                                    CodeEditorView::new(
-                                        None,
-                                        None,
-                                        CodeEditorRenderOptions::new(
-                                            VerticalExpansionBehavior::GrowToMaxHeight,
-                                        ),
-                                        ctx,
-                                    )
-                                });
-                                let path = result_path.clone();
-                                ctx.subscribe_to_view(&editor, move |me, editor, event, ctx| {
-                                    if matches!(
-                                        event,
-                                        CodeEditorEvent::DiffUpdated
-                                            | CodeEditorEvent::HiddenSectionExpanded
-                                            | CodeEditorEvent::LayoutInvalidated
-                                    ) && let Some(index) =
-                                        me.files.iter().position(|card| card.entry.path == path)
-                                    {
-                                        if matches!(event, CodeEditorEvent::DiffUpdated)
-                                            && !me.files[index].dirty
-                                            && std::mem::take(
-                                                &mut me.files[index].auto_collapse_pending,
-                                            )
-                                        {
-                                            let model = editor.as_ref(ctx).model.as_ref(ctx);
-                                            let lines = model
-                                                .diff()
-                                                .as_ref(ctx)
-                                                .review_line_count(model.line_count(ctx) + 1);
-                                            let limit =
-                                                *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
-                                            if limit == 0 || lines > usize::from(limit) {
-                                                me.set_expanded(index, false, ctx);
-                                            }
-                                        }
-                                        if matches!(event, CodeEditorEvent::DiffUpdated)
-                                            && !me.files[index].dirty
-                                            && let Some(state) = me.files[index].editor_state.take()
-                                        {
-                                            editor.update(ctx, |editor, ctx| {
-                                                editor.restore_review_state(state, ctx);
-                                            });
-                                        }
-                                        me.list.invalidate_height_for_index(index);
-                                        ctx.notify();
-                                    }
-                                });
-                                editor.update(ctx, |editor, ctx| {
-                                    editor.set_language_with_local_path(
-                                        &crate::util::path::local_path_for_io(&me.root)
-                                            .join(&result_path),
-                                        ctx,
-                                    );
-                                });
-                                me.files[index].editor = Some(editor.clone());
-                                editor
-                            };
-                            editor.update(ctx, |editor, ctx| {
-                                editor.set_review_content(&base, &current, ctx);
-                                editor.set_review_wrapping(me.wrap_lines, ctx);
-                            });
-                            me.files[index].base = Some(base);
-                            me.files[index].message.clear();
-                        }
-                        Err(error) => {
-                            me.files[index].editor = None;
-                            me.files[index].message =
-                                format!("{}: {error:#}", tr("Unable to load diff"));
-                        }
-                    }
-                    me.list.invalidate_height_for_index(index);
-                    ctx.notify();
+                    apply_file_result(me, index, result, ctx);
                 },
             ),
         ));
@@ -453,6 +398,7 @@ impl GitReviewView {
         card.expanded = expanded;
         card.dirty = true;
         card.base = None;
+        card.cached_current = None;
         if !expanded && let Some(editor) = card.editor.take() {
             card.editor_state = Some(editor.as_ref(ctx).review_state(ctx));
         }
@@ -589,6 +535,87 @@ pub(crate) fn diff_badge(
         .with_padding(Padding::uniform(3.).with_horizontal(8.))
         .with_margin_right(8.)
         .finish()
+}
+
+fn apply_file_result(
+    me: &mut GitReviewView,
+    index: usize,
+    result: Result<(Arc<String>, String)>,
+    ctx: &mut ViewContext<GitReviewView>,
+) {
+    let result_path = me.files[index].entry.path.clone();
+    match result {
+        Ok((base, current)) => {
+            let editor = if let Some(editor) = &me.files[index].editor {
+                editor.clone()
+            } else {
+                let editor = ctx.add_typed_action_view(|ctx| {
+                    CodeEditorView::new(
+                        None,
+                        None,
+                        CodeEditorRenderOptions::new(VerticalExpansionBehavior::GrowToMaxHeight),
+                        ctx,
+                    )
+                });
+                let path = result_path.clone();
+                ctx.subscribe_to_view(&editor, move |me, editor, event, ctx| {
+                    if matches!(
+                        event,
+                        CodeEditorEvent::DiffUpdated
+                            | CodeEditorEvent::HiddenSectionExpanded
+                            | CodeEditorEvent::LayoutInvalidated
+                    ) && let Some(index) =
+                        me.files.iter().position(|card| card.entry.path == path)
+                    {
+                        if matches!(event, CodeEditorEvent::DiffUpdated)
+                            && !me.files[index].dirty
+                            && std::mem::take(&mut me.files[index].auto_collapse_pending)
+                        {
+                            let model = editor.as_ref(ctx).model.as_ref(ctx);
+                            let lines = model
+                                .diff()
+                                .as_ref(ctx)
+                                .review_line_count(model.line_count(ctx) + 1);
+                            let limit = *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
+                            if limit == 0 || lines > usize::from(limit) {
+                                me.set_expanded(index, false, ctx);
+                            }
+                        }
+                        if matches!(event, CodeEditorEvent::DiffUpdated)
+                            && !me.files[index].dirty
+                            && let Some(state) = me.files[index].editor_state.take()
+                        {
+                            editor.update(ctx, |editor, ctx| {
+                                editor.restore_review_state(state, ctx);
+                            });
+                        }
+                        me.list.invalidate_height_for_index(index);
+                        ctx.notify();
+                    }
+                });
+                editor.update(ctx, |editor, ctx| {
+                    editor.set_language_with_local_path(
+                        &crate::util::path::local_path_for_io(&me.root).join(&result_path),
+                        ctx,
+                    );
+                });
+                me.files[index].editor = Some(editor.clone());
+                editor
+            };
+            editor.update(ctx, |editor, ctx| {
+                editor.set_review_content(&base, &current, ctx);
+                editor.set_review_wrapping(me.wrap_lines, ctx);
+            });
+            me.files[index].base = Some(base);
+            me.files[index].message.clear();
+        }
+        Err(error) => {
+            me.files[index].editor = None;
+            me.files[index].message = format!("{}: {error:#}", tr("Unable to load diff"));
+        }
+    }
+    me.list.invalidate_height_for_index(index);
+    ctx.notify();
 }
 
 async fn load_comparison(

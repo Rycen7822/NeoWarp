@@ -29,6 +29,8 @@ pub struct LocalGitRepoStatusModel {
     subscriber_id: Option<SubscriberId>,
     metadata: Option<GitStatusMetadata>,
     review_files: DiffMetadataAgainstBase,
+    review_revision: u64,
+    watch_ready: bool,
     branches_dirty: bool,
     computing_metadata_abort_handle: Option<SpawnedFutureHandle>,
     refresh_pending: bool,
@@ -61,6 +63,8 @@ impl LocalGitRepoStatusModel {
             subscriber_id: None,
             metadata: None,
             review_files: Default::default(),
+            review_revision: 0,
+            watch_ready: false,
             branches_dirty: true,
             computing_metadata_abort_handle: None,
             refresh_pending: false,
@@ -94,12 +98,17 @@ impl LocalGitRepoStatusModel {
         // Handle watcher registration.
         ctx.spawn(start.registration_future, |me, result, ctx| {
             if let Err(err) = result {
+                me.watch_ready = false;
                 log::warn!("GitRepoStatusModel: watcher registration failed: {err}");
                 if let Some(subscriber_id) = me.subscriber_id.take() {
                     me.repository.update(ctx, |repo, ctx| {
                         repo.stop_watching(subscriber_id, ctx);
                     });
                 }
+            } else {
+                me.watch_ready = true;
+                // Cover writes between the initial snapshot and watch registration.
+                me.refresh_metadata(ctx);
             }
         });
 
@@ -128,15 +137,18 @@ impl LocalGitRepoStatusModel {
                         let git_changed = update.commit_updated
                             || update.remote_ref_updated
                             || update.index_lock_detected;
-                        ctx.emit(GitRepoStatusEvent::FilesInvalidated(GitInvalidation {
-                            paths,
-                            full: git_changed,
-                            git_changed,
-                        }));
+                        me.invalidate_files(
+                            GitInvalidation {
+                                paths,
+                                full: git_changed,
+                                git_changed,
+                            },
+                            ctx,
+                        );
                         me.refresh_worktree(git_changed, ctx);
                     }
                 },
-                |_, _| {},
+                |me, ctx| me.watch_unavailable(ctx),
             );
         }
 
@@ -153,6 +165,31 @@ impl LocalGitRepoStatusModel {
         &self.review_files
     }
 
+    pub(super) fn review_revision(&self) -> Option<u64> {
+        (self.watch_ready
+            && self.metadata.is_some()
+            && self.computing_metadata_abort_handle.is_none()
+            && !self.refresh_pending)
+            .then_some(self.review_revision)
+    }
+
+    fn invalidate_files(&mut self, changes: GitInvalidation, ctx: &mut ModelContext<Self>) {
+        self.review_revision = self.review_revision.wrapping_add(1);
+        ctx.emit(GitRepoStatusEvent::FilesInvalidated(changes));
+    }
+
+    fn watch_unavailable(&mut self, ctx: &mut ModelContext<Self>) {
+        self.watch_ready = false;
+        self.invalidate_files(
+            GitInvalidation {
+                full: true,
+                git_changed: true,
+                ..Default::default()
+            },
+            ctx,
+        );
+    }
+
     /// The path to the repository root.
     pub fn repo_path(&self) -> &Path {
         &self.repo_path
@@ -164,11 +201,14 @@ impl LocalGitRepoStatusModel {
     pub fn refresh_metadata(&mut self, ctx: &mut ModelContext<Self>) {
         // Manual refresh and helper-failure polling must refresh open details
         // even when aggregate addition/deletion counts have not changed.
-        ctx.emit(GitRepoStatusEvent::FilesInvalidated(GitInvalidation {
-            full: true,
-            git_changed: true,
-            ..Default::default()
-        }));
+        self.invalidate_files(
+            GitInvalidation {
+                full: true,
+                git_changed: true,
+                ..Default::default()
+            },
+            ctx,
+        );
         self.refresh_worktree(true, ctx);
     }
 
@@ -207,6 +247,7 @@ impl LocalGitRepoStatusModel {
         ) else {
             return false;
         };
+        self.watch_ready = false;
         self.wsl_subscription = Some(subscription);
         // Keep startup bounded; Ready/Dirty cancels this timer, EOF enters fallback.
         self.schedule_fallback_poll(Duration::from_secs(30), ctx);
@@ -219,12 +260,14 @@ impl LocalGitRepoStatusModel {
                 if let Some(subscription) = &me.wsl_subscription {
                     let changes = subscription.take_changes();
                     let git_changed = changes.git_changed;
-                    ctx.emit(GitRepoStatusEvent::FilesInvalidated(changes));
+                    me.watch_ready = true;
+                    me.invalidate_files(changes, ctx);
                     me.refresh_worktree(git_changed, ctx);
                 }
             },
             |me, ctx| {
                 me.wsl_subscription = None;
+                me.watch_unavailable(ctx);
                 me.schedule_fallback_poll(Duration::from_secs(5), ctx);
             },
         );
@@ -401,6 +444,8 @@ impl LocalGitRepoStatusModel {
             subscriber_id: None,
             metadata,
             review_files: Default::default(),
+            review_revision: 0,
+            watch_ready: false,
             branches_dirty: true,
             computing_metadata_abort_handle: None,
             refresh_pending: false,
