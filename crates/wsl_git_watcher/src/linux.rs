@@ -367,12 +367,12 @@ pub(super) fn run() -> Result<()> {
             let (reader, stopping, output, tx) =
                 (reader.clone(), stopping.clone(), output.clone(), tx.clone());
             std::thread::spawn(move || {
-                if let Err(error) = reader.run(&output) {
+                let result = reader.run(&output);
+                if result.is_err() {
                     stopping.store(true, Ordering::Relaxed);
                     let _ = tx.try_send(Input::Closed);
-                    return Err(error);
                 }
-                Ok(())
+                result
             })
         })
         .collect();

@@ -53,21 +53,18 @@ impl GitReviewView {
                     && (!card.dirty || card.cached_current.is_some())
                 {
                     card.base.as_ref().and_then(|base| {
-                        if let Some(current) = card.cached_current.take() {
-                            if base.len() + current.len() <= remaining {
-                                remaining -= base.len() + current.len();
-                                return Some((base.as_str().into(), current));
+                        let current = if let Some(current) = card.cached_current.take() {
+                            current
+                        } else {
+                            let model = editor.as_ref()?.as_ref(ctx).model.as_ref(ctx);
+                            let buffer = model.buffer().as_ref(ctx);
+                            // The initial block marker occupies one byte outside plain text.
+                            let current_len = buffer.max_byte_offset().as_usize().saturating_sub(1);
+                            if base.len() + current_len > remaining {
+                                return None;
                             }
-                            return None;
-                        }
-                        let model = editor.as_ref()?.as_ref(ctx).model.as_ref(ctx);
-                        let buffer = model.buffer().as_ref(ctx);
-                        // The initial block marker occupies one byte outside plain text.
-                        let current_len = buffer.max_byte_offset().as_usize().saturating_sub(1);
-                        if base.len() + current_len > remaining {
-                            return None;
-                        }
-                        let current = buffer.text().into_string().into_boxed_str();
+                            buffer.text().into_string().into_boxed_str()
+                        };
                         if base.len() + current.len() > remaining {
                             return None;
                         }

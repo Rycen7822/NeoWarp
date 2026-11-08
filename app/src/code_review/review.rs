@@ -399,21 +399,21 @@ impl GitReviewView {
         let root = self.root.clone();
         // Keep the cached snapshot available if an edit supersedes this cancellable read.
         let base = card.base.clone();
-        let result_path = path.clone();
+        let read_path = path.clone();
         let status = self.file_statuses.get(&path).cloned();
         let revision = self.merge_base.clone();
         self.next_read_id = self.next_read_id.wrapping_add(1);
         let id = self.next_read_id;
         self.loading.push(PendingRead {
-            path: path.clone(),
+            path,
             id,
             task: ctx.spawn(
                 async move {
                     let status = status.context("review snapshot missing file status")?;
-                    load_file(root, path, status, revision, base).await
+                    load_file(root, read_path, status, revision, base).await
                 },
                 move |me, result, ctx| {
-                    me.finish_read(&result_path, id, result, ctx);
+                    me.finish_read(id, result, ctx);
                 },
             ),
         });
@@ -422,19 +422,14 @@ impl GitReviewView {
 
     fn finish_read(
         &mut self,
-        path: &str,
         id: u64,
         result: Result<(Arc<String>, String)>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let Some(pending) = self
-            .loading
-            .iter()
-            .position(|read| read.path == path && read.id == id)
-        else {
+        let Some(pending) = self.loading.iter().position(|read| read.id == id) else {
             return;
         };
-        self.loading.remove(pending);
+        let path = self.loading.remove(pending).path;
         if let Some(index) = self.files.iter().position(|card| card.entry.path == path)
             && !self.files[index].dirty
             && self.files[index].expanded
@@ -694,16 +689,16 @@ async fn load_file(
     cached_base: Option<Arc<String>>,
 ) -> Result<(Arc<String>, String)> {
     // Status and rename sources come from the summary that populated the cards.
+    let base_path = match &status {
+        GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => old_path,
+        _ => &path,
+    };
+    let revision = revision.as_deref().unwrap_or("HEAD");
     #[cfg(windows)]
     {
-        let base_path = match &status {
-            GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => old_path,
-            _ => &path,
-        };
         let needs_base = cached_base.is_none()
             && !matches!(status, GitFileStatus::New | GitFileStatus::Untracked);
-        let base_spec =
-            needs_base.then(|| format!("{}:{base_path}", revision.as_deref().unwrap_or("HEAD")));
+        let base_spec = needs_base.then(|| format!("{revision}:{base_path}"));
         let current_path = (!matches!(status, GitFileStatus::Deleted)).then_some(path.as_str());
         if let Some(contents) =
             crate::file_watcher::wsl::read_review_file(&root, current_path, base_spec).await
@@ -722,24 +717,11 @@ async fn load_file(
     let base = match (cached_base, &status) {
         (Some(base), _) => base,
         (_, GitFileStatus::New | GitFileStatus::Untracked) => Arc::new(String::new()),
-        (_, status) => {
-            let base_path = match status {
-                GitFileStatus::Renamed { old_path } | GitFileStatus::Copied { old_path } => {
-                    old_path
-                }
-                _ => &path,
-            };
-            Arc::new(
-                warp_util::git::read_file_at_revision(
-                    &root,
-                    revision.as_deref().unwrap_or("HEAD"),
-                    base_path,
-                    MAX_DIFF_SIZE,
-                )
+        _ => Arc::new(
+            warp_util::git::read_file_at_revision(&root, revision, base_path, MAX_DIFF_SIZE)
                 .await
                 .context("cannot read comparison base content")?,
-            )
-        }
+        ),
     };
     let current = if matches!(status, GitFileStatus::Deleted) {
         String::new()
