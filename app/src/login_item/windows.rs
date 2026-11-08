@@ -21,6 +21,10 @@ use crate::terminal::general_settings::GeneralSettings;
 const RUN_SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
 pub(super) fn maybe_register_app_as_login_item(ctx: &mut AppContext) {
+    // Runtime-isolated instances must not modify the user's global startup entry.
+    if warp_core::paths::runtime_root().is_some() {
+        return;
+    }
     GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
         let add_app_as_login_item = *settings.add_app_as_login_item;
         if add_app_as_login_item && *settings.app_added_as_login_item {
