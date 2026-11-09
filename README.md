@@ -34,8 +34,9 @@ check validation results for the platform and scenario you intend to use.
 ## Project Shortcuts
 
 Select **Projects** in the sidebar to group external CLI sessions by working directory. Literal
-Codex, Pi, Claude Code and Hermes launches in NeoWarp are recorded automatically; **New session**
-also supports other tools. A running entry focuses its terminal. After it ends, opening it resumes
+Codex, Pi, Claude Code and Hermes launches are recorded after their session identity is confirmed;
+resume pickers do not create placeholder entries. **New session** also supports other tools.
+A running entry focuses its terminal. After it ends, opening it resumes
 that CLI's saved conversation ID or session file. Missing or ambiguous IDs require **Modify**;
 NeoWarp does not substitute the latest conversation or silently start a new one.
 

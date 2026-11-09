@@ -41,6 +41,8 @@ pub(crate) struct Observation {
 struct Running {
     block: BlockId,
     query: Query,
+    // A shell command (including a resume picker) is not yet a confirmed CLI session.
+    observation: Option<Observation>,
     ambiguous: bool,
     lookup: Option<SpawnedFutureHandle>,
 }
@@ -250,6 +252,7 @@ impl ProjectSessions {
                 && let Some(lookup) = live
                     .running
                     .as_mut()
+                    .filter(|running| running.observation.is_none())
                     .and_then(|running| running.lookup.take())
             {
                 lookup.abort();
@@ -503,56 +506,75 @@ impl ProjectSessions {
                 resuming: command::parse(&session.command, session.shell.kind)
                     .is_some_and(|parsed| parsed.resuming),
             };
-            self.register_running(id, observation.terminal, observation.block, query, ctx);
+            self.register_running(
+                id,
+                observation.terminal,
+                observation.block,
+                query,
+                None,
+                ctx,
+            );
             return;
         }
-        let Some(parsed) = observation.parsed else {
+        let Some(mut parsed) = observation.parsed.take() else {
             return;
         };
         self.end(terminal_id, None, ctx);
+        for (key, value) in std::mem::take(&mut parsed.environment) {
+            let key = if cfg!(windows)
+                && observation.host == Host::Local
+                && observation.shell.kind == warp_terminal::shell::ShellType::PowerShell
+            {
+                key.to_ascii_uppercase()
+            } else {
+                key
+            };
+            observation.environment.insert(key, value);
+        }
+        if parsed.provider == config::Provider::Pi
+            && let Some(path) = parsed
+                .identity
+                .as_mut()
+                .and_then(|identity| identity.transcript.as_mut())
+        {
+            if !path.starts_with('/') && !std::path::Path::new(path.as_str()).is_absolute() {
+                *path = format!("{}/{path}", observation.directory);
+            }
+            *path = path.replace('\\', "/").replace("/./", "/");
+        }
+        let query = Query {
+            host: observation.host.clone(),
+            directory: observation.directory.clone(),
+            home: observation.home.clone(),
+            provider: parsed.provider,
+            environment: observation.environment.clone(),
+            started_at: observation.started_at,
+            resuming: parsed.resuming,
+        };
+        if parsed.identity.is_none() {
+            observation.parsed = Some(parsed);
+            self.register_running(
+                Uuid::new_v4(),
+                observation.terminal.clone(),
+                observation.block.clone(),
+                query,
+                Some(observation),
+                ctx,
+            );
+            return;
+        }
         let Observation {
             terminal,
             block,
             host,
             directory,
-            home,
             shell,
             command,
             mut environment,
             started_at,
             ..
         } = observation;
-        for (key, value) in parsed.environment {
-            let key = if cfg!(windows)
-                && host == Host::Local
-                && shell.kind == warp_terminal::shell::ShellType::PowerShell
-            {
-                key.to_ascii_uppercase()
-            } else {
-                key
-            };
-            environment.insert(key, value);
-        }
-        let mut identity = parsed.identity;
-        if parsed.provider == config::Provider::Pi
-            && let Some(path) = identity
-                .as_mut()
-                .and_then(|identity| identity.transcript.as_mut())
-        {
-            if !path.starts_with('/') && !std::path::Path::new(path.as_str()).is_absolute() {
-                *path = format!("{directory}/{path}");
-            }
-            *path = path.replace('\\', "/").replace("/./", "/");
-        }
-        let query = Query {
-            host: host.clone(),
-            directory: directory.clone(),
-            home,
-            provider: parsed.provider,
-            environment: environment.clone(),
-            started_at,
-            resuming: parsed.resuming,
-        };
+        let identity = parsed.identity;
         let activation = Activation::from_environment(&environment);
         environment.retain(|key, _| {
             !matches!(
@@ -619,7 +641,7 @@ impl ProjectSessions {
         log::debug!(target: "project_sessions",
             "projects event=catalog_observe project={} record={id} terminal={terminal_id:?} block={block} inserted={} count={}",
             project.id, existing.is_none(), project.sessions.len());
-        self.register_running(id, terminal, block, query, ctx);
+        self.register_running(id, terminal, block, query, None, ctx);
         self.save(ctx);
     }
 
@@ -629,11 +651,13 @@ impl ProjectSessions {
         terminal: WeakViewHandle<TerminalView>,
         block: BlockId,
         query: Query,
+        observation: Option<Observation>,
         ctx: &mut ModelContext<Self>,
     ) {
-        let unresolved = self.catalog.session(id).is_some_and(|session| {
-            session.identity.is_none() && session.provider != config::Provider::Custom
-        });
+        let unresolved = observation.is_some()
+            || self.catalog.session(id).is_some_and(|session| {
+                session.identity.is_none() && session.provider != config::Provider::Custom
+            });
         let mut ambiguous = false;
         if unresolved {
             let catalog = &self.catalog;
@@ -643,9 +667,10 @@ impl ProjectSessions {
                     && query
                         .host
                         .same_path(&running.query.directory, &query.directory)
-                    && catalog
-                        .session(live.session_id)
-                        .is_some_and(|session| session.identity.is_none())
+                    && (running.observation.is_some()
+                        || catalog
+                            .session(live.session_id)
+                            .is_some_and(|session| session.identity.is_none()))
                 {
                     running.ambiguous = true;
                     ambiguous = true;
@@ -663,6 +688,7 @@ impl ProjectSessions {
                 running: Some(Running {
                     block,
                     query,
+                    observation,
                     ambiguous,
                     lookup: None,
                 }),
@@ -686,16 +712,16 @@ impl ProjectSessions {
             return;
         }
         let query = running.query.clone();
-        let provider = query.provider;
         let block = running.block.clone();
         log::debug!(target: "project_sessions",
             "projects event=lookup_scheduled record={} terminal={terminal_id:?} block={block}", self.live[&terminal_id].session_id);
         let task = ctx.spawn(
             async move {
                 Timer::after(Duration::from_secs(2)).await;
-                provider::candidates(&query)
+                let result = provider::candidates(&query);
+                (query, result)
             },
-            move |me, result, ctx| {
+            move |me, (query, result), ctx| {
                 let Some(live) = me.live.get_mut(&terminal_id) else {
                     return;
                 };
@@ -707,6 +733,7 @@ impl ProjectSessions {
                     return;
                 };
                 running.lookup = None;
+                let unconfirmed = running.observation.is_some();
                 let id = live.session_id;
                 let active = live.terminal.upgrade(ctx).is_some_and(|terminal| {
                     terminal.as_ref(ctx).project_session_is_running(&block)
@@ -714,10 +741,14 @@ impl ProjectSessions {
                 log::debug!(target: "project_sessions",
                     "projects event=lookup_result record={id} terminal={terminal_id:?} block={block} active={active} candidates={:?}",
                     result.as_ref().ok().map(Vec::len));
+                if !active && unconfirmed {
+                    me.end(terminal_id, None, ctx);
+                    return;
+                }
                 if !running.ambiguous
                     && let Ok(candidates) = result
                 {
-                    let candidates = me.unbound_candidates(id, candidates);
+                    let candidates = me.unbound_candidates(id, &query, candidates);
                     if candidates.len() > 1 {
                         me.live
                             .get_mut(&terminal_id)
@@ -725,14 +756,17 @@ impl ProjectSessions {
                             .expect("running entry was checked")
                             .ambiguous = true;
                     } else if let Some(identity) = candidates.into_iter().next() {
-                        me.bind_identity(id, identity, provider, ctx);
+                        me.bind_identity(id, identity, query.provider, ctx);
                     }
                 }
                 if !active {
                     me.end(terminal_id, None, ctx);
                     return;
                 }
-                if me
+                let unconfirmed = me.live.get(&terminal_id)
+                    .and_then(|live| live.running.as_ref())
+                    .is_some_and(|running| running.observation.is_some());
+                if unconfirmed || me
                     .catalog
                     .session(id)
                     .is_some_and(|session| session.identity.is_none())
@@ -783,14 +817,16 @@ impl ProjectSessions {
         {
             let id = live.session_id;
             let query = running.query.clone();
-            let provider = query.provider;
             ctx.spawn(
-                async move { provider::candidates(&query) },
-                move |me, result, ctx| {
+                async move {
+                    let result = provider::candidates(&query);
+                    (query, result)
+                },
+                move |me, (query, result), ctx| {
                     if let Ok(candidates) = result {
-                        let mut candidates = me.unbound_candidates(id, candidates);
+                        let mut candidates = me.unbound_candidates(id, &query, candidates);
                         if candidates.len() == 1 {
-                            me.bind_identity(id, candidates.remove(0), provider, ctx);
+                            me.bind_identity(id, candidates.remove(0), query.provider, ctx);
                         }
                     }
                 },
@@ -806,6 +842,26 @@ impl ProjectSessions {
         provider: config::Provider,
         ctx: &mut ModelContext<Self>,
     ) {
+        let observation = self.live.iter_mut().find_map(|(terminal, live)| {
+            if live.session_id != id {
+                return None;
+            }
+            live.running
+                .as_mut()?
+                .observation
+                .take()
+                .map(|observation| (*terminal, observation))
+        });
+        if let Some((terminal, mut observation)) = observation {
+            self.live.remove(&terminal);
+            observation
+                .parsed
+                .as_mut()
+                .expect("observed CLI command")
+                .identity = Some(identity);
+            self.observe(observation, ctx);
+            return;
+        }
         let Some(project) = self
             .catalog
             .projects
@@ -854,31 +910,33 @@ impl ProjectSessions {
         self.save(ctx);
     }
 
-    fn unbound_candidates(&self, id: Uuid, candidates: Vec<Identity>) -> Vec<Identity> {
-        let Some(project) = self
-            .catalog
-            .projects
-            .iter()
-            .find(|project| project.sessions.iter().any(|session| session.id == id))
-        else {
-            return Vec::new();
-        };
-        let current = project
-            .sessions
-            .iter()
-            .find(|session| session.id == id)
-            .expect("project contains the session");
+    fn unbound_candidates(
+        &self,
+        id: Uuid,
+        query: &Query,
+        candidates: Vec<Identity>,
+    ) -> Vec<Identity> {
+        let (host, directory, provider) = (&query.host, &query.directory, query.provider);
         candidates
             .into_iter()
             .filter(|candidate| {
-                !project.sessions.iter().any(|session| {
-                    session.id != id
-                        && session.provider == current.provider
-                        && self.live.values().any(|live| live.session_id == session.id)
-                        && session.identity.as_ref().is_some_and(|known| {
-                            known.same_session(candidate, current.provider, &project.host)
-                        })
-                })
+                !self
+                    .catalog
+                    .projects
+                    .iter()
+                    .filter(|project| {
+                        project.host == *host && host.same_path(&project.directory, directory)
+                    })
+                    .flat_map(|project| &project.sessions)
+                    .any(|session| {
+                        session.id != id
+                            && session.provider == provider
+                            && self.live.values().any(|live| live.session_id == session.id)
+                            && session
+                                .identity
+                                .as_ref()
+                                .is_some_and(|known| known.same_session(candidate, provider, host))
+                    })
             })
             .collect()
     }

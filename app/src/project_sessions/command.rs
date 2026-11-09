@@ -31,6 +31,16 @@ pub(crate) fn parse(command: &str, shell: ShellType) -> Option<ParsedCommand> {
     {
         return None;
     }
+    if provider == Provider::Pi
+        && argv.get(index + 1).is_some_and(|arg| {
+            matches!(
+                arg.as_str(),
+                "install" | "uninstall" | "remove" | "update" | "list"
+            )
+        })
+    {
+        return None;
+    }
     let identity = explicit_identity(provider, &argv[index..]);
     let resuming = match provider {
         Provider::Codex => argv.get(index + 1).is_some_and(|arg| arg == "resume"),
