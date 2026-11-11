@@ -15,7 +15,7 @@ use warp_errors::{ReportErrorLogMode, report_error};
 use warpui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
 use warpui::color::ColorU;
 use warpui::elements::{Border, CornerRadius, DEFAULT_UI_LINE_HEIGHT_RATIO, Fill};
-use warpui::fonts::{FamilyId, FontId, Properties, Style, Weight};
+use warpui::fonts::{Cache as FontCache, FamilyId, FontId, Properties, Style, Weight};
 use warpui::geometry::rect::RectF;
 use warpui::geometry::vector::{Vector2F, vec2f};
 use warpui::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageCache};
@@ -329,7 +329,6 @@ pub fn render_grid<'a>(
                 colors,
                 override_colors,
                 theme,
-                default_font_properties,
                 font_family,
                 font_size,
                 line_height_ratio,
@@ -361,7 +360,6 @@ pub fn render_grid<'a>(
                 colors,
                 override_colors,
                 theme,
-                default_font_properties,
                 font_family,
                 font_size,
                 line_height_ratio,
@@ -960,7 +958,6 @@ fn render_grid_with_ligatures<'a>(
     colors: &color::List,
     override_colors: &color::OverrideList,
     theme: &WarpTheme,
-    default_font_properties: Properties,
     font_family: FamilyId,
     font_size: f32,
     line_height_ratio: f32,
@@ -986,9 +983,8 @@ fn render_grid_with_ligatures<'a>(
 
     let default_font_id = ctx
         .font_cache
-        .select_font(font_family, default_font_properties);
-    let mut font_id_cache = HashMap::new();
-    font_id_cache.insert(FontStyle::Default, default_font_id);
+        .select_font(font_family, Properties::default());
+    let mut font_id_cache = FontIdCache::new(default_font_id);
 
     let mut minimal_contrast_cache = MinimalContrastCache::new();
 
@@ -1363,16 +1359,18 @@ fn render_grid_with_ligatures<'a>(
                 obfuscate_secrets,
             ));
 
-            string_builder.update_style(
-                if cell_type.is_filter_match() {
-                    let mut flags = cell.flags;
-                    flags.insert(Flags::BOLD);
-                    flags.into()
-                } else {
-                    cell.flags.into()
-                },
-                cell_colors.foreground_color,
-            );
+            let font_style: FontStyle = if cell_type.is_filter_match() {
+                let mut flags = cell.flags;
+                flags.insert(Flags::BOLD);
+                flags.into()
+            } else {
+                cell.flags.into()
+            };
+            font_id_cache.font_ids[font_style as usize].get_or_insert_with(|| {
+                ctx.font_cache
+                    .select_font(font_family, font_style.to_properties())
+            });
+            string_builder.update_style(font_style, cell_colors.foreground_color);
 
             if !cell
                 .flags
@@ -1434,6 +1432,9 @@ fn render_grid_with_ligatures<'a>(
             line_origin,
             cell_size.x(),
             &string_data.character_index_to_cell_map,
+            grid.columns(),
+            &font_id_cache,
+            ctx.font_cache,
             ctx.scene,
         );
 
@@ -1475,28 +1476,71 @@ fn render_grid_with_ligatures<'a>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_line(
     line: &Line,
     baseline: Vector2F,
     cell_width: f32,
     character_index_to_cell_map: &[usize],
+    columns: usize,
+    font_id_cache: &FontIdCache,
+    fonts: &FontCache,
     scene: &mut Scene,
 ) {
+    let mut glyph_indices = Vec::new();
     for run in &line.runs {
         let glyph_color = run.styles.foreground_color.unwrap_or_default();
 
         for glyph in &run.glyphs {
-            let glyph_x = character_index_to_cell_map[glyph.index] as f32 * cell_width;
+            let column = character_index_to_cell_map[glyph.index];
+            let glyph_x = column as f32 * cell_width;
             let glyph_origin = baseline + vec2f(glyph_x, 0.);
 
-            scene.draw_glyph(
+            let drawn = scene.draw_glyph(
                 glyph_origin,
                 glyph.id,
                 run.font_id,
                 line.font_size,
                 glyph_color,
             );
+            if !font_id_cache.font_ids.contains(&Some(run.font_id)) {
+                if glyph_indices.is_empty() {
+                    // Logical cluster ends also work for RTL runs and multi-character ligatures.
+                    glyph_indices.extend(
+                        line.runs
+                            .iter()
+                            .flat_map(|run| &run.glyphs)
+                            .map(|glyph| glyph.index),
+                    );
+                    glyph_indices.push(character_index_to_cell_map.len());
+                    glyph_indices.sort_unstable();
+                    glyph_indices.dedup();
+                }
+                let end_index = glyph_indices.partition_point(|&index| index <= glyph.index);
+                let end_column = character_index_to_cell_map
+                    .get(glyph_indices[end_index])
+                    .copied()
+                    .unwrap_or(columns);
+                fit_fallback_glyph(drawn, (end_column - column) as f32 * cell_width, fonts);
+            }
         }
+    }
+}
+
+fn fit_fallback_glyph(glyph: &mut warpui::scene::Glyph, width: f32, fonts: &FontCache) {
+    let key = glyph.glyph_key;
+    // Bitmap-only glyphs may lack outline metrics; preserve their original rendering.
+    if let Ok(bounds) =
+        fonts.glyph_typographic_bounds(key.font_id, key.font_size.into(), key.glyph_id)
+        && bounds.width() > 0.0
+        && (bounds.min_x() < 0.0 || bounds.max_x() > width)
+    {
+        let scale = (width / bounds.width()).min(1.0);
+        glyph.glyph_key.font_size = (f32::from(key.font_size) * scale).into();
+        glyph.position += vec2f(
+            (width - bounds.width() * scale) / 2.0 - bounds.min_x() * scale,
+            0.0,
+        );
     }
 }
 
@@ -1745,11 +1789,19 @@ fn render_cell_glyph(
         None => {
             // Add FontId as part of the hashkey since characters with different
             // fonts will have different glyph ids.
-            if let Some((glyph_id, font_id)) = glyph_and_font {
+            if let Some((glyph_id, glyph_font_id)) = glyph_and_font {
                 // If we don't have special handling for the character, draw the
                 // glyph from the font.
-                ctx.scene
-                    .draw_glyph(origin, glyph_id, font_id, font_size, foreground_color);
+                let glyph = ctx.scene.draw_glyph(
+                    origin,
+                    glyph_id,
+                    glyph_font_id,
+                    font_size,
+                    foreground_color,
+                );
+                if glyph_font_id != *font_id {
+                    fit_fallback_glyph(glyph, cell_size.x(), ctx.font_cache);
+                }
             }
         }
     }
