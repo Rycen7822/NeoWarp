@@ -1,6 +1,7 @@
 # Local reference source, contributor instructions and temporary artifacts.
 /references/
 /AGENTS.md
+/BITTER_LESSON.md
 /.work/
 
 app/Carthage
