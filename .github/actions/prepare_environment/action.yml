@@ -116,14 +116,6 @@ runs:
       with:
         xcode-version: '26'
 
-    - name: Use the Ubuntu archive mirror
-      if: ${{ inputs.target_os == 'linux' }}
-      shell: bash
-      run: |
-        if [[ -f /etc/apt/apt-mirrors.txt ]]; then
-          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
-        fi
-
     - name: Install dependencies
       shell: bash
       run: |
@@ -137,7 +129,7 @@ runs:
         elif ${{ inputs.target_os == 'linux' }}; then
           # Update the apt cache before installing dependencies - it can be slow, so the install scripts
           # don't do it.
-          sudo apt-get update -y
+          sudo apt-get update -y --error-on=any
 
           if ${{ inputs.install_test_deps == 'true' }}; then
             # The CI workflow owns shell, Vim and nextest setup; omit developer tools.
