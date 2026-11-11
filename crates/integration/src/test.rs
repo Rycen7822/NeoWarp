@@ -1798,15 +1798,9 @@ pub fn test_add_and_close_session() -> Builder {
         )]))
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0))
         .with_step(
-            new_step_with_default_assertions(
-                "Add a second session using cmd-t and verify it bootstraps",
-            )
-            .with_keystrokes(&[cmd_or_ctrl_shift("t")])
-            .set_timeout(Duration::from_secs(10))
-            .add_assertion(|app, window_id| {
-                assert_single_terminal_in_tab_bootstrapped(app, window_id, 1)
-            })
-            .add_assertion(assert_tab_count(2)),
+            wait_until_bootstrapped_single_pane_for_tab(1)
+                .with_keystrokes(&[cmd_or_ctrl_shift("t")])
+                .add_assertion(assert_tab_count(2)),
         )
         .with_step(
             new_step_with_default_assertions("Check if session is created properly")
