@@ -2919,7 +2919,7 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         // Handle directories for CodeEditor(NewTab) target by opening a new terminal tab
-        if path.is_dir() && matches!(target, FileTarget::CodeEditor(EditorLayout::NewTab)) {
+        if matches!(target, FileTarget::CodeEditor(EditorLayout::NewTab)) && path.is_dir() {
             self.add_tab_with_pane_layout(
                 PanesLayout::SingleTerminal(Box::new(NewTerminalOptions {
                     initial_directory: Some(path.clone()),
@@ -4627,7 +4627,10 @@ impl Workspace {
         line_col: Option<LineAndColumnArg>,
         ctx: &mut ViewContext<Self>,
     ) {
-        if let Some(LocalOrRemotePath::Local(path)) = source.location() {
+        // Terminal links already specify preview vs system-open explicitly.
+        if !matches!(&source, CodeSource::Link { .. })
+            && let Some(LocalOrRemotePath::Local(path)) = source.location()
+        {
             let target = resolve_file_target_to_open_in_warp(
                 &path,
                 EditorSettings::as_ref(ctx),

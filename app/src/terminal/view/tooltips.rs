@@ -9,6 +9,7 @@ use warpui::{AppContext, Element, EventContext};
 
 use super::{GridHighlightedLink, TerminalAction, TerminalView};
 use crate::appearance::Appearance;
+use crate::localization::tr;
 use crate::terminal::TerminalModel;
 use crate::terminal::links::directly_open_link_keybinding_string;
 use crate::terminal::model::{ObfuscateSecrets, Secret};
@@ -23,45 +24,6 @@ struct GridTooltipLink {
     mouse_state: MouseStateHandle,
 }
 
-/// If appropriate, returns a GridTooltipLink for opening the file in warp.
-/// Mutates `detail_for_default` leaving None in place if the GridTooltipLink returned is the default
-/// action on "Cmd+Click" and thus should use the detail_for_default.
-#[cfg(feature = "local_fs")]
-fn open_in_warp_tooltip(
-    path: std::path::PathBuf,
-    line_and_column_num: Option<warp_util::path::LineAndColumnArg>,
-    detail_for_default: &mut Option<String>,
-    mouse_state: MouseStateHandle,
-    app: &AppContext,
-) -> Option<GridTooltipLink> {
-    use settings::Setting as _;
-    use warpui::SingletonEntity;
-
-    use crate::settings::CodeSettings;
-    use crate::util::file::external_editor::EditorSettings;
-    use crate::util::tooltips::should_show_open_in_warp_link;
-
-    if !should_show_open_in_warp_link(&path, app) {
-        return None;
-    }
-
-    let detail = if *CodeSettings::as_ref(app).code_as_default_editor.value() {
-        detail_for_default.take()
-    } else {
-        None
-    };
-    Some(GridTooltipLink {
-        text: "Open in Warp".to_string(),
-        action: TerminalAction::OpenCodeInWarp {
-            path,
-            layout: *EditorSettings::as_ref(app).open_file_layout.value(),
-            line_col: line_and_column_num,
-        },
-        mouse_state,
-        detail,
-    })
-}
-
 /// Returns a GridTooltipLink for revealing the file in the platform's file explorer
 /// (Finder on macOS, file manager on Linux/Windows).
 #[cfg(feature = "local_fs")]
@@ -73,10 +35,9 @@ fn show_in_file_explorer_tooltip(
         "Show in Finder"
     } else {
         "Show containing folder"
-    }
-    .to_string();
+    };
     GridTooltipLink {
-        text,
+        text: tr(text).to_owned(),
         action: TerminalAction::ShowInFileExplorer(path),
         mouse_state,
         detail: None,
@@ -146,22 +107,22 @@ impl TerminalView {
 
         #[cfg_attr(not(feature = "local_fs"), allow(unused_mut))]
         if let Some(link) = &self.open_grid_link_tool_tip {
-            let mut open_in_warp = None;
             let mut show_in_file_explorer = None;
             let modifier = directly_open_link_keybinding_string();
-            let mut detail = Some(format!("[{modifier} Click]"));
+            let detail = if link.is_file(model) {
+                Some(format!(
+                    "[{}; {modifier} {}]",
+                    tr("Click: open in right pane"),
+                    tr("Click: open with system default app"),
+                ))
+            } else {
+                Some(format!("[{modifier} {}]", tr("Click")))
+            };
             #[cfg(feature = "local_fs")]
             {
                 if let GridHighlightedLink::File(file_link) = link
                     && let Some(path) = file_link.get_inner().absolute_path()
                 {
-                    open_in_warp = open_in_warp_tooltip(
-                        path.clone(),
-                        file_link.get_inner().line_and_column_num,
-                        &mut detail,
-                        self.mouse_states.open_in_warp_tooltip.clone(),
-                        app,
-                    );
                     show_in_file_explorer = Some(show_in_file_explorer_tooltip(
                         path,
                         self.mouse_states.show_in_file_explorer_tooltip.clone(),
@@ -175,14 +136,13 @@ impl TerminalView {
                 // URLs already show their destination as the visible text.
                 text: match link {
                     GridHighlightedLink::Hyperlink { uri, .. } => uri.clone(),
-                    _ => link.tooltip_text().to_owned(),
+                    _ => tr(link.tooltip_text()).to_owned(),
                 },
                 action: TerminalAction::OpenGridLink(link.clone()),
                 mouse_state: self.mouse_states.grid_link_tooltip.clone(),
                 detail,
             });
 
-            links.extend(open_in_warp);
             links.extend(show_in_file_explorer);
         }
 

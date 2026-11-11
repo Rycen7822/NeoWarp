@@ -288,7 +288,7 @@ use crate::util::color::darken;
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::{EditorSettings, settings::EditorLayout};
 #[cfg(feature = "local_fs")]
-use crate::util::openable_file_type::{FileTarget, resolve_file_target};
+use crate::util::openable_file_type::{FileTarget, is_binary_file};
 use crate::util::repo_detection::{RepoDetectionSessionType, detect_possible_git_repo};
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
@@ -1239,6 +1239,7 @@ pub struct TerminalViewRenderContext {
     pub size_info: SizeInfo,
     pub scroll_position: ScrollPosition,
     pub highlighted_url: Option<GridHighlightedLink>,
+    pub highlighted_file: bool,
     pub link_tool_tip: Option<GridHighlightedLink>,
     pub is_terminal_focused: bool,
     pub is_terminal_selecting: bool,
@@ -1269,8 +1270,6 @@ struct TerminalViewMouseStates {
     toggle_secrets_tooltip: MouseStateHandle,
     copy_secrets_tooltip: MouseStateHandle,
 
-    #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
-    open_in_warp_tooltip: MouseStateHandle,
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     show_in_file_explorer_tooltip: MouseStateHandle,
     jump_to_bottom_of_block_button: MouseStateHandle,
@@ -8120,18 +8119,20 @@ impl TerminalView {
         }
 
         let should_directly_open_link = should_directly_open_link(modifiers);
-        if *GeneralSettings::as_ref(ctx).link_tooltip
-            && !should_directly_open_link
-            && self.highlighted_link.is_some()
-        {
+        let file_link = self
+            .highlighted_link
+            .as_ref()
+            .is_some_and(|link| link.is_file(&self.model.lock()));
+        if file_link || should_directly_open_link {
+            self.open_grid_link_tool_tip = None;
+            self.maybe_open_link(position, should_directly_open_link, ctx);
+            return;
+        }
+        if *GeneralSettings::as_ref(ctx).link_tooltip && self.highlighted_link.is_some() {
             self.open_grid_link_tool_tip = self.highlighted_link.clone_inner();
             self.focus_terminal(ctx);
         } else {
             self.open_grid_link_tool_tip = None;
-        }
-
-        if should_directly_open_link {
-            self.maybe_open_link(position, ctx);
         }
     }
 
@@ -8140,18 +8141,33 @@ impl TerminalView {
         &mut self,
         path: PathBuf,
         line_and_column_num: Option<LineAndColumnArg>,
+        system_default: bool,
         ctx: &mut ViewContext<Self>,
     ) {
-        ctx.notify();
-
-        let settings = EditorSettings::as_ref(ctx);
-        let target = resolve_file_target(&path, settings, None);
-
-        ctx.emit(Event::OpenFileWithTarget {
-            path,
-            target,
-            line_col: line_and_column_num,
-        });
+        // UNC metadata can block; never perform it on the UI thread.
+        ctx.spawn(
+            async move {
+                async_fs::metadata(&path).await.map(|metadata| {
+                    let target = if system_default || !metadata.is_file() || is_binary_file(&path) {
+                        FileTarget::SystemGeneric
+                    } else {
+                        FileTarget::CodeEditor(EditorLayout::SplitPane)
+                    };
+                    (path, target)
+                })
+            },
+            move |_, result, ctx| match result {
+                Ok((path, target)) => ctx.emit(Event::OpenFileWithTarget {
+                    path,
+                    target,
+                    line_col: line_and_column_num,
+                }),
+                Err(error) => ctx.emit(Event::ShowToast {
+                    message: format!("{}: {error}", tr("Cannot open file")),
+                    flavor: ToastFlavor::Error,
+                }),
+            },
+        );
     }
 
     #[cfg(feature = "local_fs")]
@@ -8164,32 +8180,20 @@ impl TerminalView {
         ctx.emit(Event::OpenCodeInWarp { source, layout });
     }
 
-    fn maybe_open_link(&mut self, position: &WithinModel<Point>, ctx: &mut ViewContext<Self>) {
-        let Some(link) = self.highlighted_link.as_ref() else {
+    fn maybe_open_link(
+        &mut self,
+        position: &WithinModel<Point>,
+        system_default: bool,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let Some(link) = self
+            .highlighted_link
+            .clone_inner()
+            .filter(|link| link.contains(position))
+        else {
             return;
         };
-
-        match link {
-            #[cfg(feature = "local_fs")]
-            GridHighlightedLink::File(link) if link.contains(position) => {
-                let link = link.get_inner();
-                if let Some(path) = link.absolute_path() {
-                    self.open_file_path(path, link.line_and_column_num, ctx);
-                }
-            }
-            GridHighlightedLink::Url(url) if url.contains(position) => {
-                let uri = self
-                    .model
-                    .lock()
-                    .link_at_range(url, RespectObfuscatedSecrets::No);
-                ctx.notify();
-                self.open_hyperlink_uri(&uri, url, ctx);
-            }
-            GridHighlightedLink::Hyperlink { link, uri } if link.contains(position) => {
-                self.open_hyperlink_uri(uri, link, ctx);
-            }
-            _ => (),
-        }
+        self.open_highlighted_link(&link, system_default, ctx);
 
         if self.highlighted_link.take(&mut self.model.lock()).is_some() {
             ctx.reset_cursor();
@@ -8205,7 +8209,7 @@ impl TerminalView {
         if self.highlighted_link.is_some() {
             // Middle click should open a highlighted link if there is one.
             if let Some(position) = position {
-                self.maybe_open_link(position, ctx);
+                self.maybe_open_link(position, true, ctx);
             }
         } else {
             // Otherwise, assume that the user wants to middle-click paste.
@@ -10432,6 +10436,10 @@ impl TerminalView {
             size_info: *self.size_info(),
             scroll_position: self.scroll_position(),
             highlighted_url: self.highlighted_link.clone_inner(),
+            highlighted_file: self
+                .highlighted_link
+                .as_ref()
+                .is_some_and(|link| link.is_file(model)),
             link_tool_tip: self.open_grid_link_tool_tip.clone(),
             is_terminal_focused: self
                 .view_handle
@@ -12489,7 +12497,7 @@ impl TypedActionView for TerminalView {
             } => self.toggle_grid_secret(handle, *show_secret, ctx),
             CopyGridSecret(secret_handle) => self.copy_grid_secret(secret_handle, ctx),
             OpenGridLink(link) => {
-                self.open_highlighted_link(link, ctx);
+                self.open_highlighted_link(link, false, ctx);
             }
             ShowInFileExplorer(path) => {
                 ctx.open_file_path_in_explorer(path);
@@ -12550,7 +12558,7 @@ impl TypedActionView for TerminalView {
                 self.drag_and_drop_files(paths, ctx);
             }
             HyperlinkClick(hyperlink) => {
-                self.open_hyperlink_uri(&hyperlink.url, &WithinModel::AltScreen(()), ctx);
+                self.open_hyperlink_uri(&hyperlink.url, &WithinModel::AltScreen(()), false, ctx);
             }
             StartFileDropTarget => {
                 let Some(session) = self

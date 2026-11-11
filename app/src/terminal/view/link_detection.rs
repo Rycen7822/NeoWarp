@@ -23,7 +23,7 @@ cfg_if::cfg_if! {
         use unicode_general_category::{get_general_category, GeneralCategory};
         use unicode_width::UnicodeWidthChar;
         use warp_util::path::CleanPathResult;
-        use warpui::AppContext;
+        use warpui::{AppContext, SingletonEntity};
     }
 }
 
@@ -42,7 +42,8 @@ const PREFIXES_TO_REMOVE: [&str; 2] = ["a/", "b/"];
 const SUFFIXES_TO_REMOVE: [&str; 1] = ["@"];
 
 /// File URLs emitted by WSL tools may identify the Linux host rather than use a Windows path.
-#[cfg(all(feature = "local_fs", windows))]
+#[cfg(feature = "local_fs")]
+#[cfg_attr(not(windows), allow(unused_variables))]
 fn file_url_path(
     url: &url::Url,
     wsl_distro: Option<&str>,
@@ -55,6 +56,7 @@ fn file_url_path(
     if path.contains('\0') {
         return None;
     }
+    #[cfg(windows)]
     if let Some(distro) = wsl_distro
         && url
             .host_str()
@@ -73,6 +75,18 @@ fn file_url_path(
         .ok();
     }
     url.to_file_path().ok()
+}
+
+#[cfg(feature = "local_fs")]
+fn is_file_uri(uri: &str) -> bool {
+    if std::path::Path::new(uri).is_absolute() {
+        return true;
+    }
+    match url::Url::parse(uri) {
+        Ok(url) => url.scheme() == "file",
+        Err(url::ParseError::RelativeUrlWithoutBase) => true,
+        Err(_) => false,
+    }
 }
 
 #[cfg(feature = "local_fs")]
@@ -162,6 +176,22 @@ pub enum GridHighlightedLink {
 }
 
 impl GridHighlightedLink {
+    pub(super) fn is_file(&self, model: &TerminalModel) -> bool {
+        #[cfg(feature = "local_fs")]
+        return match self {
+            Self::File(_) => true,
+            Self::Hyperlink { uri, .. } => is_file_uri(uri),
+            Self::Url(link) => {
+                is_file_uri(&model.link_at_range(link, RespectObfuscatedSecrets::No))
+            }
+        };
+        #[cfg(not(feature = "local_fs"))]
+        {
+            let _ = model;
+            false
+        }
+    }
+
     pub fn contains(&self, position: &WithinModel<Point>) -> bool {
         match self {
             GridHighlightedLink::Url(url) => url.contains(position),
@@ -173,16 +203,6 @@ impl GridHighlightedLink {
 
     pub fn tooltip_text(&self) -> &'static str {
         match &self {
-            #[cfg(feature = "local_fs")]
-            GridHighlightedLink::File(file_link)
-                if file_link
-                    .get_inner()
-                    .absolute_path()
-                    .map(|path| path.is_dir())
-                    .unwrap_or(false) =>
-            {
-                "Open folder"
-            }
             #[cfg(feature = "local_fs")]
             GridHighlightedLink::File(_) => "Open file",
             GridHighlightedLink::Url(_) => "Open link",
@@ -465,6 +485,18 @@ impl super::TerminalView {
         };
 
         if let Some(new_cursor_shape) = new_cursor_shape {
+            if self.highlighted_link.as_ref().is_some_and(|link| {
+                link.is_file(&self.model.lock())
+                    && *super::GeneralSettings::as_ref(ctx).link_tooltip
+            }) {
+                self.open_grid_link_tool_tip = self.highlighted_link.clone_inner();
+            } else if self
+                .open_grid_link_tool_tip
+                .as_ref()
+                .is_some_and(|link| link.is_file(&self.model.lock()))
+            {
+                self.open_grid_link_tool_tip = None;
+            }
             ctx.set_cursor_shape(new_cursor_shape);
             ctx.notify();
         }
@@ -500,6 +532,7 @@ impl super::TerminalView {
     pub(super) fn open_highlighted_link(
         &mut self,
         link: &GridHighlightedLink,
+        system_default: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         self.dismiss_tooltips(ctx);
@@ -511,7 +544,12 @@ impl super::TerminalView {
             GridHighlightedLink::File(link) => {
                 let link = link.get_inner();
                 if let Some(path) = link.absolute_path() {
-                    self.open_file_path(path.clone(), link.line_and_column_num, ctx);
+                    self.open_file_path(
+                        path.clone(),
+                        link.line_and_column_num,
+                        system_default,
+                        ctx,
+                    );
                 }
             }
             GridHighlightedLink::Url(url) => {
@@ -519,41 +557,39 @@ impl super::TerminalView {
                     .model
                     .lock()
                     .link_at_range(url, RespectObfuscatedSecrets::No);
-                self.open_hyperlink_uri(&uri, url, ctx);
+                self.open_hyperlink_uri(&uri, url, system_default, ctx);
             }
             GridHighlightedLink::Hyperlink { link, uri } => {
-                self.open_hyperlink_uri(uri, link, ctx);
+                self.open_hyperlink_uri(uri, link, system_default, ctx);
             }
         };
     }
 
-    #[cfg_attr(not(all(feature = "local_fs", windows)), allow(unused_variables))]
+    #[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
     pub(super) fn open_hyperlink_uri<T>(
-        &self,
+        &mut self,
         uri: &str,
         origin: &WithinModel<T>,
+        system_default: bool,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Terminal output is untrusted; only parsed URLs reach an OS handler.
-        let Ok(url) = url::Url::parse(uri) else {
+        #[cfg(feature = "local_fs")]
+        if is_file_uri(uri) {
+            if let Some((path, line_col)) = self.hyperlink_file_path(uri, origin, ctx) {
+                self.open_file_path(path, line_col, system_default, ctx);
+            } else {
+                ctx.emit(super::Event::ShowToast {
+                    message: crate::localization::tr(
+                        "Cannot resolve this file link in its session",
+                    )
+                    .into(),
+                    flavor: super::ToastFlavor::Error,
+                });
+            }
             return;
-        };
-        #[cfg(all(feature = "local_fs", windows))]
-        if url.scheme() == "file" {
-            let session = self.session_for_link(origin, ctx);
-            // An SSH host's filesystem is not a local Windows/WSL filesystem.
-            if session.as_ref().is_some_and(|session| !session.is_local()) {
-                return;
-            }
-            if let Some(path) = file_url_path(
-                &url,
-                session
-                    .as_ref()
-                    .and_then(|session| session.wsl_distro_name()),
-                session.as_ref().map(|session| session.hostname()),
-            ) {
-                ctx.open_file_path(&path);
-            }
+        }
+        // Terminal output is untrusted; only parsed URLs reach an OS handler.
+        if url::Url::parse(uri).is_err() {
             return;
         }
         ctx.notify();
@@ -565,6 +601,63 @@ impl super::TerminalView {
 // where we can spawn a local tty.
 #[cfg(feature = "local_fs")]
 impl super::TerminalView {
+    fn pwd_for_link<T>(&self, origin: &WithinModel<T>) -> Option<String> {
+        match origin {
+            WithinModel::AltScreen(_) => self.pwd(),
+            WithinModel::BlockList(block) => self
+                .model
+                .lock()
+                .block_list()
+                .block_at(block.block_index)
+                .and_then(|block| block.pwd().cloned()),
+        }
+    }
+
+    fn hyperlink_file_path<T>(
+        &self,
+        uri: &str,
+        origin: &WithinModel<T>,
+        ctx: &AppContext,
+    ) -> Option<(PathBuf, Option<LineAndColumnArg>)> {
+        let session = self.session_for_link(origin, ctx)?;
+        // An SSH host's filesystem must never fall back to a local file.
+        if !session.is_local() || uri.contains('\0') {
+            return None;
+        }
+        if let Ok(url) = url::Url::parse(uri)
+            && url.scheme() == "file"
+        {
+            return file_url_path(&url, session.wsl_distro_name(), Some(session.hostname()))
+                .map(|path| (path, None));
+        }
+        let decoded = urlencoding::decode(uri).ok()?;
+        let clean = CleanPathResult::with_line_and_column_number(&decoded);
+        let path = warp_util::path::expand_session_home(
+            &clean.path,
+            session.home_dir(),
+            session.path_separators().all,
+        );
+        let path_text = path.to_string_lossy();
+        let path: &str = &path_text;
+        let shell = session
+            .wsl_distro_name()
+            .map(|distro| ShellLaunchData::WSL {
+                distro: distro.into(),
+            })
+            .or_else(|| session.launch_data().cloned());
+        let native = if std::path::Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else if let Some(shell) = shell {
+            shell
+                .maybe_convert_absolute_path(path)
+                .filter(|path| path.is_absolute())
+                .or_else(|| shell.maybe_convert_relative_path(&self.pwd_for_link(origin)?, path))?
+        } else {
+            PathBuf::from(self.pwd_for_link(origin)?).join(path)
+        };
+        Some((native, clean.line_and_column_num))
+    }
+
     fn session_for_link<T>(
         &self,
         origin: &WithinModel<T>,
@@ -593,16 +686,9 @@ impl super::TerminalView {
         // For AltScreen we scan for relative path with the current working directory.
         // For BlockList we scan for relative path with the pwd of the hovered block.
         let session = self.session_for_link(&position, ctx);
-        let pwd_to_scan_for = match position {
-            WithinModel::AltScreen(_) => self.pwd(),
-            WithinModel::BlockList(inner) => self
-                .model
-                .lock()
-                .block_list()
-                .block_at(inner.block_index)
-                .and_then(|block| block.pwd().map(String::from)),
-        }
-        .filter(|_| session.as_ref().is_none_or(|session| session.is_local()));
+        let pwd_to_scan_for = self
+            .pwd_for_link(&position)
+            .filter(|_| session.as_ref().is_none_or(|session| session.is_local()));
 
         match pwd_to_scan_for {
             // Check if we are hovering on any file path. Don't scan for file path
@@ -834,6 +920,9 @@ impl super::TerminalView {
         }
 
         if let Some(new_link) = link_result {
+            if *super::GeneralSettings::as_ref(ctx).link_tooltip {
+                self.open_grid_link_tool_tip = Some(new_link.clone());
+            }
             self.highlighted_link.set(new_link, &mut model);
             ctx.set_cursor_shape(Cursor::PointingHand);
             ctx.notify();

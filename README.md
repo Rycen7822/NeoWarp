@@ -12,6 +12,10 @@ Right-click files to choose the right pane, the system default app, or an instal
 The menu also supports new files/folders, renaming, copying paths and refreshing. Deletion requires confirmation
 and permanently removes the selected item and its contents.
 
+Click terminal file links to open text, including Markdown source, in the right pane; Ctrl+click
+(Cmd+click on macOS) uses the system default app. Relative paths and `file://` links use their source
+session's working directory and WSL distribution. Folders and binary files use the system app.
+
 - Terminal blocks, history, completion, tabs, splits, and basic text editing.
 - Ordinary SSH/WSL and advanced SSH daemon support without Warp account or cloud-service dependencies.
 - Git change statistics and a dedicated review panel with file lists and inline diffs.

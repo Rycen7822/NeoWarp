@@ -206,7 +206,8 @@ fn test_open_file_with_target_event_preserves_requested_line() {
         app.add_singleton_model(|_| LocalShellState::NotLoaded);
         let workspace = mock_workspace(&mut app);
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let code_path = temp_dir.path().join("main.rs");
+        // Explicit terminal previews must also keep Markdown in the text pane.
+        let code_path = temp_dir.path().join("main.md");
         let contents: String = (1..=80).map(|line| format!("// line {line}\n")).collect();
         std::fs::write(&code_path, contents).expect("failed to write code file");
 

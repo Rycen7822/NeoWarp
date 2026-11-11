@@ -644,6 +644,7 @@ pub struct BlockListElement {
     hovered_secret: Option<SecretHandle>,
 
     highlighted_url: Option<WithinBlock<Link>>,
+    highlighted_file: bool,
     link_tool_tip: Option<WithinBlock<Link>>,
 
     /// Used to save the position of the active cursor.
@@ -879,6 +880,7 @@ impl BlockListElement {
             disable_scroll: terminal_view_render_context.is_context_menu_open
                 || terminal_view_render_context.is_waterfall_gap_mode,
             highlighted_url,
+            highlighted_file: terminal_view_render_context.highlighted_file,
             link_tool_tip,
             pane_state: terminal_view_render_context.pane_state,
             enforce_minimum_contrast,
@@ -1331,6 +1333,12 @@ impl BlockListElement {
                     let model = self.model.lock();
                     let viewport = self.viewport_state_after_layout(model.block_list());
 
+                    if viewport
+                        .block_list_point_to_grid_point(point)
+                        .is_some_and(|point| self.on_file_link(&point))
+                    {
+                        return true;
+                    }
                     match viewport.block_height_item_from_point(point) {
                         Some(BlockHeightItem::Block { .. }) => {
                             // Offset it by the origin to make sure we are passing in the relative position
@@ -1506,6 +1514,7 @@ impl BlockListElement {
                         .is_some_and(|block| block.is_active_and_long_running());
 
                     let alt_mouse_action = on_long_running_block
+                        && !self.on_file_link(&within_block)
                         && !should_intercept_mouse(&model, modifiers.shift, app);
 
                     if alt_mouse_action {
@@ -1703,6 +1712,15 @@ impl BlockListElement {
             }
             false
         }
+    }
+
+    fn on_file_link(&self, point: &WithinBlock<IndexPoint>) -> bool {
+        self.highlighted_file
+            && self.highlighted_url.as_ref().is_some_and(|link| {
+                link.block_index == point.block_index
+                    && link.grid == point.grid
+                    && link.inner.range.contains(&point.inner)
+            })
     }
 
     fn mouse_dragged(

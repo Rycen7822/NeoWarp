@@ -51,6 +51,7 @@ pub struct AltScreenElement {
     bounds: Option<RectF>,
     origin: Option<UiPoint>,
     highlighted_url: Option<Link>,
+    highlighted_file: bool,
     link_tool_tip: Option<Link>,
     grid_render_params: GridRenderParams,
 
@@ -102,6 +103,7 @@ impl AltScreenElement {
             origin: None,
             hovered_secret: terminal_view_render_context.hovered_secret,
             highlighted_url,
+            highlighted_file: terminal_view_render_context.highlighted_file,
             link_tool_tip,
             pane_state: terminal_view_render_context.pane_state,
             active_session_state: terminal_view_render_context.active_session_state,
@@ -209,6 +211,9 @@ impl AltScreenElement {
         ctx.dispatch_typed_action(TerminalAction::Focus);
 
         let point = self.coord_to_point(local_position);
+        if self.on_file_link(point) {
+            return true;
+        }
         let side = self
             .grid_render_params
             .size_info
@@ -349,11 +354,21 @@ impl AltScreenElement {
             ctx.dispatch_typed_action(TerminalAction::AltSelect(SelectAction::End));
         }
 
-        if !should_intercept_mouse(&self.model.lock(), mouse_state.modifiers().shift, app) {
+        if !self.on_file_link(point)
+            && !should_intercept_mouse(&self.model.lock(), mouse_state.modifiers().shift, app)
+        {
             ctx.dispatch_typed_action(TerminalAction::AltMouseAction(mouse_state.set_point(point)));
         }
 
         true
+    }
+
+    fn on_file_link(&self, point: Point) -> bool {
+        self.highlighted_file
+            && self
+                .highlighted_url
+                .as_ref()
+                .is_some_and(|link| link.range.contains(&point))
     }
 
     fn mouse_dragged(
