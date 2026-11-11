@@ -8,9 +8,8 @@ use crate::terminal::model::grid::grid_handler::PossiblePath;
 use crate::terminal::model::index::Point;
 use crate::terminal::model::terminal_model::WithinModel;
 
-#[cfg(windows)]
 #[test]
-fn file_urls_resolve_windows_and_wsl_paths_without_changing_the_target_host() {
+fn file_urls_resolve_native_paths_without_changing_the_target_host() {
     let resolve = |uri| {
         super::file_url_path(
             &url::Url::parse(uri).unwrap(),
@@ -18,31 +17,41 @@ fn file_urls_resolve_windows_and_wsl_paths_without_changing_the_target_host() {
             Some("linux-box"),
         )
     };
-    assert_eq!(
-        resolve("file:///home/tester/%E5%9B%BE%20%231%25.png"),
-        Some(r"\\WSL$\NeoWarp-Link-Test\home\tester\图 #1%.png".into())
-    );
-    assert_eq!(
-        resolve("file://LINUX-BOX/home/tester/image.png"),
-        Some(r"\\WSL$\NeoWarp-Link-Test\home\tester\image.png".into())
-    );
-    assert_eq!(
-        resolve("file:///mnt/d/NeoWarp-Link-Test/image.png"),
-        Some(r"D:\NeoWarp-Link-Test\image.png".into())
-    );
-    assert_eq!(
-        resolve("file:///D:/NeoWarp-Link-Test/image.png"),
-        Some(r"D:\NeoWarp-Link-Test\image.png".into())
-    );
-    assert_eq!(
-        resolve("file://wsl.localhost/Other/home/tester/image.png"),
-        Some(r"\\wsl.localhost\Other\home\tester\image.png".into())
-    );
+    #[cfg(unix)]
+    {
+        assert_eq!(
+            resolve("file:///home/tester/%E5%9B%BE%20%231%25.png"),
+            Some("/home/tester/图 #1%.png".into())
+        );
+        assert_eq!(resolve("file://other-host/home/tester/image.png"), None);
+    }
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            resolve("file:///home/tester/%E5%9B%BE%20%231%25.png"),
+            Some(r"\\WSL$\NeoWarp-Link-Test\home\tester\图 #1%.png".into())
+        );
+        assert_eq!(
+            resolve("file://LINUX-BOX/home/tester/image.png"),
+            Some(r"\\WSL$\NeoWarp-Link-Test\home\tester\image.png".into())
+        );
+        assert_eq!(
+            resolve("file:///mnt/d/NeoWarp-Link-Test/image.png"),
+            Some(r"D:\NeoWarp-Link-Test\image.png".into())
+        );
+        assert_eq!(
+            resolve("file:///D:/NeoWarp-Link-Test/image.png"),
+            Some(r"D:\NeoWarp-Link-Test\image.png".into())
+        );
+        assert_eq!(
+            resolve("file://wsl.localhost/Other/home/tester/image.png"),
+            Some(r"\\wsl.localhost\Other\home\tester\image.png".into())
+        );
+    }
 }
 
-#[cfg(windows)]
 #[test]
-fn invalid_file_urls_do_not_fall_back_to_local_windows_files() {
+fn invalid_file_urls_are_rejected_without_retargeting() {
     for uri in [
         "file:///home/tester/image%00.png",
         "file:///home/tester/%FF.png",
@@ -54,7 +63,12 @@ fn invalid_file_urls_do_not_fall_back_to_local_windows_files() {
         );
     }
     let url = url::Url::parse("file:///home/tester/image.png").unwrap();
-    assert_eq!(super::file_url_path(&url, None, None), None);
+    let expected = if cfg!(windows) {
+        None
+    } else {
+        Some("/home/tester/image.png".into())
+    };
+    assert_eq!(super::file_url_path(&url, None, None), expected);
 }
 
 #[test]

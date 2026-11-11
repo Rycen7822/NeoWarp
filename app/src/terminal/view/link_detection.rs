@@ -639,21 +639,20 @@ impl super::TerminalView {
         );
         let path_text = path.to_string_lossy();
         let path: &str = &path_text;
-        let shell = session
-            .wsl_distro_name()
-            .map(|distro| ShellLaunchData::WSL {
-                distro: distro.into(),
-            })
-            .or_else(|| session.launch_data().cloned());
         let native = if std::path::Path::new(path).is_absolute() {
             PathBuf::from(path)
-        } else if let Some(shell) = shell {
-            shell
-                .maybe_convert_absolute_path(path)
-                .filter(|path| path.is_absolute())
-                .or_else(|| shell.maybe_convert_relative_path(&self.pwd_for_link(origin)?, path))?
         } else {
-            PathBuf::from(self.pwd_for_link(origin)?).join(path)
+            let path = session.convert_directory_to_typed_path_buf(path.into());
+            let absolute = if path.is_absolute() {
+                path
+            } else {
+                session
+                    .convert_directory_to_typed_path_buf(self.pwd_for_link(origin)?)
+                    .join(path.to_path())
+            };
+            session
+                .maybe_convert_to_native_path(&absolute.to_path())
+                .ok()?
         };
         Some((native, clean.line_and_column_num))
     }
