@@ -116,6 +116,11 @@ runs:
       with:
         xcode-version: '26'
 
+    - name: Use the kernel.org Ubuntu mirror
+      if: ${{ inputs.target_os == 'linux' }}
+      shell: bash
+      run: printf '%s\n' 'https://mirrors.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt
+
     - name: Install dependencies
       shell: bash
       run: |
