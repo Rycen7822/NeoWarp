@@ -5,6 +5,7 @@ use warpui::elements::{
     ChildAnchor, Dismiss, MouseStateHandle, OffsetPositioning, PositionedElementAnchor,
     PositionedElementOffsetBounds, Stack,
 };
+use warpui::event::ModifiersState;
 use warpui::{AppContext, Element, EventContext};
 
 use super::{GridHighlightedLink, TerminalAction, TerminalView};
@@ -138,7 +139,10 @@ impl TerminalView {
                     GridHighlightedLink::Hyperlink { uri, .. } => uri.clone(),
                     _ => tr(link.tooltip_text()).to_owned(),
                 },
-                action: TerminalAction::OpenGridLink(link.clone()),
+                action: TerminalAction::OpenGridLink {
+                    link: link.clone(),
+                    modifiers: ModifiersState::default(),
+                },
                 mouse_state: self.mouse_states.grid_link_tooltip.clone(),
                 detail,
             });
@@ -169,8 +173,15 @@ fn render_tooltip(
         let action = link.action;
         TooltipLink {
             text: link.text,
-            on_click: move |ctx: &mut EventContext| {
-                ctx.dispatch_typed_action(action.clone());
+            on_click: move |ctx: &mut EventContext, modifiers| {
+                let mut action = action.clone();
+                if let TerminalAction::OpenGridLink {
+                    modifiers: held, ..
+                } = &mut action
+                {
+                    *held = modifiers;
+                }
+                ctx.dispatch_typed_action(action);
             },
             detail: link.detail,
             mouse_state: link.mouse_state,

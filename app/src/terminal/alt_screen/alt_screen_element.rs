@@ -727,7 +727,8 @@ impl Element for AltScreenElement {
                 is_synthetic,
                 ..
             } => {
-                if in_bounds {
+                // Hovering a tooltip must not replace its source link with the grid underneath.
+                if in_bounds && !ctx.is_covered(UiPoint::from_vec2f(*position, z_index)) {
                     self.mouse_moved(to_local(*position), *is_synthetic, app, ctx)
                 } else {
                     self.mouse_out(ctx)

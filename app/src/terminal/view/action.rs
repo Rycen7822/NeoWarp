@@ -189,7 +189,10 @@ pub enum TerminalAction {
     BookmarkBlock(BlockIndex),
     NotificationsErrorBanner(NotificationsErrorBannerAction),
     JumpToBookmark(BlockIndex),
-    OpenGridLink(GridHighlightedLink),
+    OpenGridLink {
+        link: GridHighlightedLink,
+        modifiers: ModifiersState,
+    },
     ToggleGridSecret {
         handle: WithinModel<SecretHandle>,
         show_secret: bool,
@@ -364,7 +367,7 @@ impl fmt::Debug for TerminalAction {
             InsertCommandCorrection { .. } => {
                 write!(f, "InsertCommandCorrection",)
             }
-            OpenGridLink(_) => f.write_str("OpenGridLink"),
+            OpenGridLink { .. } => f.write_str("OpenGridLink"),
             ToggleGridSecret { show_secret, .. } => write!(f, "ToggleGridSecret {show_secret:?}"),
             CopyGridSecret(_) => f.write_str("CopyGridSecret"),
             ShowInFileExplorer(_) => f.write_str("ShowInFileExplorer"),

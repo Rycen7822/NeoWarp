@@ -7054,9 +7054,10 @@ impl TerminalView {
 
                             items.push(
                                 MenuItemFields::new(tr("Open file"))
-                                    .with_on_select_action(TerminalAction::OpenGridLink(
-                                        highlighted_link.clone(),
-                                    ))
+                                    .with_on_select_action(TerminalAction::OpenGridLink {
+                                        link: highlighted_link.clone(),
+                                        modifiers: ModifiersState::default(),
+                                    })
                                     .into_item(),
                             );
 
@@ -7070,9 +7071,10 @@ impl TerminalView {
                         // `OpenGridLink`.
                         vec![
                             MenuItemFields::new(tr("Open link"))
-                                .with_on_select_action(TerminalAction::OpenGridLink(
-                                    highlighted_link.clone(),
-                                ))
+                                .with_on_select_action(TerminalAction::OpenGridLink {
+                                    link: highlighted_link.clone(),
+                                    modifiers: ModifiersState::default(),
+                                })
                                 .into_item(),
                             MenuItemFields::new(tr("Copy link"))
                                 .with_on_select_action(TerminalAction::ContextMenu(
@@ -12236,7 +12238,7 @@ impl TypedActionView for TerminalView {
             | SplitLeft(_)
             | SplitDown(_)
             | SplitUp(_)
-            | OpenGridLink(_)
+            | OpenGridLink { .. }
             | ToggleGridSecret { .. }
             | CopyGridSecret(_)
             | ShowInFileExplorer(_)
@@ -12496,8 +12498,8 @@ impl TypedActionView for TerminalView {
                 show_secret,
             } => self.toggle_grid_secret(handle, *show_secret, ctx),
             CopyGridSecret(secret_handle) => self.copy_grid_secret(secret_handle, ctx),
-            OpenGridLink(link) => {
-                self.open_highlighted_link(link, false, ctx);
+            OpenGridLink { link, modifiers } => {
+                self.open_highlighted_link(link, should_directly_open_link(modifiers), ctx);
             }
             ShowInFileExplorer(path) => {
                 ctx.open_file_path_in_explorer(path);

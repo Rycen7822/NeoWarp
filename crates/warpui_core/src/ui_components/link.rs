@@ -1,10 +1,12 @@
 use crate::EventContext;
 use crate::elements::{Border, Container, Element, Hoverable, MouseState, MouseStateHandle, Text};
+use crate::event::ModifiersState;
 use crate::fonts::Properties;
 use crate::platform::Cursor;
 use crate::ui_components::components::{UiComponent, UiComponentStyles};
 
 pub type OnClickFn = Box<dyn Fn(&mut EventContext)>;
+type OnClickWithModifiersFn = Box<dyn Fn(&mut EventContext, ModifiersState)>;
 
 pub struct Link {
     text: String, // TODO figure out how it can be ui element (or icon?)
@@ -12,7 +14,7 @@ pub struct Link {
     url: Option<String>,
     /// A callback that should be fired when clicked.
     /// Commonly dispatches an action from the calling view.
-    callback: Option<OnClickFn>,
+    callback: Option<OnClickWithModifiersFn>,
     styles: LinkStyles,
     hover_state: MouseStateHandle,
 }
@@ -69,13 +71,13 @@ impl UiComponent for Link {
                     (_, _) => text.finish(),
                 }
             })
-            .on_click(move |ctx, app, _| {
+            .on_click_with_modifiers(move |ctx, app, _, modifiers| {
                 if let Some(url) = &url {
                     app.open_url(url);
                 }
 
                 if let Some(callback) = &self.callback {
-                    callback(ctx);
+                    callback(ctx, modifiers);
                 }
             })
             .with_cursor(Cursor::PointingHand)
@@ -106,7 +108,9 @@ impl Link {
         Link {
             text,
             url,
-            callback,
+            callback: callback.map(|callback| {
+                Box::new(move |ctx: &mut EventContext, _| callback(ctx)) as OnClickWithModifiersFn
+            }),
             styles,
             hover_state: mouse_state,
         }
@@ -138,6 +142,15 @@ impl Link {
 
     pub fn soft_wrap(mut self, soft_wrap: bool) -> Self {
         self.styles.soft_wrap = soft_wrap;
+        self
+    }
+
+    /// Replaces the click callback, preserving the modifiers from mouse release.
+    pub fn on_click_with_modifiers(
+        mut self,
+        callback: impl 'static + Fn(&mut EventContext, ModifiersState),
+    ) -> Self {
+        self.callback = Some(Box::new(callback));
         self
     }
 }

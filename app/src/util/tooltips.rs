@@ -6,6 +6,7 @@ use std::path::Path;
 use warpui::elements::{
     Border, Container, CornerRadius, Flex, MouseStateHandle, ParentElement, Radius,
 };
+use warpui::event::ModifiersState;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, EventContext};
 
@@ -44,7 +45,7 @@ pub fn render_tooltip<OnClick>(
     appearance: &Appearance,
 ) -> Box<dyn Element>
 where
-    OnClick: 'static + Fn(&mut EventContext),
+    OnClick: 'static + Fn(&mut EventContext, ModifiersState),
 {
     let mut tooltip = Flex::column();
     let mut links = Vec::new();
@@ -70,14 +71,8 @@ where
         links.push(
             appearance
                 .ui_builder()
-                .tooltip_link(
-                    link.text,
-                    None,
-                    Some(Box::new(move |ctx| {
-                        on_click(ctx);
-                    })),
-                    link.mouse_state,
-                )
+                .tooltip_link(link.text, None, None, link.mouse_state)
+                .on_click_with_modifiers(on_click)
                 .soft_wrap(false)
                 .build()
                 .finish(),
