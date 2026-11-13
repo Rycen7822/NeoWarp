@@ -346,7 +346,8 @@ jobs:
 
       - name: Install diesel_cli
         run: |
-          cargo binstall diesel_cli
+          # Schema output changes across Diesel CLI versions.
+          cargo binstall diesel_cli --version 2.3.14
 
       - name: Run all migrations on empty file
         run: |
