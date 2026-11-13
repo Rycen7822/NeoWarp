@@ -515,12 +515,8 @@ impl super::TerminalView {
             from_editor,
         } = find_link_arg;
 
-        // Already highlighted the hovered link, returning.
-        if self
-            .highlighted_link
-            .as_ref()
-            .is_some_and(|url| url.contains(&position))
-        {
+        // A queued lookup must not replace a link already resolved by a newer hover.
+        if self.highlighted_link.is_some() {
             #[cfg_attr(not(feature = "local_fs"), allow(clippy::needless_return))]
             return;
         }
@@ -704,8 +700,8 @@ impl super::TerminalView {
                         .or_else(|| session.launch_data().cloned())
                 });
 
-                // Using the thread builder instead of ctx.spawn here so that the previous
-                // scanning job will be dropped once there is a new scanning job created.
+                // Older workers can still finish after this handle is replaced; the completion
+                // handler must preserve links resolved since their lookup started.
                 let (tx, rx) = futures::channel::oneshot::channel();
                 self.file_link_scanning_join_handle = std::thread::Builder::new()
                     .name("Compute file paths".into())
@@ -746,10 +742,6 @@ impl super::TerminalView {
                     async move { rx.await.ok().flatten() },
                     Self::handle_file_link_completed,
                 );
-            }
-            _ if self.highlighted_link.take(&mut self.model.lock()).is_some() => {
-                ctx.reset_cursor();
-                ctx.notify();
             }
             _ => (),
         };
@@ -912,17 +904,16 @@ impl super::TerminalView {
         link_result: Option<GridHighlightedLink>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let mut model = self.model.lock();
-        if self.highlighted_link.take(&mut model).is_some() {
-            ctx.reset_cursor();
-            ctx.notify();
+        // Filesystem lookups can finish after hover has already resolved another link.
+        if self.highlighted_link.is_some() {
+            return;
         }
 
         if let Some(new_link) = link_result {
             if *super::GeneralSettings::as_ref(ctx).link_tooltip {
                 self.open_grid_link_tool_tip = Some(new_link.clone());
             }
-            self.highlighted_link.set(new_link, &mut model);
+            self.highlighted_link.set(new_link, &mut self.model.lock());
             ctx.set_cursor_shape(Cursor::PointingHand);
             ctx.notify();
         }
