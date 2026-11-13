@@ -67,12 +67,11 @@ where
             );
         }
 
-        let on_click = link.on_click;
         links.push(
             appearance
                 .ui_builder()
                 .tooltip_link(link.text, None, None, link.mouse_state)
-                .on_click_with_modifiers(on_click)
+                .on_click_with_modifiers(link.on_click)
                 .soft_wrap(false)
                 .build()
                 .finish(),

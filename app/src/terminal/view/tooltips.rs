@@ -173,13 +173,10 @@ fn render_tooltip(
         let action = link.action;
         TooltipLink {
             text: link.text,
-            on_click: move |ctx: &mut EventContext, modifiers| {
+            on_click: move |ctx: &mut EventContext, held_modifiers| {
                 let mut action = action.clone();
-                if let TerminalAction::OpenGridLink {
-                    modifiers: held, ..
-                } = &mut action
-                {
-                    *held = modifiers;
+                if let TerminalAction::OpenGridLink { modifiers, .. } = &mut action {
+                    *modifiers = held_modifiers;
                 }
                 ctx.dispatch_typed_action(action);
             },
