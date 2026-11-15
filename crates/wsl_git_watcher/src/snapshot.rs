@@ -821,7 +821,10 @@ impl Store {
             .stderr(errors.reopen()?)
             .spawn()?;
         let result = (|| -> Result<()> {
-            let mut input = BufWriter::new(child.stdin.take().context("Missing Git input")?);
+            let mut input = BufWriter::with_capacity(
+                256 * 1024,
+                child.stdin.take().context("Missing Git input")?,
+            );
             write(&mut input)?;
             input.flush()?;
             Ok(())
