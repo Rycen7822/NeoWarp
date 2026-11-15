@@ -353,6 +353,8 @@ wsl_git_watcher.opt-level = 3
 gix-index.opt-level = 3
 gix-hash.opt-level = 3
 sha1dc.opt-level = 3
+ignore.opt-level = 3
+walkdir.opt-level = 3
 # Minimize the runtime overhead of CPU profiling at the cost of a small
 # increase in compile time for this crate.
 backtrace.opt-level = 3

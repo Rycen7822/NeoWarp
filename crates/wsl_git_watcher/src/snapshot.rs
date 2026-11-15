@@ -570,9 +570,9 @@ impl Store {
         mut consume: impl FnMut(Scanned, Cow<'_, [u8]>) -> Result<()>,
     ) -> Result<()> {
         std::thread::scope(|scope| {
-            // Directory enumeration and reads share bounded workers. Each holds at
-            // most one pending body; rendezvous adds no body queue.
-            let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+            // One queued body per reader avoids rendezvous on every small file
+            // while keeping queued content within four preload buffers.
+            let (sender, receiver) = std::sync::mpsc::sync_channel(4);
             let reader = std::thread::Builder::new().spawn_scoped(scope, move || {
                 walker.run(|| {
                     let sender = sender.clone();
