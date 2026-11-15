@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 #[cfg(windows)]
-use std::io::BufWriter;
+use std::io::{BufRead, BufReader, BufWriter};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -87,6 +87,8 @@ pub struct Store {
     cache: PathBuf,
     directory: TempDir,
     _lock: File,
+    #[cfg(windows)]
+    object_format: gix_index::hash::Kind,
     paths: BTreeSet<PathBuf>,
     snapshots: BTreeMap<String, Snapshot>,
 }
@@ -98,6 +100,8 @@ enum Scanned {
         path: PathBuf,
         file: File,
         size: u64,
+        #[cfg(windows)]
+        stat: gix_index::entry::Stat,
     },
 }
 
@@ -168,6 +172,12 @@ impl Store {
             cache,
             directory,
             _lock: lock,
+            #[cfg(windows)]
+            object_format: match format.trim() {
+                "sha1" => gix_index::hash::Kind::Sha1,
+                "sha256" => gix_index::hash::Kind::Sha256,
+                _ => bail!("Unsupported Git object format"),
+            },
             paths: BTreeSet::new(),
             snapshots: BTreeMap::new(),
         };
@@ -263,7 +273,14 @@ impl Store {
         let mut source_bytes = 0u64;
         #[cfg(windows)]
         let mut remaining = NamedTempFile::new_in(self.directory.path())?;
-        let scan = |_input: &mut dyn Write, _index: &mut dyn Write| -> Result<()> {
+        #[cfg(windows)]
+        let mut initial = self.paths.is_empty().then(|| {
+            gix_index::File::from_state(
+                gix_index::State::new(self.object_format),
+                self.directory.path().join("index"),
+            )
+        });
+        let scan = |_input: &mut dyn Write| -> Result<()> {
             let mut consume = |entry: Scanned, prefix: Cow<'_, [u8]>| -> Result<()> {
                 match entry {
                     Scanned::Cached(path, size) => {
@@ -273,13 +290,29 @@ impl Store {
                     Scanned::Binary(path) => {
                         binary.insert(path);
                     }
-                    Scanned::Text { path, file, size } => {
+                    Scanned::Text {
+                        path,
+                        file,
+                        size,
+                        #[cfg(windows)]
+                        stat,
+                    } => {
                         #[cfg(windows)]
                         {
-                            let exact = self.import_file(file, prefix, size, _input)?;
-                            if self.paths.is_empty() {
+                            let mark = initial.as_ref().map(|index| index.entries().len() + 1);
+                            let exact = self.import_file(file, prefix, size, mark, _input)?;
+                            if let Some(index) = &mut initial {
                                 if exact {
-                                    write_path(_index, &path)?;
+                                    let path = git_path(&path)?;
+                                    // Each walked regular file has one entry. Sort after scanning;
+                                    // no path lookup is made while entries are appended.
+                                    index.dangerously_push_entry(
+                                        stat,
+                                        self.object_format.null(),
+                                        gix_index::entry::Flags::empty(),
+                                        gix_index::entry::Mode::FILE,
+                                        path.as_bytes().into(),
+                                    );
                                 } else {
                                     write_path(&mut remaining, &path)?;
                                 }
@@ -308,18 +341,54 @@ impl Store {
         };
         #[cfg(windows)]
         if self.paths.is_empty() {
-            // Preloaded bytes have Git's clean form. Let Git compute the same IDs
-            // and stat cache concurrently, without writing duplicate loose blobs.
+            let marks = NamedTempFile::new_in(self.directory.path())?;
+            // Git returns the IDs of the exact bytes it imported. The native
+            // index writer records them with the metadata sampled before reading.
             self.git_stream(
-                &["update-index", "--add", "--info-only", "-z", "--stdin"],
-                |index| self.import_objects(|input| scan(input, index)),
+                &[
+                    "fast-import",
+                    "--quiet",
+                    "--done",
+                    &format!("--export-marks={}", marks.path().display()),
+                ],
+                |input| {
+                    scan(input)?;
+                    input.write_all(b"done\n")?;
+                    Ok(())
+                },
             )?;
-            self.finish_initial_index(&mut remaining)?;
+            let mut index = initial.context("Missing initial snapshot index")?;
+            for line in BufReader::new(File::open(marks.path())?).lines() {
+                let line = line?;
+                let (mark, object) = line.split_once(' ').context("Invalid import mark")?;
+                let position: usize = mark
+                    .strip_prefix(':')
+                    .context("Invalid import mark")?
+                    .parse()?;
+                let entry = index
+                    .entries_mut()
+                    .get_mut(position - 1)
+                    .context("Invalid import mark position")?;
+                entry.id = gix_index::hash::ObjectId::from_hex(object.as_bytes())?;
+            }
+            ensure!(
+                index.entries().iter().all(|entry| !entry.id.is_null()),
+                "Missing imported snapshot object"
+            );
+            index.sort_entries();
+            index.write(Default::default())?;
+            drop(index);
+            if remaining.as_file().metadata()?.len() != 0 {
+                self.git(
+                    &["update-index", "--add", "-z", "--stdin"],
+                    Some(File::open(remaining.path())?),
+                )?;
+            }
         } else {
-            self.import_objects(|input| scan(input, &mut std::io::sink()))?;
+            self.import_objects(scan)?;
         }
         #[cfg(not(windows))]
-        scan(&mut std::io::sink(), &mut std::io::sink())?;
+        scan(&mut std::io::sink())?;
         ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
         let mut removed = NamedTempFile::new_in(self.directory.path())?;
         for path in self.paths.difference(&paths) {
@@ -469,7 +538,10 @@ impl Store {
         }
         let mut file = File::open(entry.path())
             .with_context(|| format!("Cannot read {}", entry.path().display()))?;
-        let size = file.metadata()?.len();
+        let metadata = file.metadata()?;
+        let size = metadata.len();
+        #[cfg(windows)]
+        let stat = gix_index::entry::Stat::from_fs(&metadata.into())?;
         prefix.resize(8192, 0);
         let prefix_len = file.read(prefix)?;
         prefix.truncate(prefix_len);
@@ -484,53 +556,14 @@ impl Store {
                     .read_to_end(prefix)?;
                 ensure!(prefix.len() as u64 == size, "Snapshot file was truncated");
             }
-            Ok(Some(Scanned::Text { path, file, size }))
+            Ok(Some(Scanned::Text {
+                path,
+                file,
+                size,
+                #[cfg(windows)]
+                stat,
+            }))
         }
-    }
-
-    #[cfg(windows)]
-    fn finish_initial_index(&self, remaining: &mut NamedTempFile) -> Result<()> {
-        let entries = self.git_bytes(&["ls-files", "--stage", "-z"], None)?;
-        let mut objects = NamedTempFile::new_in(self.directory.path())?;
-        let entries = std::str::from_utf8(&entries)?;
-        for entry in entries.split('\0').filter(|entry| !entry.is_empty()) {
-            let object = entry
-                .split_ascii_whitespace()
-                .nth(1)
-                .context("Invalid snapshot index")?;
-            writeln!(objects, "{object}")?;
-        }
-        let checked = self.git(
-            &["cat-file", "--batch-check=%(objectname)"],
-            Some(File::open(objects.path())?),
-        )?;
-        let mut removed = NamedTempFile::new_in(self.directory.path())?;
-        // A file may change between the preload and Git's read. Re-add only
-        // entries whose new content is absent, using Git's normal clean/write path.
-        for (entry, object) in entries
-            .split('\0')
-            .filter(|entry| !entry.is_empty())
-            .zip(checked.lines())
-        {
-            if object.ends_with(" missing") {
-                let (_, path) = entry.split_once('\t').context("Invalid snapshot index")?;
-                write_path(&mut removed, Path::new(path))?;
-                write_path(remaining, Path::new(path))?;
-            }
-        }
-        if removed.as_file().metadata()?.len() != 0 {
-            self.git(
-                &["update-index", "--force-remove", "-z", "--stdin"],
-                Some(File::open(removed.path())?),
-            )?;
-        }
-        if remaining.as_file().metadata()?.len() != 0 {
-            self.git(
-                &["update-index", "--add", "-z", "--stdin"],
-                Some(File::open(remaining.path())?),
-            )?;
-        }
-        Ok(())
     }
 
     #[cfg(windows)]
@@ -539,6 +572,7 @@ impl Store {
         file: File,
         prefix: Cow<'_, [u8]>,
         size: u64,
+        mark: Option<usize>,
         input: &mut dyn Write,
     ) -> Result<bool> {
         if self.paths.is_empty() && size > INITIAL_BLOB_LIMIT {
@@ -547,7 +581,7 @@ impl Store {
         let copied = size.min(prefix.len() as u64);
         let mut rest = file.take(size - copied);
         // Bound extra memory, and only normalize unambiguous text into an empty index.
-        // Final content and metadata still come from the normal Git index update.
+        // Ambiguous conversions go through Git's ordinary clean/write path.
         let exact = if self.paths.is_empty() {
             let mut bytes = prefix.into_owned();
             bytes.truncate(copied as usize);
@@ -568,7 +602,11 @@ impl Store {
                 }
                 bytes.retain(|byte| *byte != b'\r');
             }
-            writeln!(input, "blob\ndata {}", bytes.len())?;
+            writeln!(input, "blob")?;
+            if let Some(mark) = mark {
+                writeln!(input, "mark :{mark}")?;
+            }
+            writeln!(input, "data {}", bytes.len())?;
             input.write_all(&bytes)?;
             true
         } else {

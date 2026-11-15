@@ -1,14 +1,23 @@
 use super::*;
 
-fn repository() -> tempfile::TempDir {
+fn repository(format: &str) -> tempfile::TempDir {
     let directory = tempfile::tempdir().unwrap();
-    source_git(directory.path(), &["init", "--quiet", "--template="]).unwrap();
+    source_git(
+        directory.path(),
+        &[
+            "init",
+            "--quiet",
+            "--template=",
+            &format!("--object-format={format}"),
+        ],
+    )
+    .unwrap();
     directory
 }
 
 #[test]
 fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
-    let root = repository();
+    let root = repository("sha256");
     let cache = tempfile::tempdir().unwrap();
     fs::write(root.path().join(".gitignore"), "ignored/\n").unwrap();
     fs::write(
@@ -57,6 +66,12 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     let mut store = Store::new(root.path(), cache.path()).unwrap();
     let cancelled = AtomicBool::new(false);
     store.capture("before", &cancelled).unwrap();
+    assert!(
+        store
+            .git_bytes(&["diff-files", "--name-only", "-z"], None)
+            .unwrap()
+            .is_empty()
+    );
     // File writes represent the observable effects of arbitrary shell/tools.
     fs::write(root.path().join("ignored/old.txt"), &after).unwrap();
     fs::write(root.path().join("ignored/new.txt"), "created\n").unwrap();
@@ -126,7 +141,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
 
 #[test]
 fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
-    let root = repository();
+    let root = repository("sha1");
     let cache = tempfile::tempdir().unwrap();
     fs::write(root.path().join("old.txt"), "unique old content\n").unwrap();
     let mut store = Store::new(root.path(), cache.path()).unwrap();
@@ -136,26 +151,6 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
             .is_err()
     );
     let baseline = store.capture("baseline", &AtomicBool::new(false)).unwrap();
-    #[cfg(windows)]
-    {
-        fs::write(
-            root.path().join("raced.txt"),
-            "changed between preload and index\n",
-        )
-        .unwrap();
-        store
-            .git(&["update-index", "--add", "--info-only", "raced.txt"], None)
-            .unwrap();
-        assert!(store.git(&["cat-file", "-e", ":raced.txt"], None).is_err());
-        let mut remaining = NamedTempFile::new_in(store.directory()).unwrap();
-        store.finish_initial_index(&mut remaining).unwrap();
-        assert_eq!(
-            store
-                .git(&["cat-file", "blob", ":raced.txt"], None)
-                .unwrap(),
-            "changed between preload and index\n"
-        );
-    }
     #[cfg(windows)]
     assert!(
         store

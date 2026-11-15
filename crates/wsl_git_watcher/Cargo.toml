@@ -17,6 +17,9 @@ ignore.workspace = true
 serde.workspace = true
 tempfile.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+gix-index = { version = "0.58.0", features = ["sha1", "sha256"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
 notify-debouncer-full.workspace = true
