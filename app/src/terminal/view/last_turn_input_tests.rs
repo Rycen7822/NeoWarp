@@ -8,14 +8,10 @@ use warpui::App;
 use wsl_git_watcher::snapshot::ChangeKind;
 
 use super::*;
-use crate::project_sessions::{
-    Observation, command as cli_command,
-    config::{Host, SavedShell},
-};
-use crate::test_util::{
-    assert_eventually,
-    terminal::{add_window_with_terminal, initialize_app_for_terminal_view},
-};
+use crate::project_sessions::config::{Host, SavedShell};
+use crate::project_sessions::{Observation, command as cli_command};
+use crate::test_util::assert_eventually;
+use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
 #[test]
 fn native_capture_keeps_approvals_out_of_the_baseline_and_cancels_pending_input() {

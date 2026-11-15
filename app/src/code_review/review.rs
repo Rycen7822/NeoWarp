@@ -20,6 +20,7 @@ use warpui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use wsl_git_watcher::snapshot::ChangeKind;
 
 use super::diff_selector::{DiffSelector, Selection};
 use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
@@ -37,7 +38,6 @@ use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
 use crate::util::git::FileChangeEntry;
 use crate::workspace::WorkspaceAction;
-use wsl_git_watcher::snapshot::ChangeKind;
 
 #[cfg(test)]
 #[path = "review_tests.rs"]

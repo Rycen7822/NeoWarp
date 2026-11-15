@@ -8,16 +8,15 @@ use anyhow::{Context, Result, bail};
 use parking_lot::Mutex;
 use uuid::Uuid;
 use warp_terminal::model::BlockId;
-use warpui::r#async::{SpawnedFutureHandle, Timer, executor::Background};
+use warpui::r#async::executor::Background;
+use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{Entity, EntityId, ModelContext, SingletonEntity};
 use wsl_git_watcher::snapshot::{Change, ChangeKind, Operation, Reply, Snapshot, Store};
 
 use crate::localization::tr;
-use crate::project_sessions::{
-    ProjectSessions,
-    config::Provider,
-    turns::{self, Cursor, Source},
-};
+use crate::project_sessions::ProjectSessions;
+use crate::project_sessions::config::Provider;
+use crate::project_sessions::turns::{self, Cursor, Source};
 
 struct Backend {
     root: PathBuf,
