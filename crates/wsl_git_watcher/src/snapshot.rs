@@ -1,6 +1,7 @@
 //! A disposable Git index and object directory. The source repository is read-only.
 #![allow(clippy::disallowed_types)]
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 #[cfg(windows)]
@@ -16,6 +17,9 @@ use anyhow::{Context, Result, bail, ensure};
 use fs4::fs_std::FileExt;
 use serde::{Deserialize, Serialize};
 use tempfile::{NamedTempFile, TempDir};
+
+#[cfg(windows)]
+const INITIAL_BLOB_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Snapshot {
@@ -85,6 +89,16 @@ pub struct Store {
     _lock: File,
     paths: BTreeSet<PathBuf>,
     snapshots: BTreeMap<String, Snapshot>,
+}
+
+enum Scanned {
+    Cached(PathBuf, u64),
+    Binary(PathBuf),
+    Text {
+        path: PathBuf,
+        file: File,
+        size: u64,
+    },
 }
 
 impl Store {
@@ -160,6 +174,11 @@ impl Store {
         store.git(&["config", "core.bare", "false"], None)?;
         store.git(&["config", "core.autocrlf", "input"], None)?;
         store.git(&["config", "gc.auto", "0"], None)?;
+        #[cfg(windows)]
+        {
+            store.git(&["config", "core.compression", "1"], None)?;
+            store.git(&["config", "core.fscache", "true"], None)?;
+        }
         store.git(&["read-tree", "--empty"], None)?;
         Ok(store)
     }
@@ -240,52 +259,65 @@ impl Store {
         let mut paths = BTreeSet::new();
         let mut binary = BTreeSet::new();
         let mut source_bytes = 0u64;
-        let mut prefix = [0u8; 8192];
-        let scan = |_input: &mut dyn Write| -> Result<()> {
+        #[cfg(windows)]
+        let mut remaining = NamedTempFile::new_in(self.directory.path())?;
+        let scan = |_input: &mut dyn Write, _index: &mut dyn Write| -> Result<()> {
+            let mut consume = |entry: Scanned, prefix: Cow<'_, [u8]>| -> Result<()> {
+                match entry {
+                    Scanned::Cached(path, size) => {
+                        source_bytes = source_bytes.saturating_add(size);
+                        paths.insert(path);
+                    }
+                    Scanned::Binary(path) => {
+                        binary.insert(path);
+                    }
+                    Scanned::Text { path, file, size } => {
+                        #[cfg(windows)]
+                        {
+                            let exact = self.import_file(file, prefix, size, _input)?;
+                            if self.paths.is_empty() {
+                                if exact {
+                                    write_path(_index, &path)?;
+                                } else {
+                                    write_path(&mut remaining, &path)?;
+                                }
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        let _ = (file, prefix);
+                        source_bytes = source_bytes.saturating_add(size);
+                        paths.insert(path);
+                    }
+                }
+                Ok(())
+            };
+            #[cfg(windows)]
+            if self.paths.is_empty() {
+                return self.prefetch(walker, &changed, cancelled, consume);
+            }
+            let mut prefix = vec![0; 8192];
             for entry in walker {
                 ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
-                let entry = entry?;
-                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                    continue;
-                }
-                let relative = entry.path().strip_prefix(&self.root)?.to_path_buf();
-                // Let the index identify unchanged text. New files and files not
-                // in the text index (including all known binaries) are inspected.
-                if self.paths.contains(&relative) && !changed.contains(&relative) {
-                    source_bytes = source_bytes.saturating_add(entry.metadata()?.len());
-                    paths.insert(relative);
-                    continue;
-                }
-                let mut file = File::open(entry.path())
-                    .with_context(|| format!("Cannot read {}", entry.path().display()))?;
-                let size = file.metadata()?.len();
-                let count = file.read(&mut prefix)?;
-                if content_inspector::inspect(&prefix[..count]).is_binary() {
-                    binary.insert(relative);
-                } else {
-                    #[cfg(windows)]
-                    {
-                        // Reuse this handle and prefix; the later index update remains authoritative.
-                        // A concurrent grow can extend the prefix past the sampled size.
-                        let copied = size.min(count as u64);
-                        writeln!(_input, "blob\ndata {size}")?;
-                        _input.write_all(&prefix[..copied as usize])?;
-                        ensure!(
-                            std::io::copy(&mut file.take(size - copied), _input)? == size - copied,
-                            "Snapshot file was truncated"
-                        );
-                        _input.write_all(b"\n")?;
-                    }
-                    source_bytes = source_bytes.saturating_add(size);
-                    paths.insert(relative);
+                if let Some(entry) = self.inspect_entry(entry, &changed, &mut prefix)? {
+                    consume(entry, Cow::Borrowed(&prefix))?;
                 }
             }
             Ok(())
         };
         #[cfg(windows)]
-        self.import_objects(scan)?;
+        if self.paths.is_empty() {
+            // Preloaded bytes have Git's clean form. Let Git compute the same IDs
+            // and stat cache concurrently, without writing duplicate loose blobs.
+            self.git_stream(
+                &["update-index", "--add", "--info-only", "-z", "--stdin"],
+                |index| self.import_objects(|input| scan(input, index)),
+            )?;
+            self.finish_initial_index(&mut remaining)?;
+        } else {
+            self.import_objects(|input| scan(input, &mut std::io::sink()))?;
+        }
         #[cfg(not(windows))]
-        scan(&mut std::io::sink())?;
+        scan(&mut std::io::sink(), &mut std::io::sink())?;
         ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
         let mut removed = NamedTempFile::new_in(self.directory.path())?;
         for path in self.paths.difference(&paths) {
@@ -300,7 +332,7 @@ impl Store {
         // Keep Git's stat cache between captures. This has Git's normal metadata
         // freshness semantics; deliberate preservation of all checked metadata
         // can hide a change. Immutable published trees still pin their objects.
-        if !paths.is_empty() {
+        if !paths.is_empty() && (!cfg!(windows) || !self.paths.is_empty()) {
             let mut selected = NamedTempFile::new_in(self.directory.path())?;
             for path in &paths {
                 write_path(&mut selected, path)?;
@@ -337,6 +369,207 @@ impl Store {
     }
 
     #[cfg(windows)]
+    fn prefetch(
+        &self,
+        walker: ignore::Walk,
+        changed: &BTreeSet<PathBuf>,
+        cancelled: &AtomicBool,
+        mut consume: impl FnMut(Scanned, Cow<'_, [u8]>) -> Result<()>,
+    ) -> Result<()> {
+        let walker = std::sync::Mutex::new(walker);
+        std::thread::scope(|scope| {
+            // Two readers may each hold one pending file; rendezvous adds no queue.
+            let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+            let mut readers = Vec::with_capacity(2);
+            for _ in 0..2 {
+                let walker = &walker;
+                let sender = sender.clone();
+                readers.push(std::thread::Builder::new().spawn_scoped(scope, move || {
+                    let mut prefix = vec![0; 8192];
+                    loop {
+                        let entry = match walker.lock() {
+                            Ok(mut walker) => match walker.next() {
+                                Some(entry) => entry,
+                                None => break,
+                            },
+                            Err(_) => break, // The joined reader reports the panic.
+                        };
+                        let next = if cancelled.load(Ordering::Relaxed) {
+                            Err(anyhow::anyhow!("Snapshot cancelled"))
+                        } else {
+                            self.inspect_entry(entry, changed, &mut prefix)
+                        };
+                        let next = match next {
+                            Ok(Some(entry)) => {
+                                let len = match &entry {
+                                    Scanned::Text { .. } => prefix.len(),
+                                    _ => 0,
+                                };
+                                Ok((entry, prefix[..len].to_vec()))
+                            }
+                            Ok(None) => continue,
+                            Err(error) => Err(error),
+                        };
+                        let failed = next.is_err();
+                        if sender.send(next).is_err() || failed {
+                            break;
+                        }
+                    }
+                })?);
+            }
+            drop(sender);
+            let mut result = (|| {
+                for entry in &receiver {
+                    let (entry, prefix) = entry?;
+                    consume(entry, Cow::Owned(prefix))?;
+                }
+                Ok(())
+            })();
+            drop(receiver); // Unblock a pending send if consuming failed.
+            for reader in readers {
+                let joined = reader
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("Snapshot reader panicked"));
+                if result.is_ok() {
+                    result = joined;
+                }
+            }
+            result
+        })
+    }
+
+    fn inspect_entry(
+        &self,
+        entry: std::result::Result<ignore::DirEntry, ignore::Error>,
+        changed: &BTreeSet<PathBuf>,
+        prefix: &mut Vec<u8>,
+    ) -> Result<Option<Scanned>> {
+        let entry = entry?;
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            return Ok(None);
+        }
+        let path = entry.path().strip_prefix(&self.root)?.to_path_buf();
+        if self.paths.contains(&path) && !changed.contains(&path) {
+            return Ok(Some(Scanned::Cached(path, entry.metadata()?.len())));
+        }
+        let mut file = File::open(entry.path())
+            .with_context(|| format!("Cannot read {}", entry.path().display()))?;
+        let size = file.metadata()?.len();
+        prefix.resize(8192, 0);
+        let prefix_len = file.read(prefix)?;
+        prefix.truncate(prefix_len);
+        if content_inspector::inspect(&prefix[..prefix_len]).is_binary() {
+            Ok(Some(Scanned::Binary(path)))
+        } else {
+            #[cfg(windows)]
+            if self.paths.is_empty() && size <= INITIAL_BLOB_LIMIT {
+                prefix.truncate(prefix.len().min(size as usize));
+                (&mut file)
+                    .take(size - prefix.len() as u64)
+                    .read_to_end(prefix)?;
+                ensure!(prefix.len() as u64 == size, "Snapshot file was truncated");
+            }
+            Ok(Some(Scanned::Text { path, file, size }))
+        }
+    }
+
+    #[cfg(windows)]
+    fn finish_initial_index(&self, remaining: &mut NamedTempFile) -> Result<()> {
+        let entries = self.git_bytes(&["ls-files", "--stage", "-z"], None)?;
+        let mut objects = NamedTempFile::new_in(self.directory.path())?;
+        let entries = std::str::from_utf8(&entries)?;
+        for entry in entries.split('\0').filter(|entry| !entry.is_empty()) {
+            let object = entry
+                .split_ascii_whitespace()
+                .nth(1)
+                .context("Invalid snapshot index")?;
+            writeln!(objects, "{object}")?;
+        }
+        let checked = self.git(
+            &["cat-file", "--batch-check=%(objectname)"],
+            Some(File::open(objects.path())?),
+        )?;
+        let mut removed = NamedTempFile::new_in(self.directory.path())?;
+        // A file may change between the preload and Git's read. Re-add only
+        // entries whose new content is absent, using Git's normal clean/write path.
+        for (entry, object) in entries
+            .split('\0')
+            .filter(|entry| !entry.is_empty())
+            .zip(checked.lines())
+        {
+            if object.ends_with(" missing") {
+                let (_, path) = entry.split_once('\t').context("Invalid snapshot index")?;
+                write_path(&mut removed, Path::new(path))?;
+                write_path(remaining, Path::new(path))?;
+            }
+        }
+        if removed.as_file().metadata()?.len() != 0 {
+            self.git(
+                &["update-index", "--force-remove", "-z", "--stdin"],
+                Some(File::open(removed.path())?),
+            )?;
+        }
+        if remaining.as_file().metadata()?.len() != 0 {
+            self.git(
+                &["update-index", "--add", "-z", "--stdin"],
+                Some(File::open(remaining.path())?),
+            )?;
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn import_file(
+        &self,
+        file: File,
+        prefix: Cow<'_, [u8]>,
+        size: u64,
+        input: &mut dyn Write,
+    ) -> Result<bool> {
+        if self.paths.is_empty() && size > INITIAL_BLOB_LIMIT {
+            return Ok(false);
+        }
+        let copied = size.min(prefix.len() as u64);
+        let mut rest = file.take(size - copied);
+        // Bound extra memory, and only normalize unambiguous text into an empty index.
+        // Final content and metadata still come from the normal Git index update.
+        let exact = if self.paths.is_empty() {
+            let mut bytes = prefix.into_owned();
+            bytes.truncate(copied as usize);
+            rest.read_to_end(&mut bytes)?;
+            ensure!(bytes.len() as u64 == size, "Snapshot file was truncated");
+            let has_cr = bytes.contains(&b'\r');
+            if has_cr {
+                let clean = std::str::from_utf8(&bytes).is_ok()
+                    && bytes.iter().all(|byte| {
+                        (*byte >= b' ' && *byte != 127) || matches!(byte, b'\t' | b'\r' | b'\n')
+                    })
+                    && bytes.last() != Some(&b'\r')
+                    && bytes
+                        .windows(2)
+                        .all(|pair| pair[0] != b'\r' || pair[1] == b'\n');
+                if !clean {
+                    return Ok(false);
+                }
+                bytes.retain(|byte| *byte != b'\r');
+            }
+            writeln!(input, "blob\ndata {}", bytes.len())?;
+            input.write_all(&bytes)?;
+            true
+        } else {
+            writeln!(input, "blob\ndata {size}")?;
+            input.write_all(&prefix[..copied as usize])?;
+            ensure!(
+                std::io::copy(&mut rest, input)? == size - copied,
+                "Snapshot file was truncated"
+            );
+            false
+        };
+        input.write_all(b"\n")?;
+        Ok(exact)
+    }
+
+    #[cfg(windows)]
     fn import_trees(&self, cancelled: &AtomicBool) -> Result<()> {
         let entries = self.git(&["ls-files", "--stage"], None)?;
         let reference = "refs/snapshot-import";
@@ -359,35 +592,55 @@ impl Store {
 
     #[cfg(windows)]
     fn import_objects(&self, write: impl FnOnce(&mut dyn Write) -> Result<()>) -> Result<()> {
+        self.git_stream(&["fast-import", "--quiet", "--done"], |input| {
+            write(input)?;
+            input.write_all(b"done\n")?;
+            Ok(())
+        })
+    }
+
+    #[cfg(windows)]
+    fn git_stream(
+        &self,
+        args: &[&str],
+        write: impl FnOnce(&mut dyn Write) -> Result<()>,
+    ) -> Result<()> {
         let directory = self
             .directory
             .path()
             .to_str()
             .context("Invalid cache path")?;
-        let mut child = git_command(
-            &self.root,
-            &["--git-dir", directory, "fast-import", "--quiet", "--done"],
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        let root = self.root.to_str().context("Invalid workspace path")?;
+        let mut command = vec!["--git-dir", directory, "--work-tree", root];
+        command.extend_from_slice(args);
+        // update-index can emit many line-ending warnings. A file avoids filling
+        // its stderr pipe while the producer is waiting for input backpressure.
+        let errors = NamedTempFile::new_in(self.directory.path())?;
+        let mut child = git_command(&self.root, &command)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(errors.reopen()?)
+            .spawn()?;
         let result = (|| -> Result<()> {
             let mut input = BufWriter::new(child.stdin.take().context("Missing Git input")?);
             write(&mut input)?;
-            input.write_all(b"done\n")?;
             input.flush()?;
             Ok(())
         })();
         if result.is_err() && child.try_wait()?.is_none() {
             child.kill()?;
         }
-        let output = child.wait_with_output()?;
-        result?;
+        let status = child.wait()?;
+        if let Err(error) = result {
+            return Err(error.context(format!(
+                "Snapshot input failed: {}",
+                fs::read_to_string(errors.path())?
+            )));
+        }
         ensure!(
-            output.status.success(),
+            status.success(),
             "Snapshot import failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            fs::read_to_string(errors.path())?
         );
         Ok(())
     }
@@ -560,7 +813,7 @@ fn canonical_path(path: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn write_path(file: &mut NamedTempFile, path: &Path) -> Result<()> {
+fn write_path(file: &mut (impl Write + ?Sized), path: &Path) -> Result<()> {
     file.write_all(git_path(path)?.as_bytes())?;
     file.write_all(&[0])?;
     Ok(())

@@ -38,7 +38,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     let text = "x".repeat(8191);
     let after = format!("{text}after!\n");
     fs::write(root.path().join("ignored/old.txt"), format!("{text}\r\n")).unwrap();
-    fs::write(root.path().join("removed.txt"), "deleted\n").unwrap();
+    fs::write(root.path().join("removed.txt"), "deleted\rcontent\r\n").unwrap();
     fs::write(root.path().join("binary.bin"), [0u8; 256]).unwrap();
     fs::create_dir(root.path().join("nested")).unwrap();
     source_git(
@@ -46,7 +46,13 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
         &["init", "--quiet", "--template="],
     )
     .unwrap();
-    fs::write(root.path().join("nested/space 代码.txt"), "nested before\n").unwrap();
+    // Larger text uses Git's ordinary clean/write path rather than the bounded preload buffer.
+    let large = "y".repeat(1024 * 1024);
+    fs::write(
+        root.path().join("nested/space 代码.txt"),
+        format!("{large}\r\n"),
+    )
+    .unwrap();
     let mut store = Store::new(root.path(), cache.path()).unwrap();
     let cancelled = AtomicBool::new(false);
     store.capture("before", &cancelled).unwrap();
@@ -56,12 +62,28 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     fs::remove_file(root.path().join("removed.txt")).unwrap();
     fs::write(root.path().join("nested/space 代码.txt"), "nested after\n").unwrap();
     store.capture("after", &cancelled).unwrap();
+    assert_eq!(
+        store
+            .read("before", Path::new("removed.txt"), 1024)
+            .unwrap(),
+        "deleted\rcontent\r\n"
+    );
     let changes: Vec<_> = store
         .changes("before", "after")
         .unwrap()
         .into_iter()
         .map(|change| (change.path, change.kind))
         .collect();
+    assert_eq!(
+        store
+            .read(
+                "before",
+                Path::new("nested/space 代码.txt"),
+                2 * 1024 * 1024
+            )
+            .unwrap(),
+        format!("{large}\n")
+    );
     assert_eq!(
         changes,
         [
@@ -105,7 +127,32 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
     let cache = tempfile::tempdir().unwrap();
     fs::write(root.path().join("old.txt"), "unique old content\n").unwrap();
     let mut store = Store::new(root.path(), cache.path()).unwrap();
+    assert!(
+        store
+            .capture("initial-cancelled", &AtomicBool::new(true))
+            .is_err()
+    );
     let baseline = store.capture("baseline", &AtomicBool::new(false)).unwrap();
+    #[cfg(windows)]
+    {
+        fs::write(
+            root.path().join("raced.txt"),
+            "changed between preload and index\n",
+        )
+        .unwrap();
+        store
+            .git(&["update-index", "--add", "--info-only", "raced.txt"], None)
+            .unwrap();
+        assert!(store.git(&["cat-file", "-e", ":raced.txt"], None).is_err());
+        let mut remaining = NamedTempFile::new_in(store.directory()).unwrap();
+        store.finish_initial_index(&mut remaining).unwrap();
+        assert_eq!(
+            store
+                .git(&["cat-file", "blob", ":raced.txt"], None)
+                .unwrap(),
+            "changed between preload and index\n"
+        );
+    }
     #[cfg(windows)]
     assert!(
         store
