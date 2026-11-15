@@ -350,6 +350,9 @@ split-debuginfo = "unpacked"
 warp_terminal.opt-level = 3
 # Avoid debug overhead while capturing large snapshot trees.
 wsl_git_watcher.opt-level = 3
+gix-index.opt-level = 3
+gix-hash.opt-level = 3
+sha1dc.opt-level = 3
 # Minimize the runtime overhead of CPU profiling at the cost of a small
 # increase in compile time for this crate.
 backtrace.opt-level = 3

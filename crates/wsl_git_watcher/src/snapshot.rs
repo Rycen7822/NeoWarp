@@ -145,15 +145,17 @@ impl Store {
             "Invalid Git object directory"
         );
         git_output(
-            &root,
-            &[
-                "init",
-                "--bare",
-                "--quiet",
-                "--template=",
-                &format!("--object-format={}", format.trim()),
-                directory.path().to_str().context("Invalid cache path")?,
-            ],
+            &mut git_command(
+                &root,
+                &[
+                    "init",
+                    "--bare",
+                    "--quiet",
+                    "--template=",
+                    &format!("--object-format={}", format.trim()),
+                    directory.path().to_str().context("Invalid cache path")?,
+                ],
+            ),
             None,
         )?;
         fs::write(
@@ -462,10 +464,10 @@ impl Store {
     ) -> Result<()> {
         let walker = std::sync::Mutex::new(walker);
         std::thread::scope(|scope| {
-            // Two readers may each hold one pending file; rendezvous adds no queue.
+            // Each reader holds at most one pending file; rendezvous adds no queue.
             let (sender, receiver) = std::sync::mpsc::sync_channel(0);
-            let mut readers = Vec::with_capacity(2);
-            for _ in 0..2 {
+            let mut readers = Vec::with_capacity(4);
+            for _ in 0..4 {
                 let walker = &walker;
                 let sender = sender.clone();
                 readers.push(std::thread::Builder::new().spawn_scoped(scope, move || {
@@ -658,18 +660,11 @@ impl Store {
         args: &[&str],
         write: impl FnOnce(&mut dyn Write) -> Result<()>,
     ) -> Result<()> {
-        let directory = self
-            .directory
-            .path()
-            .to_str()
-            .context("Invalid cache path")?;
-        let root = self.root.to_str().context("Invalid workspace path")?;
-        let mut command = vec!["--git-dir", directory, "--work-tree", root];
-        command.extend_from_slice(args);
         // update-index can emit many line-ending warnings. A file avoids filling
         // its stderr pipe while the producer is waiting for input backpressure.
         let errors = NamedTempFile::new_in(self.directory.path())?;
-        let mut child = git_command(&self.root, &command)
+        let mut child = self
+            .git_command(args)?
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(errors.reopen()?)
@@ -855,7 +850,11 @@ impl Store {
                 }
             }
         }
-        self.git(&["prune", "--expire=now"], None)?;
+        let mut prune = self.git_command(&["prune", "--expire=now"])?;
+        // Slots and the scratch tree ref already pin every live object.
+        #[cfg(windows)]
+        prune.env("GIT_INDEX_FILE", self.directory.path().join("empty-index"));
+        git_output(&mut prune, None)?;
         Ok(())
     }
 
@@ -864,6 +863,10 @@ impl Store {
     }
 
     fn git_bytes(&self, args: &[&str], input: Option<File>) -> Result<Vec<u8>> {
+        git_output(&mut self.git_command(args)?, input)
+    }
+
+    fn git_command(&self, args: &[&str]) -> Result<Command> {
         let directory = self
             .directory
             .path()
@@ -872,7 +875,7 @@ impl Store {
         let root = self.root.to_str().context("Invalid workspace path")?;
         let mut command = vec!["--git-dir", directory, "--work-tree", root];
         command.extend_from_slice(args);
-        git_output(&self.root, &command, input)
+        Ok(git_command(&self.root, &command))
     }
 }
 
@@ -917,7 +920,8 @@ fn git_path(path: &Path) -> Result<String> {
 }
 
 fn source_git(root: &Path, args: &[&str]) -> Result<String> {
-    String::from_utf8(git_output(root, args, None)?).context("Invalid Git metadata")
+    String::from_utf8(git_output(&mut git_command(root, args), None)?)
+        .context("Invalid Git metadata")
 }
 
 fn git_command(root: &Path, args: &[&str]) -> Command {
@@ -962,8 +966,7 @@ fn git_command(root: &Path, args: &[&str]) -> Command {
     command
 }
 
-fn git_output(root: &Path, args: &[&str], input: Option<File>) -> Result<Vec<u8>> {
-    let mut command = git_command(root, args);
+fn git_output(command: &mut Command, input: Option<File>) -> Result<Vec<u8>> {
     if let Some(input) = input {
         command.stdin(Stdio::from(input));
     } else {
