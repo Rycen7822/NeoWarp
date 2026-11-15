@@ -381,6 +381,8 @@ impl Store {
             index.sort_entries();
             index.write(Default::default())?;
             drop(index);
+            // Native path compression keeps later index mappings small too.
+            self.git(&["update-index", "--index-version=4"], None)?;
         } else {
             scan(&mut std::io::sink())?;
         }
