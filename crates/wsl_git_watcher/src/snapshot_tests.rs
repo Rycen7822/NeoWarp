@@ -175,6 +175,8 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
         store.read("baseline", Path::new("old.txt"), 1024).unwrap(),
         "unique old content\n"
     );
+    store.capture("preview", &AtomicBool::new(false)).unwrap();
+    store.release("preview").unwrap();
     let current = store.capture("current", &AtomicBool::new(false)).unwrap();
     store.release("baseline").unwrap();
     assert!(

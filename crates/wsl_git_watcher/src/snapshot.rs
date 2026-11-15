@@ -220,6 +220,8 @@ impl Store {
             // A failed add may leave a partially updated index and loose objects.
             // Clear the scratch index before pruning; published tree refs survive.
             self.git(&["read-tree", "--empty"], None)?;
+            #[cfg(windows)]
+            self.git(&["update-ref", "-d", "refs/snapshot-index"], None)?;
             self.paths.clear();
         }
         // Rebuilding or clearing the index can unpin the last preview's blobs.
@@ -350,6 +352,12 @@ impl Store {
         self.paths = paths;
         let tree = self.git(&["write-tree"], None)?.trim().to_owned();
         let captured_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+        #[cfg(windows)]
+        self.git_stream(&["update-ref", "--stdin"], |input| {
+            writeln!(input, "start\nupdate refs/snapshots/{slot} {tree}\nupdate refs/snapshot-index {tree}\nprepare\ncommit")?;
+            Ok(())
+        })?;
+        #[cfg(not(windows))]
         self.git(
             &["update-ref", &format!("refs/snapshots/{slot}"), &tree],
             None,
@@ -661,6 +669,8 @@ impl Store {
         self.snapshots.remove(slot);
         if self.snapshots.is_empty() {
             self.git(&["read-tree", "--empty"], None)?;
+            #[cfg(windows)]
+            self.git(&["update-ref", "-d", "refs/snapshot-index"], None)?;
             self.paths.clear();
         }
         self.prune()
@@ -771,19 +781,42 @@ impl Store {
         // Windows imports also need packed, unreachable blobs reclaimed.
         // Keep the streaming threshold local to packing to preserve clean/diff rules.
         #[cfg(windows)]
-        self.git(
-            &[
-                "-c",
-                "core.bigFileThreshold=1m",
-                "repack",
-                "-a",
-                "-d",
-                "-l",
-                "--window=0",
-                "--threads=1",
-            ],
-            None,
-        )?;
+        {
+            let packs = self.directory.path().join("objects/pack");
+            let previous = fs::read_dir(&packs)?.collect::<std::io::Result<Vec<_>>>()?;
+            let prefix = packs.join("pack");
+            // The scratch tree ref replaces --indexed-objects, so packing doesn't
+            // load another copy of the index. No repack parent stays in memory.
+            let created = self.git(
+                &[
+                    "-c",
+                    "core.bigFileThreshold=1m",
+                    "pack-objects",
+                    "--all",
+                    "--local",
+                    "--non-empty",
+                    "--delta-base-offset",
+                    "--window=0",
+                    "--threads=1",
+                    prefix.to_str().context("Invalid pack path")?,
+                ],
+                None,
+            )?;
+            let retained = format!("pack-{}", created.trim());
+            // Only this store owns these packs. Delete old files only after the
+            // replacement pack and its index have been successfully installed.
+            for entry in previous {
+                let path = entry.path();
+                if path.file_stem().and_then(|name| name.to_str()) != Some(&retained)
+                    && matches!(
+                        path.extension().and_then(|ext| ext.to_str()),
+                        Some("pack" | "idx" | "rev")
+                    )
+                {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
         self.git(&["prune", "--expire=now"], None)?;
         Ok(())
     }
