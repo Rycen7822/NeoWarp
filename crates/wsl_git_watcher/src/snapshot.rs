@@ -5,6 +5,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 #[cfg(windows)]
+use std::io::Seek;
+#[cfg(windows)]
 use std::io::{BufRead, BufReader, BufWriter};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -101,7 +103,74 @@ enum Scanned {
         position: Option<usize>,
         #[cfg(windows)]
         stat: gix_index::entry::Stat,
+        #[cfg(windows)]
+        stream: Option<(File, u64)>,
     },
+}
+
+#[cfg(windows)]
+#[derive(Default)]
+struct CleanPlan {
+    crlf: u64,
+    pending_cr: bool,
+    binary: bool,
+    uncertain: bool,
+}
+
+#[cfg(windows)]
+impl CleanPlan {
+    fn update(&mut self, bytes: &[u8]) {
+        if !self.pending_cr && !bytes.contains(&b'\r') {
+            self.binary |= bytes.contains(&0);
+            self.uncertain |= bytes
+                .iter()
+                .any(|byte| matches!(byte, 0..=7 | 11 | 14..=26 | 28..=31 | 127));
+            return;
+        }
+        for &byte in bytes {
+            if self.pending_cr {
+                self.pending_cr = false;
+                if byte == b'\n' {
+                    self.crlf += 1;
+                    continue;
+                }
+                self.binary = true;
+            }
+            match byte {
+                b'\r' => self.pending_cr = true,
+                0 => self.binary = true,
+                b'\n' | 8 | b'\t' | 12 | 27 => {}
+                byte if byte < 32 || byte == 127 => self.uncertain = true,
+                _ => {}
+            }
+        }
+    }
+
+    fn removed_crs(&self) -> Option<u64> {
+        // Git's text=auto keeps NUL/bare-CR files raw. Fully printable bytes,
+        // including non-ASCII bytes, are unambiguous; other heuristics use Git.
+        if self.binary || self.pending_cr || self.crlf == 0 {
+            Some(0)
+        } else if self.uncertain {
+            None
+        } else {
+            Some(self.crlf)
+        }
+    }
+
+    fn scan(file: &mut File, size: u64) -> Result<Self> {
+        file.rewind()?;
+        let mut input = (&mut *file).take(size);
+        let mut plan = Self::default();
+        let mut buffer = [0; 64 * 1024];
+        while input.limit() != 0 {
+            let len = input.read(&mut buffer)?;
+            ensure!(len != 0, "Snapshot file was truncated");
+            plan.update(&buffer[..len]);
+        }
+        file.rewind()?;
+        Ok(plan)
+    }
 }
 
 impl Store {
@@ -235,8 +304,16 @@ impl Store {
             self.text_files = 0;
         }
         // Rebuilding or clearing the index can unpin the last preview's blobs.
-        self.prune()?;
-        result
+        match result {
+            Ok((snapshot, keep)) => {
+                self.prune(&keep)?;
+                Ok(snapshot)
+            }
+            Err(error) => {
+                self.prune(&[])?;
+                Err(error)
+            }
+        }
     }
 
     fn capture_inner(
@@ -244,16 +321,33 @@ impl Store {
         slot: &str,
         cancelled: &AtomicBool,
         started: Instant,
-    ) -> Result<Snapshot> {
+    ) -> Result<(Snapshot, Vec<String>)> {
         let previous = gix_index::File::at(
             self.directory.path().join("index"),
             self.object_format,
             false,
             Default::default(),
         )?;
+        #[cfg(windows)]
+        let object_directory = self.directory.path().join("objects");
+        #[cfg(windows)]
+        let mut keep = if previous.tree().is_some_and(|tree| {
+            tree.num_entries.is_some()
+                && self
+                    .snapshots
+                    .values()
+                    .any(|snapshot| snapshot.tree == tree.id)
+        }) {
+            Self::pack_names(&object_directory)?
+        } else {
+            Vec::new()
+        };
+        #[cfg(not(windows))]
+        let keep = Vec::new();
         let mut seen = vec![false; previous.entries().len()];
         let cache = self.cache.clone();
-        let walker = ignore::WalkBuilder::new(&self.root)
+        let mut walker = ignore::WalkBuilder::new(&self.root);
+        walker
             .hidden(false)
             .ignore(false)
             .parents(false)
@@ -262,19 +356,14 @@ impl Store {
             .git_exclude(false)
             .follow_links(false)
             .filter_entry(move |entry| entry.file_name() != ".git" && entry.path() != cache)
-            .build();
+            .threads(4);
         let mut text_files = 0;
         let mut binary = BTreeSet::new();
         let mut source_bytes = 0u64;
         let mut remaining = NamedTempFile::new_in(self.directory.path())?;
         #[cfg(windows)]
-        let mut initial = (self.text_files == 0).then(|| {
-            gix_index::File::from_state(
-                gix_index::State::new(self.object_format),
-                self.directory.path().join("index"),
-            )
-        });
-        let scan = |_input: &mut dyn Write| -> Result<()> {
+        let mut initial = (self.text_files == 0).then(Vec::new);
+        let mut scan = |_input: &mut dyn Write| -> Result<()> {
             let mut consume = |entry: Scanned, prefix: Cow<'_, [u8]>| -> Result<()> {
                 match entry {
                     Scanned::Cached(position, size) => {
@@ -291,23 +380,21 @@ impl Store {
                         position,
                         #[cfg(windows)]
                         stat,
+                        #[cfg(windows)]
+                        stream,
                     } => {
                         #[cfg(windows)]
                         {
-                            if let Some(index) = &mut initial {
-                                let mark = index.entries().len() + 1;
-                                let exact = Self::import_blob(prefix, size, mark, _input)?;
+                            if let Some(entries) = &mut initial {
+                                let mark = entries.len() + 1;
+                                let exact = if let Some((file, clean_size)) = stream {
+                                    Self::import_stream(file, size, clean_size, mark, _input)?;
+                                    true
+                                } else {
+                                    Self::import_blob(prefix, size, mark, _input)?
+                                };
                                 if exact {
-                                    let path = git_path(&path)?;
-                                    // Each walked regular file has one entry. Sort after scanning;
-                                    // no path lookup is made while entries are appended.
-                                    index.dangerously_push_entry(
-                                        stat,
-                                        self.object_format.null(),
-                                        gix_index::entry::Flags::empty(),
-                                        gix_index::entry::Mode::FILE,
-                                        path.as_bytes().into(),
-                                    );
+                                    entries.push((git_path(&path)?, stat));
                                 } else {
                                     write_path(&mut remaining, &path)?;
                                 }
@@ -331,10 +418,10 @@ impl Store {
             };
             #[cfg(windows)]
             if self.text_files == 0 {
-                return self.prefetch(walker, &previous, cancelled, consume);
+                return self.prefetch(walker.build_parallel(), &previous, cancelled, consume);
             }
             let mut prefix = vec![0; 8192];
-            for entry in walker {
+            for entry in walker.build() {
                 ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
                 if let Some(entry) = self.inspect_entry(entry, &previous, &mut prefix)? {
                     consume(entry, Cow::Borrowed(&prefix))?;
@@ -344,14 +431,18 @@ impl Store {
         };
         #[cfg(windows)]
         if self.text_files == 0 {
+            let existing = Self::pack_names(&object_directory)?;
             let marks = NamedTempFile::new_in(self.directory.path())?;
             // Git returns the IDs of the exact bytes it imported. The native
             // index writer records them with the metadata sampled before reading.
             self.git_stream(
                 &[
+                    "-c",
+                    "core.bigFileThreshold=64k",
                     "fast-import",
                     "--quiet",
                     "--done",
+                    "--depth=0",
                     &format!("--export-marks={}", marks.path().display()),
                 ],
                 |input| {
@@ -360,7 +451,20 @@ impl Store {
                     Ok(())
                 },
             )?;
-            let mut index = initial.context("Missing initial snapshot index")?;
+            // Every newly imported blob is assigned to this capture's index.
+            // Its pack needs no rewrite; the later temporary tree commit does.
+            for pack in Self::pack_names(&object_directory)? {
+                if !existing.contains(&pack) {
+                    keep.push(pack);
+                }
+            }
+            let mut entries = initial.context("Missing initial snapshot metadata")?;
+            // Build the larger index entries after the importer exits, so its
+            // process memory doesn't overlap with index capacity growth.
+            let mut index = gix_index::File::from_state(
+                gix_index::State::new(self.object_format),
+                self.directory.path().join("index"),
+            );
             for line in BufReader::new(File::open(marks.path())?).lines() {
                 let line = line?;
                 let (mark, object) = line.split_once(' ').context("Invalid import mark")?;
@@ -368,16 +472,23 @@ impl Store {
                     .strip_prefix(':')
                     .context("Invalid import mark")?
                     .parse()?;
-                let entry = index
-                    .entries_mut()
+                let (path, stat) = entries
                     .get_mut(position - 1)
                     .context("Invalid import mark position")?;
-                entry.id = gix_index::hash::ObjectId::from_hex(object.as_bytes())?;
+                let path = std::mem::take(path);
+                index.dangerously_push_entry(
+                    *stat,
+                    gix_index::hash::ObjectId::from_hex(object.as_bytes())?,
+                    gix_index::entry::Flags::empty(),
+                    gix_index::entry::Mode::FILE,
+                    path.as_bytes().into(),
+                );
             }
             ensure!(
-                index.entries().iter().all(|entry| !entry.id.is_null()),
+                index.entries().len() == entries.len(),
                 "Missing imported snapshot object"
             );
+            drop(entries);
             index.sort_entries();
             index.write(Default::default())?;
             drop(index);
@@ -447,35 +558,26 @@ impl Store {
                 ..snapshot.clone()
             },
         );
-        Ok(snapshot)
+        Ok((snapshot, keep))
     }
 
     #[cfg(windows)]
     fn prefetch(
         &self,
-        walker: ignore::Walk,
+        walker: ignore::WalkParallel,
         previous: &gix_index::File,
         cancelled: &AtomicBool,
         mut consume: impl FnMut(Scanned, Cow<'_, [u8]>) -> Result<()>,
     ) -> Result<()> {
-        let walker = std::sync::Mutex::new(walker);
         std::thread::scope(|scope| {
-            // Each reader holds at most one pending file; rendezvous adds no queue.
+            // Directory enumeration and reads share bounded workers. Each holds at
+            // most one pending body; rendezvous adds no body queue.
             let (sender, receiver) = std::sync::mpsc::sync_channel(0);
-            let mut readers = Vec::with_capacity(4);
-            for _ in 0..4 {
-                let walker = &walker;
-                let sender = sender.clone();
-                readers.push(std::thread::Builder::new().spawn_scoped(scope, move || {
+            let reader = std::thread::Builder::new().spawn_scoped(scope, move || {
+                walker.run(|| {
+                    let sender = sender.clone();
                     let mut prefix = vec![0; 8192];
-                    loop {
-                        let entry = match walker.lock() {
-                            Ok(mut walker) => match walker.next() {
-                                Some(entry) => entry,
-                                None => break,
-                            },
-                            Err(_) => break, // The joined reader reports the panic.
-                        };
+                    Box::new(move |entry| {
                         let next = if cancelled.load(Ordering::Relaxed) {
                             Err(anyhow::anyhow!("Snapshot cancelled"))
                         } else {
@@ -489,18 +591,19 @@ impl Store {
                                 };
                                 Ok((entry, prefix[..len].to_vec()))
                             }
-                            Ok(None) => continue,
+                            Ok(None) => return ignore::WalkState::Continue,
                             Err(error) => Err(error),
                         };
                         let failed = next.is_err();
                         if sender.send(next).is_err() || failed {
-                            break;
+                            ignore::WalkState::Quit
+                        } else {
+                            ignore::WalkState::Continue
                         }
-                    }
-                })?);
-            }
-            drop(sender);
-            let mut result = (|| {
+                    })
+                });
+            })?;
+            let result = (|| {
                 for entry in &receiver {
                     let (entry, prefix) = entry?;
                     consume(entry, Cow::Owned(prefix))?;
@@ -508,15 +611,10 @@ impl Store {
                 Ok(())
             })();
             drop(receiver); // Unblock a pending send if consuming failed.
-            for reader in readers {
-                let joined = reader
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("Snapshot reader panicked"));
-                if result.is_ok() {
-                    result = joined;
-                }
-            }
-            result
+            let joined = reader
+                .join()
+                .map_err(|_| anyhow::anyhow!("Snapshot reader panicked"));
+            result.and(joined)
         })
     }
 
@@ -578,12 +676,22 @@ impl Store {
                     .read_to_end(prefix)?;
                 ensure!(prefix.len() as u64 == size, "Snapshot file was truncated");
             }
+            #[cfg(windows)]
+            let stream = if self.text_files == 0 && size > INITIAL_BLOB_LIMIT {
+                CleanPlan::scan(&mut file, size)?
+                    .removed_crs()
+                    .map(|removed| (file, size - removed))
+            } else {
+                None
+            };
             Ok(Some(Scanned::Text {
                 path,
                 size,
                 position,
                 #[cfg(windows)]
                 stat,
+                #[cfg(windows)]
+                stream,
             }))
         }
     }
@@ -598,28 +706,64 @@ impl Store {
         if size > INITIAL_BLOB_LIMIT {
             return Ok(false);
         }
-        // Bound extra memory, and only normalize unambiguous text into an empty index.
-        // Ambiguous conversions go through Git's ordinary clean/write path.
         let mut bytes = prefix.into_owned();
         ensure!(bytes.len() as u64 == size, "Snapshot file was truncated");
         if bytes.contains(&b'\r') {
-            let clean = std::str::from_utf8(&bytes).is_ok()
-                && bytes.iter().all(|byte| {
-                    (*byte >= b' ' && *byte != 127) || matches!(byte, b'\t' | b'\r' | b'\n')
-                })
-                && bytes.last() != Some(&b'\r')
-                && bytes
-                    .windows(2)
-                    .all(|pair| pair[0] != b'\r' || pair[1] == b'\n');
-            if !clean {
+            let mut plan = CleanPlan::default();
+            plan.update(&bytes);
+            let Some(removed) = plan.removed_crs() else {
                 return Ok(false);
+            };
+            if removed != 0 {
+                bytes.retain(|byte| *byte != b'\r');
             }
-            bytes.retain(|byte| *byte != b'\r');
         }
         writeln!(input, "blob\nmark :{mark}\ndata {}", bytes.len())?;
         input.write_all(&bytes)?;
         input.write_all(b"\n")?;
         Ok(true)
+    }
+
+    #[cfg(windows)]
+    fn import_stream(
+        mut file: File,
+        size: u64,
+        clean_size: u64,
+        mark: usize,
+        input: &mut dyn Write,
+    ) -> Result<()> {
+        writeln!(input, "blob\nmark :{mark}\ndata {clean_size}")?;
+        let mut source = (&mut file).take(size);
+        let mut plan = CleanPlan::default();
+        let mut buffer = [0; 64 * 1024];
+        let mut written = 0;
+        while source.limit() != 0 {
+            let len = source.read(&mut buffer)?;
+            ensure!(len != 0, "Snapshot file was truncated");
+            plan.update(&buffer[..len]);
+            let mut clean_len = len;
+            if clean_size != size {
+                clean_len = 0;
+                for offset in 0..len {
+                    if buffer[offset] != b'\r' {
+                        buffer[clean_len] = buffer[offset];
+                        clean_len += 1;
+                    }
+                }
+            }
+            ensure!(
+                written + clean_len as u64 <= clean_size,
+                "Snapshot file changed during capture"
+            );
+            input.write_all(&buffer[..clean_len])?;
+            written += clean_len as u64;
+        }
+        ensure!(
+            written == clean_size && plan.removed_crs() == Some(size - clean_size),
+            "Snapshot file changed during capture"
+        );
+        input.write_all(b"\n")?;
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -651,11 +795,14 @@ impl Store {
 
     #[cfg(windows)]
     fn import_objects(&self, write: impl FnOnce(&mut dyn Write) -> Result<()>) -> Result<()> {
-        self.git_stream(&["fast-import", "--quiet", "--done"], |input| {
-            write(input)?;
-            input.write_all(b"done\n")?;
-            Ok(())
-        })
+        self.git_stream(
+            &["fast-import", "--quiet", "--done", "--depth=0"],
+            |input| {
+                write(input)?;
+                input.write_all(b"done\n")?;
+                Ok(())
+            },
+        )
     }
 
     #[cfg(windows)]
@@ -710,7 +857,7 @@ impl Store {
             self.git(&["update-ref", "-d", "refs/snapshot-index"], None)?;
             self.text_files = 0;
         }
-        self.prune()
+        self.prune(&[])
     }
 
     pub fn changes(&self, before: &str, after: &str) -> Result<Vec<Change>> {
@@ -813,7 +960,32 @@ impl Store {
             .context("File is not UTF-8 text")
     }
 
-    fn prune(&self) -> Result<()> {
+    #[cfg(windows)]
+    fn pack_names(objects: &Path) -> Result<Vec<String>> {
+        let mut names = Vec::new();
+        let directory = match fs::read_dir(objects.join("pack")) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(names),
+            Err(error) => return Err(error.into()),
+        };
+        for entry in directory {
+            let path = entry?.path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "pack")
+            {
+                names.push(
+                    path.file_stem()
+                        .and_then(|name| name.to_str())
+                        .context("Invalid pack name")?
+                        .to_owned(),
+                );
+            }
+        }
+        Ok(names)
+    }
+
+    fn prune(&self, _keep: &[String]) -> Result<()> {
         // Only this process owns this private database. Live trees are pinned;
         // Windows imports also need packed, unreachable blobs reclaimed.
         // Keep the streaming threshold local to packing to preserve clean/diff rules.
@@ -831,26 +1003,70 @@ impl Store {
             // The scratch tree ref replaces --indexed-objects, so packing doesn't
             // load another index. Separate traversal from packing to release its
             // object graph first; names aren't needed with delta search disabled.
-            let created = self.git(
-                &[
+            let alternate = self.directory.path().join("objects/info/alternates");
+            let parked = self.directory.path().join("alternates-paused");
+            fs::rename(&alternate, &parked)?;
+            let packed = (|| -> Result<String> {
+                // Test membership against this database alone. Borrowed source
+                // objects stay borrowed, without --local's per-object stat probes.
+                let checked = NamedTempFile::new_in(self.directory.path())?;
+                git_output(
+                    self.git_command(&["cat-file", "--batch-check=%(objectname)"])?
+                        .stdout(checked.reopen()?),
+                    Some(File::open(objects.path())?),
+                )?;
+                let mut local = NamedTempFile::new_in(self.directory.path())?;
+                {
+                    let mut output = BufWriter::new(&mut local);
+                    for line in BufReader::new(File::open(checked.path())?).lines() {
+                        let line = line?;
+                        if !line.ends_with(" missing") {
+                            writeln!(output, "{line}")?;
+                        }
+                    }
+                    output.flush()?;
+                }
+                let mut args = vec![
                     "-c",
                     "core.bigFileThreshold=1m",
                     "pack-objects",
-                    "--local",
                     "--non-empty",
                     "--delta-base-offset",
                     "--window=0",
                     "--threads=1",
-                    prefix.to_str().context("Invalid pack path")?,
-                ],
-                Some(File::open(objects.path())?),
-            )?;
+                ];
+                let keep_args: Vec<_> = _keep
+                    .iter()
+                    .map(|name| format!("--keep-pack={name}.pack"))
+                    .collect();
+                args.extend(keep_args.iter().map(String::as_str));
+                args.push(prefix.to_str().context("Invalid pack path")?);
+                self.git(&args, Some(File::open(local.path())?))
+            })();
+            // Restore borrowed access before returning on either outcome or
+            // deleting old packs; published trees can reference source objects.
+            let restored = fs::rename(&parked, &alternate);
+            let created = match (packed, restored) {
+                (Ok(created), Ok(())) => created,
+                (Err(error), Ok(())) => return Err(error),
+                (Ok(_), Err(error)) => {
+                    return Err(error).context("Cannot restore snapshot alternates");
+                }
+                (Err(error), Err(restore)) => {
+                    return Err(
+                        error.context(format!("Cannot restore snapshot alternates: {restore}"))
+                    );
+                }
+            };
             let retained = format!("pack-{}", created.trim());
             // Only this store owns these packs. Delete old files only after the
             // replacement pack and its index have been successfully installed.
             for entry in previous {
                 let path = entry.path();
                 if path.file_stem().and_then(|name| name.to_str()) != Some(&retained)
+                    && !_keep
+                        .iter()
+                        .any(|name| path.file_stem().and_then(|stem| stem.to_str()) == Some(name))
                     && matches!(
                         path.extension().and_then(|ext| ext.to_str()),
                         Some("pack" | "idx" | "rev")

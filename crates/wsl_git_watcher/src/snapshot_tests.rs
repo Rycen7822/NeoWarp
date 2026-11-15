@@ -39,6 +39,23 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
         &["config", "filter.must-not-run.required", "true"],
     )
     .unwrap();
+    fs::write(root.path().join("packed.rs"), "borrowed\n").unwrap();
+    source_git(root.path(), &["add", "packed.rs"]).unwrap();
+    source_git(
+        root.path(),
+        &[
+            "-c",
+            "user.name=Snapshot",
+            "-c",
+            "user.email=snapshot@localhost",
+            "commit",
+            "--quiet",
+            "-m",
+            "source",
+        ],
+    )
+    .unwrap();
+    source_git(root.path(), &["repack", "-a", "-d"]).unwrap();
     fs::write(root.path().join("staged.rs"), "staged\n").unwrap();
     source_git(root.path(), &["add", "staged.rs"]).unwrap();
     let source_index = fs::read(root.path().join(".git/index")).unwrap();
@@ -56,8 +73,12 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
         &["init", "--quiet", "--template="],
     )
     .unwrap();
-    // Larger text uses Git's ordinary clean/write path rather than the bounded preload buffer.
-    let large = "y".repeat(1024 * 1024);
+    // Larger text spans bounded read chunks; Windows streams its cleaned body.
+    let large = format!(
+        "{}\r\n{}",
+        "y".repeat(64 * 1024 - 1),
+        "y".repeat(1024 * 1024)
+    );
     fs::write(
         root.path().join("nested/space 代码.txt"),
         format!("{large}\r\n"),
@@ -66,6 +87,10 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     let mut store = Store::new(root.path(), cache.path()).unwrap();
     let cancelled = AtomicBool::new(false);
     store.capture("before", &cancelled).unwrap();
+    assert_eq!(
+        store.read("before", Path::new("packed.rs"), 1024).unwrap(),
+        "borrowed\n"
+    );
     assert!(
         store
             .git_bytes(&["diff-files", "--name-only", "-z"], None)
@@ -100,7 +125,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
                 2 * 1024 * 1024
             )
             .unwrap(),
-        format!("{large}\n")
+        format!("{}\n", large.replace("\r\n", "\n"))
     );
     assert_eq!(
         changes,
@@ -172,9 +197,19 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
         store.read("baseline", Path::new("old.txt"), 1024).unwrap(),
         "unique old content\n"
     );
-    store.capture("preview", &AtomicBool::new(false)).unwrap();
+    let preview = store.capture("preview", &AtomicBool::new(false)).unwrap();
+    let preview_blob = store
+        .git(&["rev-parse", &format!("{}:old.txt", preview.tree)], None)
+        .unwrap();
     store.release("preview").unwrap();
+    fs::write(root.path().join("old.txt"), "current replacement\n").unwrap();
     let current = store.capture("current", &AtomicBool::new(false)).unwrap();
+    assert!(
+        store
+            .git(&["cat-file", "-e", preview_blob.trim()], None)
+            .is_err(),
+        "an unpinned scratch version must be pruned"
+    );
     store.release("baseline").unwrap();
     assert!(
         store.git(&["cat-file", "-e", blob.trim()], None).is_err(),
@@ -182,7 +217,7 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
     );
     assert_eq!(
         store.read("current", Path::new("old.txt"), 1024).unwrap(),
-        "replacement\n"
+        "current replacement\n"
     );
     store.release("current").unwrap();
     assert!(
