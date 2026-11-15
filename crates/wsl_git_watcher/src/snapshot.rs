@@ -762,9 +762,19 @@ impl Store {
     fn prune(&self) -> Result<()> {
         // Only this process owns this private database. Live trees are pinned;
         // Windows imports also need packed, unreachable blobs reclaimed.
+        // Keep the streaming threshold local to packing to preserve clean/diff rules.
         #[cfg(windows)]
         self.git(
-            &["repack", "-a", "-d", "-l", "--window=0", "--threads=1"],
+            &[
+                "-c",
+                "core.bigFileThreshold=1m",
+                "repack",
+                "-a",
+                "-d",
+                "-l",
+                "--window=0",
+                "--threads=1",
+            ],
             None,
         )?;
         self.git(&["prune", "--expire=now"], None)?;
