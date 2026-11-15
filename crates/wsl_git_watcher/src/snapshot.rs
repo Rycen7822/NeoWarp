@@ -87,19 +87,18 @@ pub struct Store {
     cache: PathBuf,
     directory: TempDir,
     _lock: File,
-    #[cfg(windows)]
     object_format: gix_index::hash::Kind,
-    paths: BTreeSet<PathBuf>,
+    text_files: usize,
     snapshots: BTreeMap<String, Snapshot>,
 }
 
 enum Scanned {
-    Cached(PathBuf, u64),
+    Cached(usize, u64),
     Binary(PathBuf),
     Text {
         path: PathBuf,
-        file: File,
         size: u64,
+        position: Option<usize>,
         #[cfg(windows)]
         stat: gix_index::entry::Stat,
     },
@@ -174,13 +173,12 @@ impl Store {
             cache,
             directory,
             _lock: lock,
-            #[cfg(windows)]
             object_format: match format.trim() {
                 "sha1" => gix_index::hash::Kind::Sha1,
                 "sha256" => gix_index::hash::Kind::Sha256,
                 _ => bail!("Unsupported Git object format"),
             },
-            paths: BTreeSet::new(),
+            text_files: 0,
             snapshots: BTreeMap::new(),
         };
         store.git(&["config", "core.bare", "false"], None)?;
@@ -234,7 +232,7 @@ impl Store {
             self.git(&["read-tree", "--empty"], None)?;
             #[cfg(windows)]
             self.git(&["update-ref", "-d", "refs/snapshot-index"], None)?;
-            self.paths.clear();
+            self.text_files = 0;
         }
         // Rebuilding or clearing the index can unpin the last preview's blobs.
         self.prune()?;
@@ -247,18 +245,13 @@ impl Store {
         cancelled: &AtomicBool,
         started: Instant,
     ) -> Result<Snapshot> {
-        let changed: BTreeSet<PathBuf> = if self.paths.is_empty() {
-            BTreeSet::new()
-        } else {
-            self.git_bytes(
-                &["diff-files", "--name-only", "--no-ext-diff", "-z", "--"],
-                None,
-            )?
-            .split(|byte| *byte == 0)
-            .filter(|path| !path.is_empty())
-            .map(|path| Ok(PathBuf::from(std::str::from_utf8(path)?)))
-            .collect::<Result<_>>()?
-        };
+        let previous = gix_index::File::at(
+            self.directory.path().join("index"),
+            self.object_format,
+            false,
+            Default::default(),
+        )?;
+        let mut seen = vec![false; previous.entries().len()];
         let cache = self.cache.clone();
         let walker = ignore::WalkBuilder::new(&self.root)
             .hidden(false)
@@ -270,13 +263,12 @@ impl Store {
             .follow_links(false)
             .filter_entry(move |entry| entry.file_name() != ".git" && entry.path() != cache)
             .build();
-        let mut paths = BTreeSet::new();
+        let mut text_files = 0;
         let mut binary = BTreeSet::new();
         let mut source_bytes = 0u64;
-        #[cfg(windows)]
         let mut remaining = NamedTempFile::new_in(self.directory.path())?;
         #[cfg(windows)]
-        let mut initial = self.paths.is_empty().then(|| {
+        let mut initial = (self.text_files == 0).then(|| {
             gix_index::File::from_state(
                 gix_index::State::new(self.object_format),
                 self.directory.path().join("index"),
@@ -285,25 +277,26 @@ impl Store {
         let scan = |_input: &mut dyn Write| -> Result<()> {
             let mut consume = |entry: Scanned, prefix: Cow<'_, [u8]>| -> Result<()> {
                 match entry {
-                    Scanned::Cached(path, size) => {
+                    Scanned::Cached(position, size) => {
                         source_bytes = source_bytes.saturating_add(size);
-                        paths.insert(path);
+                        seen[position] = true;
+                        text_files += 1;
                     }
                     Scanned::Binary(path) => {
                         binary.insert(path);
                     }
                     Scanned::Text {
                         path,
-                        file,
                         size,
+                        position,
                         #[cfg(windows)]
                         stat,
                     } => {
                         #[cfg(windows)]
                         {
-                            let mark = initial.as_ref().map(|index| index.entries().len() + 1);
-                            let exact = self.import_file(file, prefix, size, mark, _input)?;
                             if let Some(index) = &mut initial {
+                                let mark = index.entries().len() + 1;
+                                let exact = Self::import_blob(prefix, size, mark, _input)?;
                                 if exact {
                                     let path = git_path(&path)?;
                                     // Each walked regular file has one entry. Sort after scanning;
@@ -318,31 +311,39 @@ impl Store {
                                 } else {
                                     write_path(&mut remaining, &path)?;
                                 }
+                            } else {
+                                write_path(&mut remaining, &path)?;
                             }
                         }
                         #[cfg(not(windows))]
-                        let _ = (file, prefix);
+                        {
+                            let _ = prefix;
+                            write_path(&mut remaining, &path)?;
+                        }
+                        if let Some(position) = position {
+                            seen[position] = true;
+                        }
                         source_bytes = source_bytes.saturating_add(size);
-                        paths.insert(path);
+                        text_files += 1;
                     }
                 }
                 Ok(())
             };
             #[cfg(windows)]
-            if self.paths.is_empty() {
-                return self.prefetch(walker, &changed, cancelled, consume);
+            if self.text_files == 0 {
+                return self.prefetch(walker, &previous, cancelled, consume);
             }
             let mut prefix = vec![0; 8192];
             for entry in walker {
                 ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
-                if let Some(entry) = self.inspect_entry(entry, &changed, &mut prefix)? {
+                if let Some(entry) = self.inspect_entry(entry, &previous, &mut prefix)? {
                     consume(entry, Cow::Borrowed(&prefix))?;
                 }
             }
             Ok(())
         };
         #[cfg(windows)]
-        if self.paths.is_empty() {
+        if self.text_files == 0 {
             let marks = NamedTempFile::new_in(self.directory.path())?;
             // Git returns the IDs of the exact bytes it imported. The native
             // index writer records them with the metadata sampled before reading.
@@ -380,47 +381,40 @@ impl Store {
             index.sort_entries();
             index.write(Default::default())?;
             drop(index);
-            if remaining.as_file().metadata()?.len() != 0 {
-                self.git(
-                    &["update-index", "--add", "-z", "--stdin"],
-                    Some(File::open(remaining.path())?),
-                )?;
-            }
         } else {
-            self.import_objects(scan)?;
+            scan(&mut std::io::sink())?;
         }
         #[cfg(not(windows))]
         scan(&mut std::io::sink())?;
         ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
         let mut removed = NamedTempFile::new_in(self.directory.path())?;
-        for path in self.paths.difference(&paths) {
-            write_path(&mut removed, path)?;
+        for (position, entry) in previous.entries().iter().enumerate() {
+            if !seen[position] {
+                let path = std::str::from_utf8(entry.path(&previous))?;
+                write_path(&mut removed, Path::new(path))?;
+            }
         }
+        drop(previous);
         if removed.as_file().metadata()?.len() != 0 {
             self.git(
                 &["update-index", "--force-remove", "-z", "--stdin"],
                 Some(File::open(removed.path())?),
             )?;
         }
-        // Keep Git's stat cache between captures. This has Git's normal metadata
-        // freshness semantics; deliberate preservation of all checked metadata
-        // can hide a change. Immutable published trees still pin their objects.
-        if !paths.is_empty() && (!cfg!(windows) || !self.paths.is_empty()) {
-            let mut selected = NamedTempFile::new_in(self.directory.path())?;
-            for path in &paths {
-                write_path(&mut selected, path)?;
-            }
+        // Unchanged entries retain their original stat cache and objects. Only
+        // changed/new text is passed to Git; it keeps the existing clean rules.
+        if remaining.as_file().metadata()?.len() != 0 {
             self.git(
                 &["update-index", "--add", "-z", "--stdin"],
-                Some(File::open(selected.path())?),
+                Some(File::open(remaining.path())?),
             )?;
         }
         ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
         #[cfg(windows)]
-        if self.paths.is_empty() {
+        if self.text_files == 0 {
             self.import_trees(cancelled)?;
         }
-        self.paths = paths;
+        self.text_files = text_files;
         let tree = self.git(&["write-tree"], None)?.trim().to_owned();
         let captured_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
         #[cfg(windows)]
@@ -437,7 +431,7 @@ impl Store {
             slot: slot.to_owned(),
             captured_at,
             elapsed_ms: started.elapsed().as_millis() as u64,
-            text_files: self.paths.len(),
+            text_files,
             binary_files: binary.len(),
             source_bytes,
             tree,
@@ -458,7 +452,7 @@ impl Store {
     fn prefetch(
         &self,
         walker: ignore::Walk,
-        changed: &BTreeSet<PathBuf>,
+        previous: &gix_index::File,
         cancelled: &AtomicBool,
         mut consume: impl FnMut(Scanned, Cow<'_, [u8]>) -> Result<()>,
     ) -> Result<()> {
@@ -483,7 +477,7 @@ impl Store {
                         let next = if cancelled.load(Ordering::Relaxed) {
                             Err(anyhow::anyhow!("Snapshot cancelled"))
                         } else {
-                            self.inspect_entry(entry, changed, &mut prefix)
+                            self.inspect_entry(entry, previous, &mut prefix)
                         };
                         let next = match next {
                             Ok(Some(entry)) => {
@@ -527,7 +521,7 @@ impl Store {
     fn inspect_entry(
         &self,
         entry: std::result::Result<ignore::DirEntry, ignore::Error>,
-        changed: &BTreeSet<PathBuf>,
+        previous: &gix_index::File,
         prefix: &mut Vec<u8>,
     ) -> Result<Option<Scanned>> {
         let entry = entry?;
@@ -535,8 +529,32 @@ impl Store {
             return Ok(None);
         }
         let path = entry.path().strip_prefix(&self.root)?.to_path_buf();
-        if self.paths.contains(&path) && !changed.contains(&path) {
-            return Ok(Some(Scanned::Cached(path, entry.metadata()?.len())));
+        let position = if previous.entries().is_empty() {
+            None
+        } else {
+            git_path(&path)
+                .ok()
+                .and_then(|path| previous.entry_index_by_path(path.as_bytes().into()).ok())
+        };
+        if let Some(position) = position {
+            #[cfg(windows)]
+            let metadata = entry.metadata()?.into();
+            #[cfg(not(windows))]
+            let metadata = gix_index::fs::Metadata::from_path_no_follow(entry.path())?;
+            let actual = gix_index::entry::Stat::from_fs(&metadata)?;
+            let entry = &previous.entries()[position];
+            let options = gix_index::entry::stat::Options {
+                use_nsec: true,
+                use_stdev: true,
+                ..Default::default()
+            };
+            // Compare the native stat fields, retaining whole-second racy-index
+            // checks. Preserving all checked metadata can still hide a change.
+            if entry.stat.matches(&actual, options)
+                && !entry.stat.is_racy(previous.timestamp(), Default::default())
+            {
+                return Ok(Some(Scanned::Cached(position, metadata.len())));
+            }
         }
         let mut file = File::open(entry.path())
             .with_context(|| format!("Cannot read {}", entry.path().display()))?;
@@ -551,7 +569,7 @@ impl Store {
             Ok(Some(Scanned::Binary(path)))
         } else {
             #[cfg(windows)]
-            if self.paths.is_empty() && size <= INITIAL_BLOB_LIMIT {
+            if self.text_files == 0 && size <= INITIAL_BLOB_LIMIT {
                 prefix.truncate(prefix.len().min(size as usize));
                 (&mut file)
                     .take(size - prefix.len() as u64)
@@ -560,8 +578,8 @@ impl Store {
             }
             Ok(Some(Scanned::Text {
                 path,
-                file,
                 size,
+                position,
                 #[cfg(windows)]
                 stat,
             }))
@@ -569,69 +587,53 @@ impl Store {
     }
 
     #[cfg(windows)]
-    fn import_file(
-        &self,
-        file: File,
+    fn import_blob(
         prefix: Cow<'_, [u8]>,
         size: u64,
-        mark: Option<usize>,
+        mark: usize,
         input: &mut dyn Write,
     ) -> Result<bool> {
-        if self.paths.is_empty() && size > INITIAL_BLOB_LIMIT {
+        if size > INITIAL_BLOB_LIMIT {
             return Ok(false);
         }
-        let copied = size.min(prefix.len() as u64);
-        let mut rest = file.take(size - copied);
         // Bound extra memory, and only normalize unambiguous text into an empty index.
         // Ambiguous conversions go through Git's ordinary clean/write path.
-        let exact = if self.paths.is_empty() {
-            let mut bytes = prefix.into_owned();
-            bytes.truncate(copied as usize);
-            rest.read_to_end(&mut bytes)?;
-            ensure!(bytes.len() as u64 == size, "Snapshot file was truncated");
-            let has_cr = bytes.contains(&b'\r');
-            if has_cr {
-                let clean = std::str::from_utf8(&bytes).is_ok()
-                    && bytes.iter().all(|byte| {
-                        (*byte >= b' ' && *byte != 127) || matches!(byte, b'\t' | b'\r' | b'\n')
-                    })
-                    && bytes.last() != Some(&b'\r')
-                    && bytes
-                        .windows(2)
-                        .all(|pair| pair[0] != b'\r' || pair[1] == b'\n');
-                if !clean {
-                    return Ok(false);
-                }
-                bytes.retain(|byte| *byte != b'\r');
+        let mut bytes = prefix.into_owned();
+        ensure!(bytes.len() as u64 == size, "Snapshot file was truncated");
+        if bytes.contains(&b'\r') {
+            let clean = std::str::from_utf8(&bytes).is_ok()
+                && bytes.iter().all(|byte| {
+                    (*byte >= b' ' && *byte != 127) || matches!(byte, b'\t' | b'\r' | b'\n')
+                })
+                && bytes.last() != Some(&b'\r')
+                && bytes
+                    .windows(2)
+                    .all(|pair| pair[0] != b'\r' || pair[1] == b'\n');
+            if !clean {
+                return Ok(false);
             }
-            writeln!(input, "blob")?;
-            if let Some(mark) = mark {
-                writeln!(input, "mark :{mark}")?;
-            }
-            writeln!(input, "data {}", bytes.len())?;
-            input.write_all(&bytes)?;
-            true
-        } else {
-            writeln!(input, "blob\ndata {size}")?;
-            input.write_all(&prefix[..copied as usize])?;
-            ensure!(
-                std::io::copy(&mut rest, input)? == size - copied,
-                "Snapshot file was truncated"
-            );
-            false
-        };
+            bytes.retain(|byte| *byte != b'\r');
+        }
+        writeln!(input, "blob\nmark :{mark}\ndata {}", bytes.len())?;
+        input.write_all(&bytes)?;
         input.write_all(b"\n")?;
-        Ok(exact)
+        Ok(true)
     }
 
     #[cfg(windows)]
     fn import_trees(&self, cancelled: &AtomicBool) -> Result<()> {
-        let entries = self.git(&["ls-files", "--stage"], None)?;
+        let entries = NamedTempFile::new_in(self.directory.path())?;
+        git_output(
+            self.git_command(&["ls-files", "--stage"])?
+                .stdout(entries.reopen()?),
+            None,
+        )?;
         let reference = "refs/snapshot-import";
         let result = self.import_objects(|input| {
             writeln!(input, "commit {reference}\ncommitter NeoWarp <snapshot@localhost> 0 +0000\ndata 0\n\ndeleteall")?;
-            for line in entries.lines() {
+            for line in BufReader::new(File::open(entries.path())?).lines() {
                 ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
+                let line = line?;
                 let (entry, path) = line.split_once('\t').context("Invalid snapshot index entry")?;
                 let entry = entry.strip_suffix(" 0").context("Unmerged snapshot index")?;
                 writeln!(input, "M {entry} {path}")?;
@@ -704,7 +706,7 @@ impl Store {
             self.git(&["read-tree", "--empty"], None)?;
             #[cfg(windows)]
             self.git(&["update-ref", "-d", "refs/snapshot-index"], None)?;
-            self.paths.clear();
+            self.text_files = 0;
         }
         self.prune()
     }
@@ -818,14 +820,20 @@ impl Store {
             let packs = self.directory.path().join("objects/pack");
             let previous = fs::read_dir(&packs)?.collect::<std::io::Result<Vec<_>>>()?;
             let prefix = packs.join("pack");
+            let objects = NamedTempFile::new_in(self.directory.path())?;
+            git_output(
+                self.git_command(&["rev-list", "--objects", "--all", "--no-object-names"])?
+                    .stdout(objects.reopen()?),
+                None,
+            )?;
             // The scratch tree ref replaces --indexed-objects, so packing doesn't
-            // load another copy of the index. No repack parent stays in memory.
+            // load another index. Separate traversal from packing to release its
+            // object graph first; names aren't needed with delta search disabled.
             let created = self.git(
                 &[
                     "-c",
                     "core.bigFileThreshold=1m",
                     "pack-objects",
-                    "--all",
                     "--local",
                     "--non-empty",
                     "--delta-base-offset",
@@ -833,7 +841,7 @@ impl Store {
                     "--threads=1",
                     prefix.to_str().context("Invalid pack path")?,
                 ],
-                None,
+                Some(File::open(objects.path())?),
             )?;
             let retained = format!("pack-{}", created.trim());
             // Only this store owns these packs. Delete old files only after the

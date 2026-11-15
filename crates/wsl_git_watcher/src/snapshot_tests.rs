@@ -74,6 +74,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     );
     // File writes represent the observable effects of arbitrary shell/tools.
     fs::write(root.path().join("ignored/old.txt"), &after).unwrap();
+    fs::write(root.path().join("staged.rs"), "after!\n").unwrap();
     fs::write(root.path().join("ignored/new.txt"), "created\n").unwrap();
     fs::remove_file(root.path().join("removed.txt")).unwrap();
     fs::write(root.path().join("nested/space 代码.txt"), "nested after\n").unwrap();
@@ -108,6 +109,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
             ("ignored/old.txt".into(), ChangeKind::Modified),
             ("nested/space 代码.txt".into(), ChangeKind::Modified),
             ("removed.txt".into(), ChangeKind::Deleted),
+            ("staged.rs".into(), ChangeKind::Modified),
             ("transition.txt".into(), ChangeKind::Binary),
         ]
     );
