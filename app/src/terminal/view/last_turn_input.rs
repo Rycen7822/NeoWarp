@@ -37,13 +37,6 @@ impl TerminalView {
         &mut self,
         ctx: &mut ViewContext<Self>,
     ) -> Option<ModelHandle<LastTurn>> {
-        self.ensure_turn_recording(ctx)
-    }
-
-    fn ensure_turn_recording(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-    ) -> Option<ModelHandle<LastTurn>> {
         if !ctx.has_singleton_model::<ProjectSessions>() {
             return None;
         }
@@ -94,7 +87,7 @@ impl TerminalView {
         queue: VecDeque<Input>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let Some(model) = self.ensure_turn_recording(ctx) else {
+        let Some(model) = self.last_turn_review(ctx) else {
             self.last_turn_missed = Some(self.model.lock().active_block_id().clone());
             self.write_user_bytes_now(first.bytes, first.submit, first.sync, ctx);
             self.drain_turn_inputs(queue, ctx);

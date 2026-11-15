@@ -200,11 +200,9 @@ impl Store {
             // Clear the scratch index before pruning; published tree refs survive.
             self.git(&["read-tree", "--empty"], None)?;
             self.paths.clear();
-            self.prune()?;
-        } else {
-            // Replacing the index can unpin the previous preview's last blobs.
-            self.prune()?;
         }
+        // Rebuilding or clearing the index can unpin the last preview's blobs.
+        self.prune()?;
         result
     }
 
