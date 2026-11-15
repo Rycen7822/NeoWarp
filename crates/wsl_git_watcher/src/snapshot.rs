@@ -77,7 +77,7 @@ pub struct Change {
 }
 
 /// All methods run on one background worker. A slot pins a complete immutable tree;
-/// only explicit release permits reclamation. No commits or source refs are written.
+/// only explicit release permits reclamation. Source refs are never written.
 pub struct Store {
     root: PathBuf,
     cache: PathBuf,
@@ -241,31 +241,51 @@ impl Store {
         let mut binary = BTreeSet::new();
         let mut source_bytes = 0u64;
         let mut prefix = [0u8; 8192];
-        for entry in walker {
-            ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
-            let entry = entry?;
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-                continue;
+        let scan = |_input: &mut dyn Write| -> Result<()> {
+            for entry in walker {
+                ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
+                let entry = entry?;
+                if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                    continue;
+                }
+                let relative = entry.path().strip_prefix(&self.root)?.to_path_buf();
+                // Let the index identify unchanged text. New files and files not
+                // in the text index (including all known binaries) are inspected.
+                if self.paths.contains(&relative) && !changed.contains(&relative) {
+                    source_bytes = source_bytes.saturating_add(entry.metadata()?.len());
+                    paths.insert(relative);
+                    continue;
+                }
+                let mut file = File::open(entry.path())
+                    .with_context(|| format!("Cannot read {}", entry.path().display()))?;
+                let size = file.metadata()?.len();
+                let count = file.read(&mut prefix)?;
+                if content_inspector::inspect(&prefix[..count]).is_binary() {
+                    binary.insert(relative);
+                } else {
+                    #[cfg(windows)]
+                    {
+                        // Reuse this handle and prefix; the later index update remains authoritative.
+                        // A concurrent grow can extend the prefix past the sampled size.
+                        let copied = size.min(count as u64);
+                        writeln!(_input, "blob\ndata {size}")?;
+                        _input.write_all(&prefix[..copied as usize])?;
+                        ensure!(
+                            std::io::copy(&mut file.take(size - copied), _input)? == size - copied,
+                            "Snapshot file was truncated"
+                        );
+                        _input.write_all(b"\n")?;
+                    }
+                    source_bytes = source_bytes.saturating_add(size);
+                    paths.insert(relative);
+                }
             }
-            let relative = entry.path().strip_prefix(&self.root)?.to_path_buf();
-            // Let the index identify unchanged text. New files and files not
-            // in the text index (including all known binaries) are inspected.
-            if self.paths.contains(&relative) && !changed.contains(&relative) {
-                source_bytes = source_bytes.saturating_add(entry.metadata()?.len());
-                paths.insert(relative);
-                continue;
-            }
-            let mut file = File::open(entry.path())
-                .with_context(|| format!("Cannot read {}", entry.path().display()))?;
-            let size = file.metadata()?.len();
-            let count = file.read(&mut prefix)?;
-            if content_inspector::inspect(&prefix[..count]).is_binary() {
-                binary.insert(relative);
-            } else {
-                source_bytes = source_bytes.saturating_add(size);
-                paths.insert(relative);
-            }
-        }
+            Ok(())
+        };
+        #[cfg(windows)]
+        self.import_objects(scan)?;
+        #[cfg(not(windows))]
+        scan(&mut std::io::sink())?;
         ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
         let mut removed = NamedTempFile::new_in(self.directory.path())?;
         for path in self.paths.difference(&paths) {
@@ -281,13 +301,6 @@ impl Store {
         // freshness semantics; deliberate preservation of all checked metadata
         // can hide a change. Immutable published trees still pin their objects.
         if !paths.is_empty() {
-            #[cfg(windows)]
-            self.import_blobs(
-                paths
-                    .iter()
-                    .filter(|path| !self.paths.contains(*path) || changed.contains(*path)),
-                cancelled,
-            )?;
             let mut selected = NamedTempFile::new_in(self.directory.path())?;
             for path in &paths {
                 write_path(&mut selected, path)?;
@@ -298,6 +311,10 @@ impl Store {
             )?;
         }
         ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
+        #[cfg(windows)]
+        if self.paths.is_empty() {
+            self.import_trees(cancelled)?;
+        }
         self.paths = paths;
         let tree = self.git(&["write-tree"], None)?.trim().to_owned();
         let captured_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
@@ -319,18 +336,29 @@ impl Store {
         Ok(snapshot)
     }
 
-    /// Preload blobs into a pack to avoid one Windows file creation per blob.
-    /// The normal index update still applies attributes and records file metadata.
     #[cfg(windows)]
-    fn import_blobs<'a>(
-        &self,
-        paths: impl Iterator<Item = &'a PathBuf>,
-        cancelled: &AtomicBool,
-    ) -> Result<()> {
-        let mut paths = paths.peekable();
-        if paths.peek().is_none() {
-            return Ok(());
-        }
+    fn import_trees(&self, cancelled: &AtomicBool) -> Result<()> {
+        let entries = self.git(&["ls-files", "--stage"], None)?;
+        let reference = "refs/snapshot-import";
+        let result = self.import_objects(|input| {
+            writeln!(input, "commit {reference}\ncommitter NeoWarp <snapshot@localhost> 0 +0000\ndata 0\n\ndeleteall")?;
+            for line in entries.lines() {
+                ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
+                let (entry, path) = line.split_once('\t').context("Invalid snapshot index entry")?;
+                let entry = entry.strip_suffix(" 0").context("Unmerged snapshot index")?;
+                writeln!(input, "M {entry} {path}")?;
+            }
+            input.write_all(b"\n")?;
+            Ok(())
+        });
+        // The commit only asks Git to build packed trees; slots still pin trees.
+        // Remove its reference on failure too, before normal reachability cleanup.
+        self.git(&["update-ref", "-d", reference], None)?;
+        result
+    }
+
+    #[cfg(windows)]
+    fn import_objects(&self, write: impl FnOnce(&mut dyn Write) -> Result<()>) -> Result<()> {
         let directory = self
             .directory
             .path()
@@ -346,17 +374,7 @@ impl Store {
         .spawn()?;
         let result = (|| -> Result<()> {
             let mut input = BufWriter::new(child.stdin.take().context("Missing Git input")?);
-            for path in paths {
-                ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
-                let file = File::open(self.root.join(path))?;
-                let size = file.metadata()?.len();
-                writeln!(input, "blob\ndata {size}")?;
-                ensure!(
-                    std::io::copy(&mut file.take(size), &mut input)? == size,
-                    "Snapshot file was truncated"
-                );
-                input.write_all(b"\n")?;
-            }
+            write(&mut input)?;
             input.write_all(b"done\n")?;
             input.flush()?;
             Ok(())

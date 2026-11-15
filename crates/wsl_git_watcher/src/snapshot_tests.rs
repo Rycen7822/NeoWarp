@@ -35,7 +35,9 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     let source_index = fs::read(root.path().join(".git/index")).unwrap();
     let source_refs = source_git(root.path(), &["show-ref", "--head"]).unwrap_or_default();
     fs::create_dir(root.path().join("ignored")).unwrap();
-    fs::write(root.path().join("ignored/old.txt"), "before\r\n").unwrap();
+    let text = "x".repeat(8191);
+    let after = format!("{text}after!\n");
+    fs::write(root.path().join("ignored/old.txt"), format!("{text}\r\n")).unwrap();
     fs::write(root.path().join("removed.txt"), "deleted\n").unwrap();
     fs::write(root.path().join("binary.bin"), [0u8; 256]).unwrap();
     fs::create_dir(root.path().join("nested")).unwrap();
@@ -44,15 +46,15 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
         &["init", "--quiet", "--template="],
     )
     .unwrap();
-    fs::write(root.path().join("nested/code.txt"), "nested before\n").unwrap();
+    fs::write(root.path().join("nested/space 代码.txt"), "nested before\n").unwrap();
     let mut store = Store::new(root.path(), cache.path()).unwrap();
     let cancelled = AtomicBool::new(false);
     store.capture("before", &cancelled).unwrap();
     // File writes represent the observable effects of arbitrary shell/tools.
-    fs::write(root.path().join("ignored/old.txt"), "after!\n").unwrap();
+    fs::write(root.path().join("ignored/old.txt"), &after).unwrap();
     fs::write(root.path().join("ignored/new.txt"), "created\n").unwrap();
     fs::remove_file(root.path().join("removed.txt")).unwrap();
-    fs::write(root.path().join("nested/code.txt"), "nested after\n").unwrap();
+    fs::write(root.path().join("nested/space 代码.txt"), "nested after\n").unwrap();
     store.capture("after", &cancelled).unwrap();
     let changes: Vec<_> = store
         .changes("before", "after")
@@ -65,21 +67,21 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
         [
             ("ignored/new.txt".into(), ChangeKind::Added),
             ("ignored/old.txt".into(), ChangeKind::Modified),
-            ("nested/code.txt".into(), ChangeKind::Modified),
+            ("nested/space 代码.txt".into(), ChangeKind::Modified),
             ("removed.txt".into(), ChangeKind::Deleted),
         ]
     );
     assert_eq!(
         store
-            .read("before", Path::new("ignored/old.txt"), 1024)
+            .read("before", Path::new("ignored/old.txt"), 16384)
             .unwrap(),
-        "before\n"
+        format!("{text}\n")
     );
     assert_eq!(
         store
-            .read("after", Path::new("ignored/old.txt"), 1024)
+            .read("after", Path::new("ignored/old.txt"), 16384)
             .unwrap(),
-        "after!\n"
+        after
     );
     assert_eq!(
         fs::read(root.path().join(".git/index")).unwrap(),
@@ -107,10 +109,10 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
     #[cfg(windows)]
     assert!(
         store
-            .import_blobs(
-                std::iter::once(&PathBuf::from("missing.txt")),
-                &AtomicBool::new(false)
-            )
+            .import_objects(|_| {
+                File::open(root.path().join("missing.txt"))?;
+                Ok(())
+            })
             .is_err()
     );
     let blob = store
