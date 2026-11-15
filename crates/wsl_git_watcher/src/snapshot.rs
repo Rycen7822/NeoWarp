@@ -362,9 +362,16 @@ impl Store {
             binary_files: binary.len(),
             source_bytes,
             tree,
-            binary,
+            binary: BTreeSet::new(),
         };
-        self.snapshots.insert(slot.to_owned(), snapshot.clone());
+        // Only the store needs binary membership; replies carry the counts.
+        self.snapshots.insert(
+            slot.to_owned(),
+            Snapshot {
+                binary,
+                ..snapshot.clone()
+            },
+        );
         Ok(snapshot)
     }
 

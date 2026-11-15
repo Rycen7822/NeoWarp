@@ -40,6 +40,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     fs::write(root.path().join("ignored/old.txt"), format!("{text}\r\n")).unwrap();
     fs::write(root.path().join("removed.txt"), "deleted\rcontent\r\n").unwrap();
     fs::write(root.path().join("binary.bin"), [0u8; 256]).unwrap();
+    fs::write(root.path().join("transition.txt"), "before\n").unwrap();
     fs::create_dir(root.path().join("nested")).unwrap();
     source_git(
         &root.path().join("nested"),
@@ -61,6 +62,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     fs::write(root.path().join("ignored/new.txt"), "created\n").unwrap();
     fs::remove_file(root.path().join("removed.txt")).unwrap();
     fs::write(root.path().join("nested/space 代码.txt"), "nested after\n").unwrap();
+    fs::write(root.path().join("transition.txt"), [0u8; 256]).unwrap();
     store.capture("after", &cancelled).unwrap();
     assert_eq!(
         store
@@ -91,6 +93,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
             ("ignored/old.txt".into(), ChangeKind::Modified),
             ("nested/space 代码.txt".into(), ChangeKind::Modified),
             ("removed.txt".into(), ChangeKind::Deleted),
+            ("transition.txt".into(), ChangeKind::Binary),
         ]
     );
     assert_eq!(
