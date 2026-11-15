@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
+#[cfg(windows)]
+use std::io::BufWriter;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -279,6 +281,13 @@ impl Store {
         // freshness semantics; deliberate preservation of all checked metadata
         // can hide a change. Immutable published trees still pin their objects.
         if !paths.is_empty() {
+            #[cfg(windows)]
+            self.import_blobs(
+                paths
+                    .iter()
+                    .filter(|path| !self.paths.contains(*path) || changed.contains(*path)),
+                cancelled,
+            )?;
             let mut selected = NamedTempFile::new_in(self.directory.path())?;
             for path in &paths {
                 write_path(&mut selected, path)?;
@@ -308,6 +317,61 @@ impl Store {
         };
         self.snapshots.insert(slot.to_owned(), snapshot.clone());
         Ok(snapshot)
+    }
+
+    /// Preload blobs into a pack to avoid one Windows file creation per blob.
+    /// The normal index update still applies attributes and records file metadata.
+    #[cfg(windows)]
+    fn import_blobs<'a>(
+        &self,
+        paths: impl Iterator<Item = &'a PathBuf>,
+        cancelled: &AtomicBool,
+    ) -> Result<()> {
+        let mut paths = paths.peekable();
+        if paths.peek().is_none() {
+            return Ok(());
+        }
+        let directory = self
+            .directory
+            .path()
+            .to_str()
+            .context("Invalid cache path")?;
+        let mut child = git_command(
+            &self.root,
+            &["--git-dir", directory, "fast-import", "--quiet", "--done"],
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+        let result = (|| -> Result<()> {
+            let mut input = BufWriter::new(child.stdin.take().context("Missing Git input")?);
+            for path in paths {
+                ensure!(!cancelled.load(Ordering::Relaxed), "Snapshot cancelled");
+                let file = File::open(self.root.join(path))?;
+                let size = file.metadata()?.len();
+                writeln!(input, "blob\ndata {size}")?;
+                ensure!(
+                    std::io::copy(&mut file.take(size), &mut input)? == size,
+                    "Snapshot file was truncated"
+                );
+                input.write_all(b"\n")?;
+            }
+            input.write_all(b"done\n")?;
+            input.flush()?;
+            Ok(())
+        })();
+        if result.is_err() && child.try_wait()?.is_none() {
+            child.kill()?;
+        }
+        let output = child.wait_with_output()?;
+        result?;
+        ensure!(
+            output.status.success(),
+            "Snapshot import failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(())
     }
 
     pub fn release(&mut self, slot: &str) -> Result<()> {
@@ -425,8 +489,13 @@ impl Store {
     }
 
     fn prune(&self) -> Result<()> {
-        // Only this process owns this private object database; no packs or GC
-        // are created automatically, and live trees are pinned before pruning.
+        // Only this process owns this private database. Live trees are pinned;
+        // Windows imports also need packed, unreachable blobs reclaimed.
+        #[cfg(windows)]
+        self.git(
+            &["repack", "-a", "-d", "-l", "--window=0", "--threads=1"],
+            None,
+        )?;
         self.git(&["prune", "--expire=now"], None)?;
         Ok(())
     }
@@ -492,7 +561,7 @@ fn source_git(root: &Path, args: &[&str]) -> Result<String> {
     String::from_utf8(git_output(root, args, None)?).context("Invalid Git metadata")
 }
 
-fn git_output(root: &Path, args: &[&str], input: Option<File>) -> Result<Vec<u8>> {
+fn git_command(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     #[cfg(windows)]
     {
@@ -531,6 +600,11 @@ fn git_output(root: &Path, args: &[&str], input: Option<File>) -> Result<Vec<u8>
             "GIT_CONFIG_GLOBAL",
             if cfg!(windows) { "NUL" } else { "/dev/null" },
         );
+    command
+}
+
+fn git_output(root: &Path, args: &[&str], input: Option<File>) -> Result<Vec<u8>> {
+    let mut command = git_command(root, args);
     if let Some(input) = input {
         command.stdin(Stdio::from(input));
     } else {

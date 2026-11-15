@@ -35,7 +35,7 @@ fn captures_ignored_shell_changes_without_touching_source_index_or_filters() {
     let source_index = fs::read(root.path().join(".git/index")).unwrap();
     let source_refs = source_git(root.path(), &["show-ref", "--head"]).unwrap_or_default();
     fs::create_dir(root.path().join("ignored")).unwrap();
-    fs::write(root.path().join("ignored/old.txt"), "before\n").unwrap();
+    fs::write(root.path().join("ignored/old.txt"), "before\r\n").unwrap();
     fs::write(root.path().join("removed.txt"), "deleted\n").unwrap();
     fs::write(root.path().join("binary.bin"), [0u8; 256]).unwrap();
     fs::create_dir(root.path().join("nested")).unwrap();
@@ -104,6 +104,15 @@ fn failed_capture_preserves_baseline_and_release_reclaims_old_objects() {
     fs::write(root.path().join("old.txt"), "unique old content\n").unwrap();
     let mut store = Store::new(root.path(), cache.path()).unwrap();
     let baseline = store.capture("baseline", &AtomicBool::new(false)).unwrap();
+    #[cfg(windows)]
+    assert!(
+        store
+            .import_blobs(
+                std::iter::once(&PathBuf::from("missing.txt")),
+                &AtomicBool::new(false)
+            )
+            .is_err()
+    );
     let blob = store
         .git(&["rev-parse", &format!("{}:old.txt", baseline.tree)], None)
         .unwrap();
