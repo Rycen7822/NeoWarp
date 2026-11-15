@@ -25,6 +25,14 @@ pub(crate) struct ReviewSnapshot {
 
 impl GitReviewView {
     pub(crate) fn snapshot(&mut self, ctx: &mut ViewContext<Self>) -> Option<ReviewSnapshot> {
+        if self.turn_selected {
+            self.cancel_loading();
+            if let Some(task) = self.refreshing.take() {
+                task.abort();
+            }
+            self.turn_preview = None;
+            return None;
+        }
         let summary_ready = self.refreshing.is_none()
             && !self.refresh_pending
             && (self.mode == DiffMode::Head || self.merge_base.is_some());

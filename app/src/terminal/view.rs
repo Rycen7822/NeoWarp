@@ -9,6 +9,8 @@ mod cli_toolbelt;
 mod context_menu;
 pub mod init;
 pub mod inline_banner;
+#[cfg(feature = "local_fs")]
+mod last_turn_input;
 use repo_metadata::CanonicalizedPath;
 use warp_util::remote_path::RemotePath;
 use warp_util::standardized_path::StandardizedPath;
@@ -1151,6 +1153,7 @@ pub enum SyncInputType {
         /// Characters the user inputted
         /// Note: Using Arc because to make efficient cloning of large string possible
         chars: Arc<Vec<u8>>,
+        submit: bool,
     },
     /// Event used to to run commands in all synced terminals with
     /// visible input editors.
@@ -1590,6 +1593,12 @@ pub struct TerminalView {
     current_repo_path: Option<LocalOrRemotePath>,
     #[cfg(feature = "local_fs")]
     cli_toolbelt: Option<cli_toolbelt::CliToolbelt>,
+    #[cfg(feature = "local_fs")]
+    last_turn: Option<ModelHandle<crate::code_review::last_turn::LastTurn>>,
+    #[cfg(feature = "local_fs")]
+    last_turn_input: Option<last_turn_input::Pending>,
+    #[cfg(feature = "local_fs")]
+    last_turn_missed: Option<BlockId>,
 
     /// The title of the terminal view to show when there is no selected conversation.
     terminal_title: String,
@@ -1708,11 +1717,21 @@ impl TerminalView {
                     })
                 }
             }
-            SyncInputType::NonEditorTyped { chars: typed_chars } => {
+            SyncInputType::NonEditorTyped {
+                chars: typed_chars,
+                submit,
+            } => {
                 if matches!(
                     terminal_input_state,
                     TerminalInputState::LongRunningCommand | TerminalInputState::AltScreen,
                 ) {
+                    #[cfg(feature = "local_fs")]
+                    if *submit {
+                        self.submit_turn_input(typed_chars.to_vec(), false, ctx);
+                        return;
+                    }
+                    #[cfg(not(feature = "local_fs"))]
+                    let _ = submit;
                     self.write_to_pty_for_syncing_long_running_commands(typed_chars.to_vec(), ctx);
                 }
             }
@@ -2288,6 +2307,12 @@ impl TerminalView {
             current_repo_path: None,
             #[cfg(feature = "local_fs")]
             cli_toolbelt: None,
+            #[cfg(feature = "local_fs")]
+            last_turn: None,
+            #[cfg(feature = "local_fs")]
+            last_turn_input: None,
+            #[cfg(feature = "local_fs")]
+            last_turn_missed: None,
             terminal_title: Default::default(),
             warpify_footer,
             manual_pty_shutdown_requested: false,
@@ -2891,6 +2916,7 @@ impl TerminalView {
 
     #[cfg(feature = "local_fs")]
     fn end_project_session(&mut self, block: Option<&BlockId>, ctx: &mut ViewContext<Self>) {
+        self.end_turn_recording(block, ctx);
         self.end_cli_toolbelt(block, ctx);
         use crate::project_sessions::ProjectSessions;
         if ctx.has_singleton_model::<ProjectSessions>() {
@@ -3085,6 +3111,8 @@ impl TerminalView {
     /// Shuts down the pty and event loop, terminating the shell process.
     /// Also prevents shell replacement while shutdown is in progress.
     pub fn shutdown_pty(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        self.end_project_session(None, ctx);
         for metadata in self.model.lock().image_id_to_metadata.values() {
             AssetCache::as_ref(ctx).evict_raw_image(metadata.asset_id());
         }
@@ -3367,12 +3395,18 @@ impl TerminalView {
     /// long-running and received keyboard input.
     /// Emits if at least one terminal inputs is synced, so receivers of this
     /// event must determine how to process this event.
-    fn emit_non_editor_typed_event(&self, chars: Vec<u8>, ctx: &mut ViewContext<Self>) {
+    fn emit_non_editor_typed_event(
+        &self,
+        chars: Vec<u8>,
+        submit: bool,
+        ctx: &mut ViewContext<Self>,
+    ) {
         if SyncedInputState::as_ref(ctx).is_syncing_any_inputs(ctx.window_id()) {
             ctx.emit(Event::SyncInput(SyncEvent {
                 source_view_id: self.view_id,
                 data: SyncInputType::NonEditorTyped {
                     chars: Arc::new(chars),
+                    submit,
                 },
             }));
         }
@@ -3532,6 +3566,21 @@ impl TerminalView {
         data: B,
         ctx: &mut ViewContext<Self>,
     ) {
+        let bytes = data.into().into_owned();
+        #[cfg(feature = "local_fs")]
+        if self.defer_turn_input(&bytes, false, true, ctx) {
+            return;
+        }
+        self.write_user_bytes_now(bytes, false, true, ctx);
+    }
+
+    fn write_user_bytes_now(
+        &mut self,
+        bytes: Vec<u8>,
+        submit: bool,
+        sync: bool,
+        ctx: &mut ViewContext<Self>,
+    ) {
         {
             let mut terminal_model = self.model.lock();
             let active_block = terminal_model.block_list().active_block();
@@ -3544,12 +3593,13 @@ impl TerminalView {
             }
         }
 
-        let bytes = data.into();
         let bytes_vec = bytes.to_vec();
         self.clear_selected_blocks(ctx);
         self.update_scroll_position_locking(ScrollPositionUpdate::AfterWriteUserBytesToPty, ctx);
         self.write_to_pty(bytes, ctx);
-        self.emit_non_editor_typed_event(bytes_vec, ctx);
+        if sync {
+            self.emit_non_editor_typed_event(bytes_vec, submit, ctx);
+        }
     }
 
     /// Write to the PTY if the session has finished bootstrapping and
@@ -3568,6 +3618,10 @@ impl TerminalView {
         // the bootstrap script, otherwise the user could accidentally interfere
         // with bootstrap script execution.
         if was_bootstrap_script_echoed && self.is_long_running() {
+            #[cfg(feature = "local_fs")]
+            if self.defer_turn_input(&characters, false, false, ctx) {
+                return;
+            }
             self.clear_selected_blocks(ctx);
             self.update_scroll_position_locking(
                 ScrollPositionUpdate::AfterWriteUserBytesToPty,
@@ -6930,6 +6984,11 @@ impl TerminalView {
                 // the text came from paste, rather than from direct user input.
                 // See https://cirw.in/blog/bracketed-paste for more info on bracketed paste
                 copied = format!("{BRACKETED_PASTE_PREFIX}{copied}{BRACKETED_PASTE_SUFFIX}");
+            }
+            #[cfg(feature = "local_fs")]
+            if !needs_bracketed_paste && copied.contains('\r') {
+                self.submit_turn_input(copied.into_bytes(), true, ctx);
+                return;
             }
             self.write_user_bytes_to_pty(copied.into_bytes(), ctx);
         }
@@ -12187,7 +12246,7 @@ impl TypedActionView for TerminalView {
                     WarpA11yRole::TextareaRole,
                 ))
             }
-            KeyDown(key) => {
+            KeyDown(key) | SubmitKeyDown(key) => {
                 let label = if key.eq("\x1b") {
                     INPUT_A11Y_LABEL
                 } else {
@@ -12249,6 +12308,8 @@ impl TypedActionView for TerminalView {
             | TypedCharacters(_)
             | UserInputSequence(_)
             | ControlSequence(_)
+            | SubmitControlSequence(_)
+            | CancelTurnInput
             | TriggerSubshellBootstrap
             | ShowSubshellBanner(_)
             | DismissWarpifyBanner(_)
@@ -12430,6 +12491,28 @@ impl TypedActionView for TerminalView {
             UserInputSequence(bytes) => self.user_input_sequence(bytes, ctx),
             ControlSequence(bytes) => self.control_sequence_on_terminal(bytes, ctx),
             KeyDown(chars) => self.keydown_on_terminal(chars, ctx),
+            SubmitKeyDown(chars) => {
+                #[cfg(feature = "local_fs")]
+                if self.is_long_running() {
+                    self.highlighted_link.invalidate();
+                    self.report_possible_typeahead(chars);
+                    self.submit_turn_input(chars.as_bytes().to_vec(), true, ctx);
+                    return;
+                }
+                self.keydown_on_terminal(chars, ctx);
+            }
+            SubmitControlSequence(bytes) => {
+                #[cfg(feature = "local_fs")]
+                if self.is_long_running() {
+                    self.submit_turn_input(bytes.clone(), true, ctx);
+                    return;
+                }
+                self.control_sequence_on_terminal(bytes, ctx);
+            }
+            CancelTurnInput => {
+                #[cfg(feature = "local_fs")]
+                self.cancel_turn_input(tr("Input cancelled").into(), ctx);
+            }
             TypedCharacters(chars) => self.typed_characters_on_terminal(chars, ctx),
             CtrlD => self.ctrl_d(ctx),
             CtrlC => self.ctrl_c(ctx),
@@ -12694,6 +12777,29 @@ impl View for TerminalView {
                 };
 
                 column.add_child(Shrinkable::new(1., output_area).finish());
+
+                #[cfg(feature = "local_fs")]
+                if self.last_turn_input.is_some() {
+                    column.add_child(
+                        Container::new(
+                            Text::new_inline(
+                                tr("Recording file state… Ctrl+C cancels sending"),
+                                appearance.ui_font_family(),
+                                12.,
+                            )
+                            .with_color(
+                                appearance
+                                    .theme()
+                                    .sub_text_color(appearance.theme().surface_1())
+                                    .into(),
+                            )
+                            .finish(),
+                        )
+                        .with_horizontal_padding(16.)
+                        .with_vertical_padding(4.)
+                        .finish(),
+                    );
+                }
 
                 if model.is_alt_screen_active() && self.should_render_warpify_footer(app) {
                     column.add_child(ChildView::new(&self.warpify_footer).finish());

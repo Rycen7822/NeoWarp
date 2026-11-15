@@ -34,6 +34,13 @@ use crate::util::git::{
 pub(super) enum Action {
     Toggle,
     Select(DiffMode),
+    SelectLastTurn,
+}
+
+#[derive(Clone)]
+pub(super) enum Selection {
+    Git(DiffMode),
+    LastTurn,
 }
 
 pub(super) struct DiffSelector {
@@ -47,6 +54,9 @@ pub(super) struct DiffSelector {
     loading: Option<SpawnedFutureHandle>,
     error: bool,
     mouse: MouseStateHandle,
+    last_turn_available: bool,
+    last_turn_selected: bool,
+    last_turn_confirmed: bool,
 }
 
 impl DiffSelector {
@@ -114,6 +124,9 @@ impl DiffSelector {
             loading: None,
             error: false,
             mouse: Default::default(),
+            last_turn_available: false,
+            last_turn_selected: false,
+            last_turn_confirmed: false,
         }
     }
 
@@ -127,7 +140,15 @@ impl DiffSelector {
     }
 
     pub(super) fn set_mode(&mut self, mode: DiffMode, ctx: &mut ViewContext<Self>) {
+        self.last_turn_selected = false;
         self.mode = mode;
+        ctx.notify();
+    }
+
+    pub(super) fn set_last_turn(&mut self, confirmed: bool, ctx: &mut ViewContext<Self>) {
+        self.last_turn_available = true;
+        self.last_turn_selected = true;
+        self.last_turn_confirmed = confirmed;
         ctx.notify();
     }
 
@@ -140,12 +161,20 @@ impl DiffSelector {
             .map(|(label, mode)| {
                 let mut item = MenuItemFields::new(label.clone())
                     .with_on_select_action(Action::Select(mode.clone()));
-                if *mode == self.mode {
+                if *mode == self.mode && !self.last_turn_selected {
                     item = item.with_icon(Icon::Check);
                 }
                 item.into_item()
             })
             .collect();
+        if self.last_turn_available && tr("Session changes").to_lowercase().contains(&query) {
+            let mut item = MenuItemFields::new(tr("Session changes"))
+                .with_on_select_action(Action::SelectLastTurn);
+            if self.last_turn_selected {
+                item = item.with_icon(Icon::Check);
+            }
+            items.insert(0, item.into_item());
+        }
         if items.is_empty() || self.error {
             items.push(
                 MenuItemFields::new(tr(if self.error {
@@ -222,7 +251,7 @@ impl DiffSelector {
 }
 
 impl Entity for DiffSelector {
-    type Event = DiffMode;
+    type Event = Selection;
 }
 
 impl TypedActionView for DiffSelector {
@@ -233,7 +262,11 @@ impl TypedActionView for DiffSelector {
             Action::Toggle => self.open(ctx),
             Action::Select(mode) => {
                 self.close(ctx);
-                ctx.emit(mode.clone());
+                ctx.emit(Selection::Git(mode.clone()));
+            }
+            Action::SelectLastTurn => {
+                self.close(ctx);
+                ctx.emit(Selection::LastTurn);
             }
         }
     }
@@ -249,15 +282,23 @@ impl View for DiffSelector {
         let color = appearance
             .theme()
             .main_text_color(appearance.theme().background());
-        let label = match &self.mode {
-            DiffMode::Head => tr("Uncommitted changes"),
-            DiffMode::MainBranch => self
-                .status
-                .as_ref(app)
-                .metadata(app)
-                .map(|metadata| metadata.main_branch_name.as_str())
-                .unwrap_or("main"),
-            DiffMode::OtherBranch(branch) => branch,
+        let label = if self.last_turn_selected {
+            tr(if self.last_turn_confirmed {
+                "Last turn changes"
+            } else {
+                "Session changes · turn unconfirmed"
+            })
+        } else {
+            match &self.mode {
+                DiffMode::Head => tr("Uncommitted changes"),
+                DiffMode::MainBranch => self
+                    .status
+                    .as_ref(app)
+                    .metadata(app)
+                    .map(|metadata| metadata.main_branch_name.as_str())
+                    .unwrap_or("main"),
+                DiffMode::OtherBranch(branch) => branch,
+            }
         };
         let button = appearance
             .ui_builder()

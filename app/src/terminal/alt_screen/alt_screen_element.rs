@@ -658,7 +658,20 @@ impl Element for AltScreenElement {
                 })
                 .to_escape_sequence(self.model.lock().deref())
                 {
-                    ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
+                    if keystroke.normalized() == "ctrl-c" {
+                        ctx.dispatch_typed_action(TerminalAction::CancelTurnInput);
+                    }
+                    ctx.dispatch_typed_action(
+                        if !*is_composing && keystroke.normalized() == "enter" {
+                            TerminalAction::SubmitControlSequence(escape_sequence)
+                        } else {
+                            TerminalAction::ControlSequence(escape_sequence)
+                        },
+                    );
+                    return true;
+                }
+                if !*is_composing && keystroke.normalized() == "enter" && !chars.is_empty() {
+                    ctx.dispatch_typed_action(TerminalAction::SubmitKeyDown(chars.clone()));
                     return true;
                 }
                 self.key_down(chars, ctx)

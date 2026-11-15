@@ -10639,6 +10639,7 @@ dependencies = [
  "windows-result 0.2.0",
  "winit",
  "winreg",
+ "wsl_git_watcher",
  "x11rb",
  "zbus",
 ]
@@ -12339,11 +12340,14 @@ name = "wsl_git_watcher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "content_inspector",
+ "fs4",
  "ignore",
  "libc",
  "notify-debouncer-full",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

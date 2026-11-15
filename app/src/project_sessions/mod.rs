@@ -5,6 +5,7 @@ pub(crate) mod config;
 pub(crate) mod editor;
 pub(crate) mod launch;
 mod provider;
+pub(crate) mod turns;
 pub(crate) mod view;
 
 use std::collections::{BTreeMap, HashMap};
@@ -362,6 +363,19 @@ impl ProjectSessions {
             .get(&terminal)
             .and_then(|live| self.entry(live.session_id))
             .map(|(_, session)| session.provider)
+    }
+
+    pub(crate) fn turn_source(&self, terminal: EntityId) -> Option<turns::Source> {
+        let live = self.live.get(&terminal)?;
+        let running = live.running.as_ref()?;
+        Some(turns::Source {
+            block: running.block.clone(),
+            query: running.query.clone(),
+            identity: self
+                .catalog
+                .session(live.session_id)
+                .and_then(|session| session.identity.clone()),
+        })
     }
 
     pub(crate) fn active_terminal(&self, id: Uuid, app: &warpui::AppContext) -> Option<EntityId> {

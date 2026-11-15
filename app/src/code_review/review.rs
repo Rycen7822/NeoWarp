@@ -21,10 +21,11 @@ use warpui::{
     ViewContext, ViewHandle,
 };
 
-use super::diff_selector::DiffSelector;
+use super::diff_selector::{DiffSelector, Selection};
 use super::diff_size_limits::{MAX_CHARACTERS_PER_LINE, MAX_DIFF_SIZE};
 use super::diff_state::{DiffMetadataAgainstBase, DiffMode, GitFileStatus, LocalDiffStateModel};
 use super::git_repo_model::{GitRepoStatusEvent, GitRepoStatusModel};
+use super::last_turn::{Event as TurnEvent, LastTurn, Preview};
 use crate::appearance::Appearance;
 use crate::code::editor::view::{
     CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView, ReviewEditorState,
@@ -36,6 +37,7 @@ use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
 use crate::util::git::FileChangeEntry;
 use crate::workspace::WorkspaceAction;
+use wsl_git_watcher::snapshot::ChangeKind;
 
 #[cfg(test)]
 #[path = "review_tests.rs"]
@@ -107,6 +109,11 @@ pub struct GitReviewView {
     refresh_mouse: MouseStateHandle,
     wrap_mouse: MouseStateHandle,
     fold_mouse: MouseStateHandle,
+    last_turn: Option<ModelHandle<LastTurn>>,
+    turn_selected: bool,
+    turn_preview: Option<Arc<Preview>>,
+    turn_kinds: HashMap<String, ChangeKind>,
+    turn_refresh_id: u64,
 }
 
 impl GitReviewView {
@@ -118,8 +125,9 @@ impl GitReviewView {
     ) -> Self {
         let selector =
             ctx.add_typed_action_view(|ctx| DiffSelector::new(root.clone(), status.clone(), ctx));
-        ctx.subscribe_to_view(&selector, |me, _, mode, ctx| {
-            me.select_mode(mode.clone(), ctx);
+        ctx.subscribe_to_view(&selector, |me, _, mode, ctx| match mode {
+            Selection::Git(mode) => me.select_mode(mode.clone(), ctx),
+            Selection::LastTurn => me.select_last_turn(ctx),
         });
         let weak = ctx.handle();
         let (visible_tx, visible_rx) = async_channel::unbounded();
@@ -147,6 +155,10 @@ impl GitReviewView {
         );
         ctx.subscribe_to_model(&status, |me, _, event, ctx| match event {
             GitRepoStatusEvent::MetadataChanged => {
+                if me.turn_selected {
+                    ctx.notify();
+                    return;
+                }
                 if me.status.as_ref(ctx).metadata(ctx).is_none() {
                     me.message = tr("Unable to read repository changes").into();
                     ctx.notify();
@@ -155,6 +167,10 @@ impl GitReviewView {
                 }
             }
             GitRepoStatusEvent::FilesInvalidated(changes) => {
+                if me.turn_selected {
+                    ctx.notify();
+                    return;
+                }
                 if me.refreshing.is_some() {
                     me.refresh_pending = true;
                 }
@@ -203,6 +219,11 @@ impl GitReviewView {
             refresh_mouse: Default::default(),
             wrap_mouse: Default::default(),
             fold_mouse: Default::default(),
+            last_turn: None,
+            turn_selected: false,
+            turn_preview: None,
+            turn_kinds: HashMap::new(),
+            turn_refresh_id: 0,
         };
         if !snapshot.is_some_and(|snapshot| view.restore_snapshot(snapshot, ctx)) {
             view.update_files(ctx);
@@ -210,7 +231,111 @@ impl GitReviewView {
         view
     }
 
+    pub(crate) fn attach_last_turn(
+        &mut self,
+        model: ModelHandle<LastTurn>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if model.as_ref(ctx).root != self.root {
+            return;
+        }
+        self.last_turn = Some(model.clone());
+        ctx.subscribe_to_model(&model, |me, model, event, ctx| {
+            if !me.turn_selected {
+                return;
+            }
+            let confirmed = model.as_ref(ctx).confirmed();
+            me.selector
+                .update(ctx, |selector, ctx| selector.set_last_turn(confirmed, ctx));
+            match event {
+                TurnEvent::Baseline => me.refresh_last_turn(ctx),
+                TurnEvent::Status => ctx.notify(),
+            }
+        });
+        self.select_last_turn(ctx);
+    }
+
+    fn select_last_turn(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.last_turn.is_none() {
+            return;
+        }
+        self.turn_selected = true;
+        let confirmed = self
+            .last_turn
+            .as_ref()
+            .is_some_and(|model| model.as_ref(ctx).confirmed());
+        self.selector
+            .update(ctx, |selector, ctx| selector.set_last_turn(confirmed, ctx));
+        self.refresh_last_turn(ctx);
+    }
+
+    fn refresh_last_turn(&mut self, ctx: &mut ViewContext<Self>) {
+        self.turn_refresh_id = self.turn_refresh_id.wrapping_add(1);
+        let id = self.turn_refresh_id;
+        if let Some(task) = self.refreshing.take() {
+            task.abort();
+        }
+        self.refresh_pending = false;
+        self.cancel_loading();
+        self.turn_preview = None;
+        self.turn_kinds.clear();
+        self.set_files(Vec::new(), ctx);
+        let Some(model) = &self.last_turn else {
+            return;
+        };
+        let job = match model.as_ref(ctx).preview() {
+            Ok(job) => job,
+            Err(_) => {
+                self.message = model.as_ref(ctx).label().to_owned();
+                ctx.notify();
+                return;
+            }
+        };
+        self.message = tr("Loading changes…").into();
+        self.refreshing = Some(ctx.spawn(job, move |me, result, ctx| {
+            if !me.turn_selected || me.turn_refresh_id != id {
+                return;
+            }
+            me.refreshing = None;
+            match result {
+                Ok(preview) => {
+                    let mut files = Vec::new();
+                    me.file_statuses.clear();
+                    for change in &preview.files {
+                        files.push(FileChangeEntry {
+                            path: change.path.clone(),
+                            additions: change.additions,
+                            deletions: change.deletions,
+                        });
+                        me.turn_kinds.insert(change.path.clone(), change.kind);
+                        me.file_statuses.insert(
+                            change.path.clone(),
+                            match change.kind {
+                                ChangeKind::Added => GitFileStatus::New,
+                                ChangeKind::Deleted => GitFileStatus::Deleted,
+                                _ => GitFileStatus::Modified,
+                            },
+                        );
+                    }
+                    me.turn_preview = Some(Arc::new(preview));
+                    me.set_files(files, ctx);
+                    if me.files.is_empty() {
+                        me.message = tr("No changes in the sampled workspace").into();
+                    }
+                }
+                Err(error) => {
+                    me.message = format!("{}: {error:#}", tr("Unable to read repository changes"));
+                }
+            }
+            ctx.notify();
+        }));
+    }
+
     fn update_files(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.turn_selected {
+            ctx.notify();
+            return;
+        }
         if self.mode != DiffMode::Head {
             self.refresh_comparison(ctx);
             return;
@@ -297,14 +422,18 @@ impl GitReviewView {
     }
 
     fn select_mode(&mut self, mode: DiffMode, ctx: &mut ViewContext<Self>) {
-        if self.mode == mode {
+        if self.mode == mode && !self.turn_selected {
             return;
         }
+        self.turn_refresh_id = self.turn_refresh_id.wrapping_add(1);
         if let Some(task) = self.refreshing.take() {
             task.abort();
         }
         self.refresh_pending = false;
         self.cancel_loading();
+        self.turn_selected = false;
+        self.turn_preview = None;
+        self.turn_kinds.clear();
         self.mode = mode;
         self.selector.update(ctx, |selector, ctx| {
             selector.set_mode(self.mode.clone(), ctx)
@@ -323,9 +452,13 @@ impl GitReviewView {
         let root = self.root.clone();
         let mode = self.mode.clone();
         let base = self.merge_base.clone();
+        let id = self.turn_refresh_id;
         self.refreshing = Some(ctx.spawn(
             async move { load_comparison(root, mode, base).await },
-            |me, result, ctx| {
+            move |me, result, ctx| {
+                if me.turn_selected || me.turn_refresh_id != id {
+                    return;
+                }
                 me.refreshing = None;
                 // An invalidation during the read supersedes this summary too.
                 if std::mem::take(&mut me.refresh_pending) {
@@ -363,7 +496,7 @@ impl GitReviewView {
 
     fn load_visible(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
         // The list may measure preceding items to estimate height; those are not load requests.
-        if (self.mode != DiffMode::Head && self.merge_base.is_none())
+        if (!self.turn_selected && self.mode != DiffMode::Head && self.merge_base.is_none())
             || index >= self.files.len()
             || (index != self.list.get_scroll_index()
                 && !self
@@ -402,6 +535,8 @@ impl GitReviewView {
         let read_path = path.clone();
         let status = self.file_statuses.get(&path).cloned();
         let revision = self.merge_base.clone();
+        let preview = self.turn_preview.clone();
+        let kind = self.turn_kinds.get(&path).copied();
         self.next_read_id = self.next_read_id.wrapping_add(1);
         let id = self.next_read_id;
         self.loading.push(PendingRead {
@@ -409,6 +544,16 @@ impl GitReviewView {
             id,
             task: ctx.spawn(
                 async move {
+                    if let Some(preview) = preview {
+                        let (base, current) = preview
+                            .read(
+                                PathBuf::from(read_path).as_path(),
+                                kind.context("Missing snapshot change")?,
+                                MAX_DIFF_SIZE,
+                            )
+                            .await?;
+                        return validate_content(base, current);
+                    }
                     let status = status.context("review snapshot missing file status")?;
                     load_file(root, read_path, status, revision, base).await
                 },
@@ -774,6 +919,10 @@ impl TypedActionView for GitReviewView {
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
             GitReviewAction::Refresh => {
+                if self.turn_selected {
+                    self.refresh_last_turn(ctx);
+                    return;
+                }
                 self.status
                     .update(ctx, |status, ctx| status.refresh_metadata(ctx));
             }
@@ -836,7 +985,16 @@ impl View for GitReviewView {
             .metadata(app)
             .map(|metadata| metadata.current_branch_name.as_str())
             .unwrap_or("");
-        let ready = self.mode == DiffMode::Head || self.merge_base.is_some();
+        let branch = if self.turn_selected {
+            String::new()
+        } else {
+            branch.to_owned()
+        };
+        let ready = if self.turn_selected {
+            self.turn_preview.is_some()
+        } else {
+            self.mode == DiffMode::Head || self.merge_base.is_some()
+        };
         let mut header = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
         header.add_child(
             Expanded::new(
@@ -959,6 +1117,38 @@ impl View for GitReviewView {
                     .with_margin_bottom(12.)
                     .finish(),
             );
+        if self.turn_selected {
+            let status = self
+                .last_turn
+                .as_ref()
+                .map(|model| model.as_ref(app).label())
+                .unwrap_or("");
+            let times = self
+                .turn_preview
+                .as_ref()
+                .map(|preview| {
+                    let format = |time| {
+                        chrono::DateTime::from_timestamp_millis(time as i64)
+                            .map(|time| {
+                                time.with_timezone(&chrono::Local)
+                                    .format("%H:%M:%S")
+                                    .to_string()
+                            })
+                            .unwrap_or_default()
+                    };
+                    format!(
+                        "  {} → {}",
+                        format(preview.baseline_at()),
+                        format(preview.sampled_at())
+                    )
+                })
+                .unwrap_or_default();
+            column.add_child(
+                Text::new_inline(format!("{status}{times}"), font, 12.)
+                    .with_color(theme.sub_text_color(theme.background()).into())
+                    .finish(),
+            );
+        }
         if !self.message.is_empty() {
             column.add_child(
                 Text::new_inline(self.message.clone(), font, 13.)

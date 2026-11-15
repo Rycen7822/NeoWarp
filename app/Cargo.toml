@@ -208,6 +208,7 @@ warp_core.workspace = true
 warp_editor.workspace = true
 warp_search_core.workspace = true
 warp_util.workspace = true
+wsl_git_watcher = { path = "../crates/wsl_git_watcher" }
 warpui = { workspace = true, features = ["schema_gen", "settings_value"] }
 warpui_core.workspace = true
 warpui_extras = { workspace = true, features = ["default", "user_preferences-toml"] }

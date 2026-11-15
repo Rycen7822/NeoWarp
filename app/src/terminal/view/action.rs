@@ -155,6 +155,9 @@ pub enum TerminalAction {
     KeyboardSelectText(SelectionDirection),
     UserInputSequence(Vec<u8>),
     ControlSequence(Vec<u8>),
+    SubmitControlSequence(Vec<u8>),
+    SubmitKeyDown(String),
+    CancelTurnInput,
     RunNativeShellCompletions {
         buffer_text: String,
         results_tx:
@@ -354,6 +357,9 @@ impl fmt::Debug for TerminalAction {
             ExpandBlockSelectionBelow => f.write_str("ExpandBlockSelectionBelow"),
             UserInputSequence(_) => f.write_str("UserInputSequence"),
             ControlSequence(_) => f.write_str("ControlSequence"),
+            SubmitControlSequence(_) => f.write_str("SubmitControlSequence"),
+            SubmitKeyDown(_) => f.write_str("SubmitKeyDown"),
+            CancelTurnInput => f.write_str("CancelTurnInput"),
             KeyDown(_) => f.write_str("KeyDown"),
             TypedCharacters(_) => f.write_str("TypedCharacters"),
             NotificationsDiscoveryBanner(action) => {

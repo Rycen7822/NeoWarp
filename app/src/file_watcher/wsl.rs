@@ -20,6 +20,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::json;
 use warpui::r#async::executor::Background;
+use wsl_git_watcher::snapshot::{Operation as SnapshotOperation, Reply as SnapshotReply};
 
 use super::FileChanges;
 
@@ -60,6 +61,13 @@ enum Control {
     CancelRead {
         id: u64,
     },
+    Snapshot {
+        id: u64,
+        root: String,
+        session: String,
+        operation: Option<SnapshotOperation>,
+        reply: oneshot::Sender<std::result::Result<SnapshotReply, String>>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -81,12 +89,70 @@ enum Event {
         id: u64,
         result: std::result::Result<ReviewContents, String>,
     },
+    Snapshot {
+        id: u64,
+        result: std::result::Result<SnapshotReply, String>,
+    },
 }
 
 #[derive(Deserialize)]
 pub(crate) struct ReviewContents {
     pub base: Option<String>,
     pub current: String,
+}
+
+/// A strong reference keeps this distribution's existing helper alive even if
+/// no sidebar watcher is currently subscribed. Snapshot work stays in Linux.
+#[derive(Clone)]
+pub(crate) struct SnapshotClient {
+    service: Arc<Service>,
+    root: String,
+    session: String,
+}
+
+impl SnapshotClient {
+    pub(crate) fn new(root: &Path, session: String, executor: &Background) -> Option<Self> {
+        let root = warp_util::path::parse_wsl_unc_path(root)?;
+        Some(Self {
+            service: service(&root.distro, executor),
+            root: root.linux_path,
+            session,
+        })
+    }
+
+    pub(crate) async fn execute(
+        &self,
+        operation: Option<SnapshotOperation>,
+    ) -> Result<SnapshotReply> {
+        let _permit = self
+            .service
+            .read_slots
+            .acquire()
+            .await
+            .context("WSL snapshot queue closed")?;
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let (reply, result) = oneshot::channel();
+        let _guard = ReadGuard {
+            service: &self.service,
+            id,
+        };
+        self.service
+            .control
+            .try_send(Control::Snapshot {
+                id,
+                root: self.root.clone(),
+                session: self.session.clone(),
+                operation,
+                reply,
+            })
+            .context("WSL snapshot pipe closed")?;
+        // Capturing all ignored text can take minutes on a cold repository.
+        // Cancellation drops this future; do not impose the file-reader timeout.
+        result
+            .await
+            .context("WSL snapshot pipe closed")?
+            .map_err(anyhow::Error::msg)
+    }
 }
 
 struct ReadGuard<'a> {
@@ -247,32 +313,7 @@ pub(crate) fn subscribe(
     executor: &Background,
 ) -> Option<(Subscription, Receiver<()>)> {
     let path = warp_util::path::parse_wsl_unc_path(path)?;
-    let mut services = SERVICES.lock();
-    services.retain(|_, sender| sender.strong_count() > 0);
-    let key = path.distro.to_ascii_lowercase();
-    let service = services
-        .get(&key)
-        .and_then(Weak::upgrade)
-        .filter(|service| !service.control.is_closed())
-        .unwrap_or_else(|| {
-            let (tx, rx) = async_channel::unbounded();
-            let ready = Arc::new(AtomicBool::new(false));
-            let service = Arc::new(Service {
-                control: tx,
-                ready: ready.clone(),
-                // Match the sidecar's maximum active review requests.
-                read_slots: tokio::sync::Semaphore::new(3),
-            });
-            services.insert(key, Arc::downgrade(&service));
-            executor
-                .spawn(async move {
-                    if let Err(error) = run(&path.distro, rx, ready).await {
-                        log::warn!("WSL filesystem watcher unavailable: {error:#}");
-                    }
-                })
-                .detach();
-            service
-        });
+    let service = service(&path.distro, executor);
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (events, receiver) = async_channel::bounded(1);
     let pending = Arc::new(Mutex::new(FileChanges::default()));
@@ -291,6 +332,36 @@ pub(crate) fn subscribe(
         },
         receiver,
     ))
+}
+
+fn service(distro: &str, executor: &Background) -> Arc<Service> {
+    let mut services = SERVICES.lock();
+    services.retain(|_, sender| sender.strong_count() > 0);
+    let key = distro.to_ascii_lowercase();
+    let distro = distro.to_owned();
+    services
+        .get(&key)
+        .and_then(Weak::upgrade)
+        .filter(|service| !service.control.is_closed())
+        .unwrap_or_else(|| {
+            let (tx, rx) = async_channel::unbounded();
+            let ready = Arc::new(AtomicBool::new(false));
+            let service = Arc::new(Service {
+                control: tx,
+                ready: ready.clone(),
+                // Match the sidecar's maximum active review requests.
+                read_slots: tokio::sync::Semaphore::new(3),
+            });
+            services.insert(key, Arc::downgrade(&service));
+            executor
+                .spawn(async move {
+                    if let Err(error) = run(&distro, rx, ready).await {
+                        log::warn!("WSL filesystem watcher unavailable: {error:#}");
+                    }
+                })
+                .detach();
+            service
+        })
 }
 
 async fn run(distro: &str, control: Receiver<Control>, ready: Arc<AtomicBool>) -> Result<()> {
@@ -316,6 +387,7 @@ async fn run(distro: &str, control: Receiver<Control>, ready: Arc<AtomicBool>) -
     let mut lines = BufReader::new(child.stdout.take().context("missing helper stdout")?).lines();
     let mut subscribers = HashMap::<u64, (Sender<()>, Arc<Mutex<FileChanges>>)>::new();
     let mut reads = HashMap::new();
+    let mut snapshots = HashMap::new();
     let result = async {
         loop {
             // Keep the lines stream alive across cancelled selects; partially
@@ -350,7 +422,12 @@ async fn run(distro: &str, control: Receiver<Control>, ready: Arc<AtomicBool>) -
                         }
                         Control::CancelRead { id } => {
                             reads.remove(&id);
+                            snapshots.remove(&id);
                             json!({"op": "cancel_read", "id": id})
+                        }
+                        Control::Snapshot { id, root, session, operation, reply } => {
+                            snapshots.insert(id, reply);
+                            json!({"op": "snapshot", "id": id, "root": root, "session": session, "operation": operation})
                         }
                     };
                     let mut request = serde_json::to_vec(&request)?;
@@ -382,12 +459,15 @@ async fn run(distro: &str, control: Receiver<Control>, ready: Arc<AtomicBool>) -
                             }
                             continue;
                         }
+                        Event::Snapshot { id, result } => {
+                            if let Some(reply) = snapshots.remove(&id) { let _ = reply.send(result); }
+                            continue;
+                        }
                         Event::Error { id, message } => {
                             log::warn!("WSL filesystem watcher subscription failed: {message}");
                             subscribers.remove(&id);
-                            if subscribers.is_empty() {
-                                break;
-                            }
+                            // Snapshot clients can still own this helper without watches.
+                            // Its control channel, not the watch count, owns its lifetime.
                             continue;
                         }
                     };

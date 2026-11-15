@@ -244,7 +244,7 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
             {
                 continue;
             }
-            let transcript = if query.provider == Provider::Pi {
+            let transcript = if query.provider != Provider::Hermes {
                 let relative = entry.path().strip_prefix(&native_root)?;
                 Some(join(&root, &relative.to_string_lossy().replace('\\', "/")))
             } else {

@@ -11543,11 +11543,21 @@ impl TypedActionView for Workspace {
                             .update(ctx, |model, ctx| model.subscribe(&location, ctx));
                         match status {
                             Ok(status) => {
+                                let last_turn =
+                                    self.active_session_view(ctx).and_then(|terminal| {
+                                        terminal.update(ctx, |terminal, ctx| {
+                                            terminal.last_turn_review(ctx)
+                                        })
+                                    });
                                 let snapshot = self.git_review_snapshot.take();
                                 self.git_review_view = Some(ctx.add_typed_action_view(|ctx| {
-                                    crate::code_review::review::GitReviewView::new(
+                                    let mut review = crate::code_review::review::GitReviewView::new(
                                         root, status, snapshot, ctx,
-                                    )
+                                    );
+                                    if let Some(model) = last_turn {
+                                        review.attach_last_turn(model, ctx);
+                                    }
+                                    review
                                 }));
                                 self.current_workspace_state.is_keybindings_open = false;
                                 ctx.notify();
