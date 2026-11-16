@@ -1436,11 +1436,12 @@ esac
     # Since bash-preexec actually uses PROMPT_COMMAND, we shouldn't do this if bash-preexec
     # is installed from /etc/bash.bashrc. If it's included in the user's rcfiles, it
     # should've guarded on the presence of bash_preexec_imported and no-oped.
-    if [[ -n $PROMPT_COMMAND && -z $BASH_PREEXEC_IN_ETC_BASHRC ]]; then
+    # Arrays can reserve an empty first element, as systemd's OSC context does.
+    if [[ -n ${PROMPT_COMMAND[*]} && -z $BASH_PREEXEC_IN_ETC_BASHRC ]]; then
         # Do not honor the user's PROMPT_COMMAND if it re-assigns PROMPT_COMMAND, as that
         # will break the precmd hook. This is the case in Kali Linux's default .bashrc
         # https://gist.github.com/Searge/158f9061da831a53eeacff44eac71447#file-bashrc-L100
-        if [[ ! $PROMPT_COMMAND =~ "PROMPT_COMMAND=" ]]; then
+        if [[ ! ${PROMPT_COMMAND[*]} =~ "PROMPT_COMMAND=" ]]; then
             # We treat the PROMPT_COMMAND as an array in case users are using bash 5.1
             # array variant of PROMPT_COMMAND. If PROMPT_COMMAND is a string, this will
             # still work, just create a length 1 array.
@@ -1469,7 +1470,7 @@ esac
     #
     # If PROMPT_COMMAND is set and it's an array, "join" the array into a newline-delimited string,
     # then overwrite PROMPT_COMMAND
-    if [[ -n $PROMPT_COMMAND && "$(declare -p PROMPT_COMMAND)" =~ "declare -a" ]]; then
+    if [[ -n ${PROMPT_COMMAND[*]} && "$(declare -p PROMPT_COMMAND)" =~ "declare -a" ]]; then
         PROMPT_COMMAND_FLATTENED=$(IFS=$'\n'; echo "${PROMPT_COMMAND[*]}")
         unset PROMPT_COMMAND
         PROMPT_COMMAND=$PROMPT_COMMAND_FLATTENED
