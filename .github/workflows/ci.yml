@@ -1,589 +1,126 @@
-on:
-  pull_request:
-    branches:
-      - 'main'
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-  workflow_call:
-
 name: NeoWarp CI
-
+on:
+  workflow_dispatch:
 permissions:
   contents: read
-  pull-requests: read
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_BUILD_JOBS: '2'
-  CARGO_INCREMENTAL: '0'
-  RUST_TEST_THREADS: '1'
-  NEXTEST_TEST_THREADS: '1'
-  NEXTEST_PROFILE: ci
-  WORKSPACE_TEST_ARGS: --workspace --locked
-  # Include only as much debug info as is necessary to see backtraces
-  # in test failures.  This should speed up compilation somewhat and
-  # reduces the size of built artifacts (which addresses issues with
-  # running out of space on GitHub-hosted runners).
-  RUSTFLAGS: -C debuginfo=line-tables-only --cfg=web_sys_unstable_apis
-  # Ensure we open up real windows that render their contents via the GPU,
-  # so that we can exercise the actual rendering logic.
-  WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS: 1
-
-concurrency:
-  # Cancel any outstanding CI workflow runs against the same PR.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  params:
-    name: Compute workflow parameters
-    timeout-minutes: 3
+  bash-diagnostic:
     runs-on: ubuntu-latest
-    # Keep draft PRs out of expensive jobs; the result job must still reject skips.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    outputs:
-      affects-database-schema: ${{ github.event_name != 'pull_request' || steps.filter.outputs.affects-database-schema }}
-      affects-rust-sources: ${{ github.event_name != 'pull_request' || steps.filter.outputs.affects-rust-sources }}
-      needs-build: ${{ github.event_name != 'pull_request' || steps.build_filter.outputs.needs-build }}
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Check changed files
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          filters: |
-            affects-database-schema:
-              - 'diesel.toml'
-              - 'crates/persistence/src/schema.rs'
-              - 'crates/persistence/migrations/**'
-            affects-rust-sources:
-              - '**.rs'
-
-      - name: Check for build inputs
-        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: build_filter
-        with:
-          predicate-quantifier: every
-          filters: |
-            needs-build:
-              - '**'
-              # Only human-readable files in known documentation locations may skip builds.
-              # Markdown elsewhere, including bundled skills, can affect shipped behavior.
-              - '!AGENTS.md'
-              - '!CODE_OF_CONDUCT.md'
-              - '!CONTRIBUTING.md'
-              - '!FAQ.md'
-              - '!README.md'
-              - '!SECURITY.md'
-              - '!.github/**/*.md'
-              - '!specs/**'
-
-  tests:
-    name: Run ${{ matrix.name }} tests
-    # Cold macOS builds must finish the serial GUI/shell tests before saving their cache.
-    timeout-minutes: ${{ matrix.os == 'macos' && 90 || 35 }}
-    env:
-      # These GUI integration fixtures require the former Warp GCP test VM.
-      # They remain unverified here; local SSH/daemon unit tests still run.
-      PRIVATE_VM_TESTS_FILTER: " and not test(/(_ssh_|remote_server)/)"
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: "macos"
-            name: "MacOS"
-            runner: macos-15-intel
-
-          - os: "linux"
-            name: "Linux"
-            runner: ubuntu-latest
-
-          - os: "windows"
-            name: "Windows"
-            runner: windows-latest
-    runs-on: ${{ matrix.runner }}
-    needs: params
-    if: ${{ needs.params.outputs.needs-build == 'true' }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - uses: ./.github/actions/prepare_environment
-        with:
-          target_os: ${{ matrix.os }}
-          install_test_deps: true
-
-      - name: Install Shells
-        if: ${{ matrix.os != 'macos' }}
-        uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
-        with:
-          apt: zsh fish
-
-      - name: Install MacOS shells
-        if: ${{ matrix.os == 'macos' }}
-        shell: bash
-        run: |
-          # Use the official relocatable CLI instead of building Fish's toolchain dependencies.
-          fish_version="4.9.3"
-          fish_dir="$GITHUB_WORKSPACE/.work/tools/fish-$fish_version"
-          fish_bin="$fish_dir/fish-$fish_version.app/Contents/Resources/base/usr/local/bin"
-          archive="$RUNNER_TEMP/.work/neowarp/fish-$fish_version.app.zip"
-          mkdir -p "$fish_dir" "$(dirname "$archive")"
-          if [[ ! -x "$fish_bin/fish" ]]; then
-            curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
-              "https://github.com/fish-shell/fish-shell/releases/download/$fish_version/fish-$fish_version.app.zip" \
-              -o "$archive"
-            unzip -oq "$archive" -d "$fish_dir"
-          fi
-          "$fish_bin/fish" --version
-          echo "$fish_bin" >> "$GITHUB_PATH"
-          # Keep the image's Homebrew Bash alongside the system Bash for the existing tests.
-          if ! brew list --versions bash >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
-          fi
-
-      - name: Echo Shells (UNIX)
-        id: echo_shells_unix
-        if: ${{ matrix.os != 'windows' }}
-        shell: bash
-        run: |
-          if ${{ matrix.os == 'macos' }}; then
-            LATEST_BASH_PATH="$(brew --prefix bash)/bin/bash"
-            echo "latest_bash_path=$LATEST_BASH_PATH" >> $GITHUB_OUTPUT
-            LATEST_BASH_VERSION="$($LATEST_BASH_PATH --version)"
-            echo "::notice title=${{ matrix.name }} Tests - Latest Bash Version::$LATEST_BASH_VERSION"
-          fi
-
-          DEFAULT_BASH_PATH="$(command -pv bash)"
-          DEFAULT_BASH_VERSION="$($DEFAULT_BASH_PATH --version)"
-          echo "default_bash_path=$DEFAULT_BASH_PATH" >> $GITHUB_OUTPUT
-          echo "::notice title=${{ matrix.name }} Tests - Default Bash Version::$DEFAULT_BASH_VERSION"
-
-          FISH_PATH="$(which fish)"
-          echo "fish_path=$FISH_PATH" >> $GITHUB_OUTPUT
-          FISH_VERSION="$($FISH_PATH --version)"
-          echo "::notice title=${{ matrix.name }} Tests - Fish Version::$FISH_VERSION"
-
-          ZSH_VERSION="$(zsh --version)"
-          ZSH_PATH="$(which zsh)"
-          echo "zsh_path=$ZSH_PATH" >> $GITHUB_OUTPUT
-          echo "::notice title=${{ matrix.name }} Tests - Zsh Version::$ZSH_VERSION"
-
-          POWERSHELL_PATH="$(which pwsh)"
-          POWERSHELL_VERSION=$(pwsh -version | awk '{print $2}')
-          echo "powershell_path=$POWERSHELL_PATH" >> $GITHUB_OUTPUT
-          echo "::notice title=${{ matrix.name }} Tests - Powershell Version::$POWERSHELL_VERSION"
-
-      - name: Echo Shells (Windows)
-        id: echo_shells_windows
-        if: ${{ matrix.os == 'windows' }}
-        shell: pwsh
-        run: |
-          $env:POWERSHELL_PATH = (Get-Command pwsh).Source
-          $env:POWERSHELL_VERSION = (Get-Command pwsh).Version.Major
-          Write-Output 'Powershell path:' $env:POWERSHELL_PATH
-          Write-Output 'Powershell version:' $env:POWERSHELL_VERSION
-          Write-Output "powershell_path=$env:POWERSHELL_PATH" >> $env:GITHUB_OUTPUT
-          Write-Output "::notice title=${{ matrix.name }} Tests - Powershell Version::$env:POWERSHELL_VERSION"
-
-      - name: Echo Default Shell
-        id: echo_default_shell
-        shell: bash
-        run: |
-          if ${{ matrix.os == 'windows' }}; then
-            DEFAULT_SHELL="${{ steps.echo_shells_windows.outputs.powershell_path }}"
-          else
-            DEFAULT_SHELL="${{ steps.echo_shells_unix.outputs.zsh_path }}"
-          fi
-          echo "Using default shell '$DEFAULT_SHELL'"
-          echo "default_shell_path=$DEFAULT_SHELL" >> $GITHUB_OUTPUT
-
-      - name: Install cargo nextest
-        shell: bash
-        run: |
-          nextest_version="0.9.150"
-          if [[ "$(cargo nextest --version 2>/dev/null)" != "cargo-nextest $nextest_version "* ]]; then
-            cargo binstall --no-confirm --no-discover-github-token --force cargo-nextest --version "$nextest_version"
-          fi
-          cargo nextest --version
-
-      - name: Run ssh-agent for SSH tests
-        if: ${{ matrix.os == 'linux' }}
-        run: |
-          # Create the .ssh dir.
-          mkdir -p ~/.ssh
-
-          # Run the agent.
-          eval "$(ssh-agent -s)"
-
-          # Persist the SSH_AUTH_SOCK and SSH_AGENT_PID for future steps
-          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
-          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
-
-      - name: Install vim for richer alt-screen tests
-        if: ${{ matrix.os != 'macos' }}
-        uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
-        with:
-          apt: vim
-
-      - name: Ensure Vim for MacOS alt-screen tests
-        if: ${{ matrix.os == 'macos' }}
-        shell: bash
-        run: |
-          if ! vim --version >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install vim
-          fi
-          vim --version
-
-      - name: Compile tests
-        id: compile_tests
-        run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} --no-run
-        env:
-          # Attach the GitHub auth token so that requests to the GitHub API
-          # don't get rate limited while fetching native build dependencies.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run unit tests
-        # Unlike later test steps, only run this if previous steps succeed (so
-        # that we don't bother running these first tests if test compilation
-        # fails).
-        if: success()
-        run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "not package(integration)"
-        env:
-          # Keep GUI integration steps serial; only unit-test processes use four slots.
-          NEXTEST_TEST_THREADS: '4'
-          # Unit tests may end up spawning a shell, but shouldn't care which
-          # shell it is.  We'll use zsh, as it has the shortest bootstrap times
-          # and tends to be the most reliable.
-          WARP_SHELL_PATH: ${{ steps.echo_default_shell.outputs.default_shell_path }}
-
-      - name: Run shell-agnostic integration tests
-        # Continue after test failures, but do not retry a failed compilation.
-        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
-        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
-        with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and not test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
-        env:
-          # We run shell-agnostic tests against zsh, as it has the shortest
-          # bootstrap times and tends to be the most reliable.
-          WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.zsh_path }}
-
-      - name: Run shell integration tests against default version of bash
-        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
-        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
-        with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
-        env:
-          WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.default_bash_path }}
-
-      - name: Run shell integration tests against latest version of bash
-        # Run this step even if a previous test step fails.
-        # We only run this on MacOS since the default Bash version on Mac
-        # was released in 2007. Most Linux distros ship with a relatively
-        # new (version 5.0+) version of Bash.
-        if: (success() || failure()) && runner.os == 'macos' && steps.compile_tests.outcome == 'success'
-        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
-        with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
-        env:
-          WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.latest_bash_path }}
-
-      - name: Run shell integration tests against fish
-        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
-        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
-        with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
-        env:
-          WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.fish_path }}
-
-      - name: Run shell integration tests against zsh
-        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
-        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
-        with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
-        env:
-          WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.zsh_path }}
-
-      - name: Run shell integration tests against powershell
-        if: matrix.os != 'windows' && (success() || failure()) && steps.compile_tests.outcome == 'success'
-        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
-        with:
-          run: cargo nextest run ${{ env.WORKSPACE_TEST_ARGS }} -E "package(integration) and test(shell_integration_tests)${{ env.PRIVATE_VM_TESTS_FILTER }}"
-        env:
-          WARP_SHELL_PATH: ${{ steps.echo_shells_unix.outputs.powershell_path }}
-
-      # Run doctests explicitly, as nextest doesn't yet support running them.
-      # See: https://github.com/nextest-rs/nextest/issues/16
-      - name: Run doc tests
-        # Keep compile/test failure diagnostics, but do not compile after setup failed.
-        if: (success() || failure()) && steps.compile_tests.outcome != 'skipped'
-        run: cargo test ${{ env.WORKSPACE_TEST_ARGS }} --doc
-
-    # This is longer than we like and temporary until we speed up integration tests
-    # The maximum timeout for the entire job is 6 hours:
-    # https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepstimeout-minutes
-
-  database-migration:
-    name: Database Migration (Diesel)
     timeout-minutes: 5
-    runs-on: ubuntu-latest
-    needs: params
-    if: ${{ needs.params.outputs.affects-database-schema == 'true' }}
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Install cargo-binstall
-        run: ./script/install_cargo_binstall
-
-      - name: Install diesel_cli
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - name: Show shell environment
         run: |
-          # Schema output changes across Diesel CLI versions.
-          cargo binstall diesel_cli --version 2.3.14
-
-      - name: Run all migrations on empty file
+          /bin/bash --version
+          env | sort | grep -E '^(BASH|SHELLOPTS|HIST|READLINE|TERM=)' || true
+          cat /etc/bash.bashrc /etc/inputrc
+      - name: Exercise production bootstrap in a private PTY
         run: |
-          mkdir -p .work/ci
-          cp crates/persistence/src/schema.rs .work/ci/schema-before.rs
-          diesel migration run --database-url=".work/ci/migrations.sqlite" --migration-dir="crates/persistence/migrations"
-
-      - name: Regenerate schema and check if it is consistent with the schema at HEAD
-        shell: bash
-        run: |
-          diff -u .work/ci/schema-before.rs <(diesel print-schema --database-url=".work/ci/migrations.sqlite")
-
-  lints:
-    name: Formatting + Clippy (${{ matrix.name }})
-    timeout-minutes: ${{ matrix.os == 'macos' && 30 || 20 }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: "macos"
-            name: "MacOS"
-            runner: macos-15-intel
-
-          - os: "linux"
-            name: "Linux"
-            runner: ubuntu-latest
-
-          - os: "windows"
-            name: "Windows"
-            runner: windows-latest
-    runs-on: ${{ matrix.runner }}
-    needs: params
-    if: ${{ needs.params.outputs.needs-build == 'true' }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - uses: ./.github/actions/prepare_environment
-        with:
-          target_os: ${{ matrix.os }}
-
-      - name: Run ./script/format
-        # Rust formatting is platform-independent; Clippy remains on every platform.
-        if: matrix.os == 'linux'
-        shell: bash
-        run: ./script/format --check
-
-      - name: Run cargo clippy
-        shell: bash
-        run: |
-          set -e
-          # On Windows, omit --all-features because pprof and related profiling features don't compile.
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            cargo clippy --locked --workspace --all-targets --tests -- -D warnings
-          else
-            # TODO(vorporeal): Re-enable the `all-features` flag once we've fixed things.
-            cargo clippy --locked --workspace --all-targets --tests -- -D warnings
-          fi
-        env:
-          # Attach the GitHub auth token so that requests to the GitHub API
-          # don't get rate limited while fetching native build dependencies.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run clang-format
-        if: ${{ matrix.os == 'macos' }}
-        run: |
-          if [[ ! -d $(brew --prefix clang-format) ]]; then
-            brew install clang-format
-          fi
-          ./script/run-clang-format.py -r --extensions 'c,h,cpp,m' ./crates/warpui/src/ ./app/src/
-
-  general-lint:
-    name: Miscellaneous checks
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-    runs-on: ubuntu-latest
-    needs: params
-    if: ${{ needs.params.outputs.needs-build == 'true' }}
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: . -> .work/target
-          # Only cache runs on the main branch (caches on feature branches
-          # are not reusable).
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Install cargo-binstall
-        run: ./script/install_cargo_binstall
-
-      - name: Check licenses for dependencies
-        run: |
-          cargo binstall --force -y cargo-deny
-          # Make sure all of our dependencies use licenses that are compatible with
-          # our usage.
-          cargo deny -L error check licenses
-
-      - name: Check deny.toml / about.toml license sync
-        run: ./script/check_license_config_sync
-
-      - name: Run WGSL formatter
-        run: |
-          # note: this matches the version used in script/install_cargo_test_deps...
-          # if changing here, probably a good idea to change there too to keep dev tools on local ~= CI
-          cargo install --git https://github.com/wgsl-analyzer/wgsl-analyzer --tag "2025-06-28" wgslfmt && \
-          git ls-files -z '*.wgsl' | xargs -0 wgslfmt --check
-
-      - name: Install ShellCheck
-        uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
-        with:
-          apt: shellcheck
-
-      - name: Run ShellCheck
-        run: ./script/lint_shellcheck --ci
-
-      - name: Run PSScriptAnalyzer (PowerShell Lint)
-        run: ./script/lint_powershell -ci
-        shell: pwsh
-
-      - name: Check for incorrectly named test files
-        run: |
-          # Test files should end in _tests.rs, not _test.rs.
-          bad_files=$(git ls-files '*_test.rs')
-          if [ -n "$bad_files" ]; then
-            while IFS= read -r f; do
-              echo "::error file=$f::Test file should be named ${f/_test.rs/_tests.rs} (use _tests.rs, not _test.rs)"
-            done <<< "$bad_files"
-            exit 1
-          fi
-
-      - name: Check for inline Rust test modules
-        run: ./script/check_no_inline_test_modules
-
-  check-release-compilation:
-    name: Verify compilation with release flags (${{ matrix.name }})
-    timeout-minutes: ${{ matrix.os == 'macos' && 30 || 15 }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: "macos"
-            name: "MacOS"
-            runner: macos-15-intel
-            null_device: "/dev/null"
-
-          - os: "linux"
-            name: "Linux"
-            runner: ubuntu-latest
-            null_device: "/dev/null"
-
-          - os: "windows"
-            name: "Windows"
-            runner: windows-latest
-            null_device: "NUL"
-
-    runs-on: ${{ matrix.runner }}
-    needs: params
-    if: ${{ needs.params.outputs.needs-build == 'true' }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - uses: ./.github/actions/prepare_environment
-        with:
-          target_os: ${{ matrix.os }}
-
-      - name: Build static WSL Git watcher
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: |
-          rustup target add x86_64-unknown-linux-musl --toolchain 1.92.0
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot install the WSL helper target' }
-          ./script/windows/prepare_wsl_git_watcher.ps1 -OutputDirectory .work/target/debug
-
-      - name: Verify compilation with release flags
-        shell: bash
-        run: |
-          ./script/bundle --nouniversal --check-only
-        env:
-          # Attach the GitHub auth token so that requests to the GitHub API
-          # don't get rate limited while fetching native build dependencies.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # A final job that collects the results of all of the parallel CI jobs and
-  # makes sure that all of them pass.
-  #
-  # This allows us to tell GitHub that the only required check is this "gather"
-  # job, simplifying the process of adding and removing jobs to the CI
-  # workflow.
-  ci-result:
-    name: Check CI results
-    timeout-minutes: 3
-    runs-on: ubuntu-slim
-    # A skipped required job (including a draft's params) is never a passing CI run.
-    if: ${{ !cancelled() }}
-    needs:
-      - params
-      - database-migration
-      - tests
-      - lints
-      - general-lint
-      - check-release-compilation
-    steps:
-      - name: Check CI results
-        shell: bash
-        run: |
-          needs_build="${{ needs.params.outputs.needs-build }}"
-
-          echo '${{ toJSON(needs) }}' | jq -r --arg needs_build "$needs_build" '
-            to_entries |
-            map(select(.key != "database-migration")) |
-            .[] |
-            (if .key == "params" or $needs_build == "true" then "success" else "skipped" end) as $expected |
-            if .value.result != $expected then
-              "::error::Job \(.key) had unexpected status \(.value.result) (expected: \($expected))"
-            else
-              empty
-            end
-          ' | {
-            if read -r error; then
-              echo "$error"
-              exit 1
-            fi
-          }
-        
-          # Special handling for conditional database-migration job.
-          affects_schema="${{ needs.params.outputs.affects-database-schema }}"
-          migration_result="${{ needs.database-migration.result }}"
+          python3 - /bin/bash --full <<'PY'
+          import fcntl
+          import json
+          import os
+          from pathlib import Path
+          import pty
+          import re
+          import select
+          import signal
+          import subprocess
+          import sys
+          import termios
+          import time
           
-          if [[ "$affects_schema" == "true" && "$migration_result" != "success" ]]; then
-            echo "::error::Database migration job failed or was skipped when it should have run (status: $migration_result)"
-            exit 1
-          elif [[ "$affects_schema" != "true" && "$migration_result" != "skipped" ]]; then
-            echo "::error::Database migration job should have been skipped but wasn't (status: $migration_result)"
-            exit 1
-          fi
-        
-          echo "All jobs completed successfully!"
+          root = Path(os.environ['GITHUB_WORKSPACE'])
+          work = root / '.work/controls/ci-bash-20261116'
+          bash = sys.argv[1]
+          home = work / 'fresh-home'
+          home.mkdir(parents=True, exist_ok=True)
+          source = (root / 'app/assets/bundled/bootstrap/bash.sh').read_text()
+          functions = source.split(' # This string, after interpolation', 1)[0]
+          rc = work / 'probe.rc'
+          rc.write_text(functions + '''
+          PS1='PROBE> '
+          HISTCONTROL=ignorespace
+          define_bashpreexec_functions
+          preexec() { printf '\\036PREEXEC:%s\\037' "$1"; }
+          report_input() { printf '\\036BIND_REPORT\\037'; READLINE_LINE=''; }
+          bind -x '"\\C-xp":report_input'
+          install_bashpreexec
+          ''')
+          producer = '--producer' in sys.argv
+          if producer:
+              body = (root / 'app/assets/bundled/bootstrap/bash_body.sh').read_text()
+              names = ('warp_escape_json', 'warp_hex_encode_string', 'warp_send_json_message',
+                  'warp_maybe_send_reset_grid_osc', 'warp_agent_launch_environment', 'warp_preexec', 'warp_report_input')
+              selected = '\n'.join(re.search(r'^    ' + name + r'\s*\(\).*?^    }', body,
+                  re.MULTILINE | re.DOTALL).group() for name in names)
+              rc.write_text(functions + '''
+          PS1='PROBE> '
+          WARP_SESSION_ID=1
+          WARP_IN_MSYS2=false
+          WARP_USING_WINDOWS_CON_PTY=false
+          DCS_START=$'\\eP$'
+          DCS_JSON_MARKER=d
+          DCS_END=$'\\e\\\\'
+          define_bashpreexec_functions
+          ''' + selected + '''
+          preexec_functions+=(warp_preexec)
+          bind -x '"\\C-xp":warp_report_input'
+          install_bashpreexec
+          ''')
+          def preexec_count(data):
+              if not producer:
+                  return data.count(b'\x1ePREEXEC:')
+              hooks = [json.loads(bytes.fromhex(m.group(1).decode())) for m in
+                  re.finditer(rb'\x1bP\$d(.*?)\x1b\\', data, re.DOTALL)]
+              return sum(h['hook'] == 'Preexec' for h in hooks)
+          if '--full' in sys.argv:
+              producer = True
+              body = (root / 'app/assets/bundled/bootstrap/bash_body.sh').read_text()
+              bootstrap = source.replace('#include bundled/bootstrap/bash_body.sh', body)
+              rc.write_text('WARP_SESSION_ID=1\nWARP_IN_MSYS2=false\nWARP_USING_WINDOWS_CON_PTY=false\n' + bootstrap + '''
+          PS1='PROBE> '
+          bind -x '"\\C-xp":warp_report_input'
+          probe_ready() { printf '\\036READY\\037'; }
+          precmd_functions+=(probe_ready)
+          ''')
+          master, slave = pty.openpty()
+          def attach():
+              os.setsid()
+              fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+          env = dict(os.environ, HOME=str(home), HISTFILE=str(home / 'history'), TERM='xterm-256color')
+          process = subprocess.Popen([bash, '--noprofile', '--rcfile', str(rc), '-i'],
+              stdin=slave, stdout=slave, stderr=slave, env=env, preexec_fn=attach)
+          os.close(slave)
+          def receive(marker):
+              data = b''
+              deadline = time.monotonic() + 5
+              while marker not in data and time.monotonic() < deadline:
+                  if select.select([master], [], [], max(0, deadline - time.monotonic()))[0]:
+                      data += os.read(master, 65536)
+              if marker not in data:
+                  raise RuntimeError(repr(data))
+              return data
+          try:
+              ready = b'\x1eREADY\x1f' if '--full' in sys.argv else b'PROBE> '
+              initial = receive(ready)
+              os.write(master, b"printf 'FIRST\\n'\n")
+              before = receive(ready)
+              os.write(master, b'typeahead\x18p')
+              binding = receive(b'\x1b\\' if producer else b'\x1eBIND_REPORT\x1f')
+              os.write(master, b"printf '\\036RESULT:%s\\037\\n' \"${READLINE_LINE+x}\"\n")
+              after = receive(b'\x1f\r\n')
+              print(json.dumps(dict(bash=bash, before=before.decode(), binding=binding.decode(), after=after.decode())))
+              assert preexec_count(before) == 1, 'first command needs preexec'
+              assert preexec_count(binding) == 0, 'readline binding must not trigger preexec'
+              assert preexec_count(after) == 1, 'command after binding needs preexec'
+          finally:
+              os.write(master, b'exit\n')
+              try:
+                  process.wait(timeout=3)
+              except subprocess.TimeoutExpired:
+                  os.killpg(process.pid, signal.SIGKILL)
+                  process.wait()
+              os.close(master)
+          
+          PY
