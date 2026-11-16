@@ -322,7 +322,8 @@ pub fn test_bash_bootstraps_with_prompt_command_array() -> Builder {
             write_rc_files_for_test(
                 dir,
                 r#"
-PROMPT_COMMAND=('printf "\033]0;TEST_TAB_TITLE\a"' 'echo hello')
+# A prompt integration can reserve an empty first element, as systemd does.
+PROMPT_COMMAND=('' 'printf "\033]0;TEST_TAB_TITLE\a"' 'echo hello')
 "#,
                 [ShellRcType::Bash],
             );
