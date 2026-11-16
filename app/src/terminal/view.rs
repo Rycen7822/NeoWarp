@@ -8166,7 +8166,18 @@ impl TerminalView {
         modifiers: &ModifiersState,
         ctx: &mut ViewContext<Self>,
     ) {
-        if self.terminal_is_selecting(&self.model.lock(), ctx) {
+        let selecting = self.terminal_is_selecting(&self.model.lock(), ctx);
+        if self.highlighted_link.is_some() || self.open_grid_link_tool_tip.is_some() {
+            log::info!(
+                "Terminal link click: highlighted={}, matches_position={}, tooltip={}, selecting={selecting}",
+                self.highlighted_link.is_some(),
+                self.highlighted_link
+                    .as_ref()
+                    .is_some_and(|link| link.contains(position)),
+                self.open_grid_link_tool_tip.is_some(),
+            );
+        }
+        if selecting {
             return;
         }
 
@@ -8205,6 +8216,7 @@ impl TerminalView {
         system_default: bool,
         ctx: &mut ViewContext<Self>,
     ) {
+        log::info!("Terminal file link: checking metadata");
         // UNC metadata can block; never perform it on the UI thread.
         ctx.spawn(
             async move {
@@ -8218,15 +8230,21 @@ impl TerminalView {
                 })
             },
             move |_, result, ctx| match result {
-                Ok((path, target)) => ctx.emit(Event::OpenFileWithTarget {
-                    path,
-                    target,
-                    line_col: line_and_column_num,
-                }),
-                Err(error) => ctx.emit(Event::ShowToast {
-                    message: format!("{}: {error}", tr("Cannot open file")),
-                    flavor: ToastFlavor::Error,
-                }),
+                Ok((path, target)) => {
+                    log::info!("Terminal file link: dispatching target={target:?}");
+                    ctx.emit(Event::OpenFileWithTarget {
+                        path,
+                        target,
+                        line_col: line_and_column_num,
+                    });
+                }
+                Err(error) => {
+                    log::warn!("Terminal file link metadata failed: {:?}", error.kind());
+                    ctx.emit(Event::ShowToast {
+                        message: format!("{}: {error}", tr("Cannot open file")),
+                        flavor: ToastFlavor::Error,
+                    });
+                }
             },
         );
     }

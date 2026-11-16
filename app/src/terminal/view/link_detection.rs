@@ -531,6 +531,10 @@ impl super::TerminalView {
         system_default: bool,
         ctx: &mut ViewContext<Self>,
     ) {
+        log::info!(
+            "Terminal link open: file={}, system_default={system_default}",
+            link.is_file(&self.model.lock()),
+        );
         self.dismiss_tooltips(ctx);
         ctx.focus(&self.input);
         ctx.notify();
@@ -571,9 +575,17 @@ impl super::TerminalView {
     ) {
         #[cfg(feature = "local_fs")]
         if is_file_uri(uri) {
+            let session = self.session_for_link(origin, ctx);
+            log::info!(
+                "Terminal file link source: available={}, local={:?}, cwd_available={}",
+                session.is_some(),
+                session.as_ref().map(|session| session.is_local()),
+                self.pwd_for_link(origin).is_some(),
+            );
             if let Some((path, line_col)) = self.hyperlink_file_path(uri, origin, ctx) {
                 self.open_file_path(path, line_col, system_default, ctx);
             } else {
+                log::warn!("Terminal file link resolution failed");
                 ctx.emit(super::Event::ShowToast {
                     message: crate::localization::tr(
                         "Cannot resolve this file link in its session",
@@ -585,7 +597,8 @@ impl super::TerminalView {
             return;
         }
         // Terminal output is untrusted; only parsed URLs reach an OS handler.
-        if url::Url::parse(uri).is_err() {
+        if let Err(error) = url::Url::parse(uri) {
+            log::warn!("Terminal link URL rejected: {error:?}");
             return;
         }
         ctx.notify();
