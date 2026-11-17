@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read};
 use std::os::fd::AsRawFd;
@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
-use wsl_git_watcher::snapshot::{Operation, Reply, Store};
 
 use super::{Output, Response, send};
 
@@ -24,7 +23,6 @@ pub(super) struct ReadRequest {
     pub root: PathBuf,
     pub path: Option<PathBuf>,
     pub base: Option<String>,
-    pub snapshot: Option<(String, Option<Operation>)>,
 }
 
 #[derive(Default)]
@@ -37,7 +35,6 @@ pub(super) struct Reader {
     queue: Mutex<Queue>,
     available: Condvar,
     stopping: Arc<AtomicBool>,
-    snapshots: Mutex<HashMap<String, (PathBuf, Store)>>,
 }
 
 impl Reader {
@@ -46,7 +43,6 @@ impl Reader {
             queue: Mutex::new(Queue::default()),
             available: Condvar::new(),
             stopping,
-            snapshots: Mutex::new(HashMap::new()),
         }
     }
 
@@ -55,14 +51,8 @@ impl Reader {
             .queue
             .lock()
             .map_err(|_| anyhow::anyhow!("reader queue poisoned"))?;
-        let cleanup = request.snapshot.as_ref().is_some_and(|(_, operation)| {
-            operation
-                .as_ref()
-                .is_none_or(|operation| matches!(operation, Operation::Release { .. }))
-        });
         ensure!(
-            !self.stopping.load(Ordering::Relaxed)
-                && (cleanup || queue.cancellations.len() < READ_CONCURRENCY),
+            !self.stopping.load(Ordering::Relaxed) && queue.cancellations.len() < READ_CONCURRENCY,
             "reader is busy or closed"
         );
         ensure!(
@@ -119,19 +109,10 @@ impl Reader {
                 queue.pending.pop_front().context("missing queued read")?
             };
             let id = request.id;
-            let response = if request.snapshot.is_some() {
-                Response::Snapshot {
-                    id,
-                    result: self
-                        .snapshot(request, &cancelled)
-                        .map_err(|error| format!("{error:#}")),
-                }
-            } else {
-                Response::Read {
-                    id,
-                    result: read(request, &cancelled, &self.stopping)
-                        .map_err(|error| format!("{error:#}")),
-                }
+            let response = Response::Read {
+                id,
+                result: read(request, &cancelled, &self.stopping)
+                    .map_err(|error| format!("{error:#}")),
             };
             self.queue
                 .lock()
@@ -142,38 +123,6 @@ impl Reader {
                 send(output, response)?;
             }
         }
-    }
-
-    fn snapshot(&self, request: ReadRequest, cancelled: &AtomicBool) -> Result<Reply> {
-        let (session, operation) = request.snapshot.context("Missing snapshot operation")?;
-        ensure!(request.root.is_absolute(), "Snapshot root must be absolute");
-        let mut snapshots = self
-            .snapshots
-            .lock()
-            .map_err(|_| anyhow::anyhow!("snapshot store poisoned"))?;
-        ensure!(
-            !cancelled.load(Ordering::Relaxed) && !self.stopping.load(Ordering::Relaxed),
-            "Snapshot cancelled"
-        );
-        let Some(operation) = operation else {
-            snapshots.remove(&session);
-            return Ok(Reply::Released);
-        };
-        if !snapshots.contains_key(&session) {
-            if matches!(operation, Operation::Release { .. }) {
-                return Ok(Reply::Released);
-            }
-            let cache = std::env::temp_dir().join("neowarp-snapshots");
-            snapshots.insert(
-                session.clone(),
-                (request.root.clone(), Store::new(&request.root, &cache)?),
-            );
-        }
-        let (root, store) = snapshots
-            .get_mut(&session)
-            .context("Missing snapshot store")?;
-        ensure!(*root == request.root, "Snapshot session changed directory");
-        store.execute(operation, cancelled)
     }
 }
 

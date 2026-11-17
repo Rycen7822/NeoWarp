@@ -16,7 +16,6 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use notify_debouncer_full::notify::{self, EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use wsl_git_watcher::snapshot::{Operation as SnapshotOperation, Reply as SnapshotReply};
 
 mod reader;
 use reader::{ReadRequest, Reader};
@@ -44,12 +43,6 @@ enum Request {
     },
     CancelRead {
         id: u64,
-    },
-    Snapshot {
-        id: u64,
-        root: PathBuf,
-        session: String,
-        operation: Option<SnapshotOperation>,
     },
 }
 
@@ -80,10 +73,6 @@ enum Response {
     Read {
         id: u64,
         result: std::result::Result<reader::Contents, String>,
-    },
-    Snapshot {
-        id: u64,
-        result: std::result::Result<SnapshotReply, String>,
     },
 }
 
@@ -324,35 +313,9 @@ fn read_requests(tx: SyncSender<Input>, reader: Arc<Reader>, output: Arc<Output>
                         root,
                         path,
                         base,
-                        snapshot: None,
                     }) && send(
                         &output,
                         Response::Read {
-                            id,
-                            result: Err(error.to_string()),
-                        },
-                    )
-                    .is_err()
-                    {
-                        break;
-                    }
-                    continue;
-                }
-                Ok(Request::Snapshot {
-                    id,
-                    root,
-                    session,
-                    operation,
-                }) => {
-                    if let Err(error) = reader.enqueue(ReadRequest {
-                        id,
-                        root,
-                        path: None,
-                        base: None,
-                        snapshot: Some((session, operation)),
-                    }) && send(
-                        &output,
-                        Response::Snapshot {
                             id,
                             result: Err(error.to_string()),
                         },
@@ -478,9 +441,7 @@ fn run_loop(
                 // Stdin owns the process lifetime. A new Watch may already be
                 // queued when the last directory is collapsed and reopened.
             }
-            Some(Input::Request(
-                Request::Read { .. } | Request::CancelRead { .. } | Request::Snapshot { .. },
-            )) => {
+            Some(Input::Request(Request::Read { .. } | Request::CancelRead { .. })) => {
                 unreachable!("reads are dispatched by the input thread")
             }
             Some(Input::Files(event)) => {

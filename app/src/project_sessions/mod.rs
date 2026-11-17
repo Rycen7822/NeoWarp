@@ -5,6 +5,7 @@ pub(crate) mod config;
 pub(crate) mod editor;
 pub(crate) mod launch;
 mod provider;
+pub(crate) mod tool_changes;
 pub(crate) mod turns;
 pub(crate) mod view;
 

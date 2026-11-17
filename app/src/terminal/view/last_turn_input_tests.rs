@@ -1,11 +1,9 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::path::Path;
 use std::rc::Rc;
 
 use warpui::App;
-use wsl_git_watcher::snapshot::ChangeKind;
 
 use super::*;
 use crate::project_sessions::config::{Host, SavedShell};
@@ -14,7 +12,7 @@ use crate::test_util::assert_eventually;
 use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
 #[test]
-fn native_capture_keeps_approvals_out_of_the_baseline_and_cancels_pending_input() {
+fn native_tool_diffs_never_hold_terminal_input_or_scan_workspace() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let sessions = app.add_singleton_model(ProjectSessions::new);
@@ -78,9 +76,8 @@ fn native_capture_keeps_approvals_out_of_the_baseline_and_cancels_pending_input(
                 }
             })
         });
-        let append_user = || {
-            let record = serde_json::json!({"type":"message", "id":"user", "message":{
-                "role":"user", "timestamp":crate::code_review::last_turn::now(), "content":[{"type":"text","text":"request"}]}});
+        let append = |message: serde_json::Value| {
+            let record = serde_json::json!({"type":"message", "timestamp":chrono::Utc::now().to_rfc3339(), "message": message});
             writeln!(
                 std::fs::OpenOptions::new()
                     .append(true)
@@ -91,88 +88,56 @@ fn native_capture_keeps_approvals_out_of_the_baseline_and_cancels_pending_input(
             .unwrap();
         };
         terminal.update(&mut app, |view, ctx| {
-            view.current_repo_path = Some(LocalOrRemotePath::Local(root.clone()));
             view.handle_action(
                 &TerminalAction::SubmitControlSequence(b"\x1b[13u".to_vec()),
                 ctx,
             );
             view.write_user_bytes_to_pty(b"x".to_vec(), ctx);
-            assert!(
-                writes.borrow().is_empty(),
-                "input escaped before the baseline completed"
-            );
+            view.write_user_bytes_to_pty(vec![3], ctx);
         });
-        assert_eventually!(4000 => terminal.read(&app, |view, _| view.last_turn_input.is_none()), "baseline capture did not finish");
-        assert_eq!(*writes.borrow(), [b"\x1b[13u".to_vec(), b"x".to_vec()]);
-        append_user();
+        assert_eq!(
+            *writes.borrow(),
+            [b"\x1b[13u".to_vec(), b"x".to_vec(), vec![3]],
+            "PTY input must be emitted before any background capture can complete"
+        );
         let model = terminal
             .read(&app, |view, _| view.last_turn.clone())
             .unwrap();
-        assert_eventually!(2000 => model.read(&app, |model, _| model.confirmed()), "user request was not confirmed");
-        std::fs::write(root.join("ignored.txt"), "after").unwrap();
-        let preview = model
-            .read(&app, |model, _| model.preview())
-            .unwrap()
-            .await
-            .unwrap();
-        assert_eq!(preview.files.len(), 1);
-        let body = preview
-            .read(Path::new("ignored.txt"), ChangeKind::Modified, 1024)
-            .await
-            .unwrap();
-        assert_eq!((&**body.0, body.1.as_str()), ("before", "after"));
-        drop(preview);
-
-        // A real read-only request replaces the baseline even without a new diff.
-        terminal.update(&mut app, |view, ctx| {
-            view.current_repo_path = Some(LocalOrRemotePath::Local(root.clone()));
-            view.handle_action(&TerminalAction::SubmitKeyDown("\r".into()), ctx);
-        });
-        assert_eventually!(4000 => terminal.read(&app, |view, _| view.last_turn_input.is_none()), "second capture did not finish");
-        append_user();
-        assert_eventually!(2000 => model.read(&app, |model, _| model.confirmed()), "second request was not confirmed");
-        assert!(
-            model
-                .read(&app, |model, _| model.preview())
-                .unwrap()
-                .await
-                .unwrap()
-                .files
-                .is_empty()
+        append(
+            serde_json::json!({"role":"user", "timestamp":crate::code_review::last_turn::now(), "content":[{"type":"text","text":"request"}]}),
         );
-        std::fs::write(root.join("ignored.txt"), "after approval").unwrap();
-        for _ in 0..2 {
-            terminal.update(&mut app, |view, ctx| {
-                view.current_repo_path = Some(LocalOrRemotePath::Local(root.clone()));
-                view.handle_action(&TerminalAction::SubmitKeyDown("\r".into()), ctx);
-            });
-            assert_eventually!(4000 => terminal.read(&app, |view, _| view.last_turn_input.is_none()), "approval capture did not finish");
-        }
-        assert!(!model.read(&app, |model, _| model.confirmed()));
-        let preview = model
-            .read(&app, |model, _| model.preview())
-            .unwrap()
-            .await
+        append(serde_json::json!({"role":"assistant", "content":[{
+            "type":"toolCall", "id":"edit-1", "name":"edit",
+            "arguments":{"path":"ignored.txt","oldText":"before","newText":"after"}
+        }]}));
+        append(
+            serde_json::json!({"role":"toolResult", "toolCallId":"edit-1", "isError":false, "details":{"diff":"-1 before\n+1 after"}, "content":[]}),
+        );
+        append(serde_json::json!({
+            "role":"toolResult", "toolName":"codemode", "toolCallId":"parent", "isError":true,
+            "nestedCalls":{"calls":[
+                {"name":"edit", "status":"ok", "arguments":{
+                    "path":"nested.rs", "edits":[{"oldText":"old", "newText":"new"}]
+                }},
+                {"name":"edit", "status":"error", "arguments":{
+                    "path":"failed.rs", "edits":[{"oldText":"old", "newText":"new"}]
+                }}
+            ]}
+        }));
+        std::fs::write(root.join("ignored.txt"), "external modification after edit").unwrap();
+        std::fs::write(root.join("script-only.txt"), "not a captured tool diff").unwrap();
+        assert_eventually!(3000 => model.read(&app, |model, _| model.changes().count() == 2), "tool diff did not arrive");
+        let change = model
+            .read(&app, |model, _| model.changes().next().cloned())
             .unwrap();
-        let body = preview
-            .read(Path::new("ignored.txt"), ChangeKind::Modified, 1024)
-            .await
-            .unwrap();
-        assert_eq!((&**body.0, body.1.as_str()), ("after", "after approval"));
-        drop(preview);
-
-        // A new block cannot receive the previous block's delayed Enter.
-        observe(&mut app);
-        let before_cancel = writes.borrow().len();
+        assert_eq!(change.path, "ignored.txt");
+        assert_eq!(change.diff, "-1 before\n+1 after");
+        assert_eq!((change.additions, change.deletions), (1, 1));
         terminal.update(&mut app, |view, ctx| {
-            view.current_repo_path = Some(LocalOrRemotePath::Local(root.clone()));
             view.handle_action(&TerminalAction::SubmitKeyDown("\r".into()), ctx);
-            assert!(view.last_turn_input.is_some());
-            view.write_user_bytes_to_pty(vec![3], ctx);
-            assert!(view.last_turn_input.is_none());
+            view.shutdown_pty(ctx);
         });
-        assert_eq!(&writes.borrow()[before_cancel..], &[vec![3]]);
-        terminal.update(&mut app, |view, ctx| view.shutdown_pty(ctx));
+        assert_eq!(writes.borrow().last().unwrap(), b"\r");
         assert!(terminal.read(&app, |view, _| view.last_turn.is_none()));
     });
 }

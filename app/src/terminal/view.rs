@@ -1595,10 +1595,6 @@ pub struct TerminalView {
     cli_toolbelt: Option<cli_toolbelt::CliToolbelt>,
     #[cfg(feature = "local_fs")]
     last_turn: Option<ModelHandle<crate::code_review::last_turn::LastTurn>>,
-    #[cfg(feature = "local_fs")]
-    last_turn_input: Option<last_turn_input::Pending>,
-    #[cfg(feature = "local_fs")]
-    last_turn_missed: Option<BlockId>,
 
     /// The title of the terminal view to show when there is no selected conversation.
     terminal_title: String,
@@ -2309,10 +2305,6 @@ impl TerminalView {
             cli_toolbelt: None,
             #[cfg(feature = "local_fs")]
             last_turn: None,
-            #[cfg(feature = "local_fs")]
-            last_turn_input: None,
-            #[cfg(feature = "local_fs")]
-            last_turn_missed: None,
             terminal_title: Default::default(),
             warpify_footer,
             manual_pty_shutdown_requested: false,
@@ -3567,10 +3559,6 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         let bytes = data.into().into_owned();
-        #[cfg(feature = "local_fs")]
-        if self.defer_turn_input(&bytes, false, true, ctx) {
-            return;
-        }
         self.write_user_bytes_now(bytes, false, true, ctx);
     }
 
@@ -3618,10 +3606,6 @@ impl TerminalView {
         // the bootstrap script, otherwise the user could accidentally interfere
         // with bootstrap script execution.
         if was_bootstrap_script_echoed && self.is_long_running() {
-            #[cfg(feature = "local_fs")]
-            if self.defer_turn_input(&characters, false, false, ctx) {
-                return;
-            }
             self.clear_selected_blocks(ctx);
             self.update_scroll_position_locking(
                 ScrollPositionUpdate::AfterWriteUserBytesToPty,
@@ -12327,7 +12311,6 @@ impl TypedActionView for TerminalView {
             | UserInputSequence(_)
             | ControlSequence(_)
             | SubmitControlSequence(_)
-            | CancelTurnInput
             | TriggerSubshellBootstrap
             | ShowSubshellBanner(_)
             | DismissWarpifyBanner(_)
@@ -12526,10 +12509,6 @@ impl TypedActionView for TerminalView {
                     return;
                 }
                 self.control_sequence_on_terminal(bytes, ctx);
-            }
-            CancelTurnInput => {
-                #[cfg(feature = "local_fs")]
-                self.cancel_turn_input(tr("Input cancelled").into(), ctx);
             }
             TypedCharacters(chars) => self.typed_characters_on_terminal(chars, ctx),
             CtrlD => self.ctrl_d(ctx),
@@ -12795,29 +12774,6 @@ impl View for TerminalView {
                 };
 
                 column.add_child(Shrinkable::new(1., output_area).finish());
-
-                #[cfg(feature = "local_fs")]
-                if self.last_turn_input.is_some() {
-                    column.add_child(
-                        Container::new(
-                            Text::new_inline(
-                                tr("Recording file state… Ctrl+C cancels sending"),
-                                appearance.ui_font_family(),
-                                12.,
-                            )
-                            .with_color(
-                                appearance
-                                    .theme()
-                                    .sub_text_color(appearance.theme().surface_1())
-                                    .into(),
-                            )
-                            .finish(),
-                        )
-                        .with_horizontal_padding(16.)
-                        .with_vertical_padding(4.)
-                        .finish(),
-                    );
-                }
 
                 if model.is_alt_screen_active() && self.should_render_warpify_footer(app) {
                     column.add_child(ChildView::new(&self.warpify_footer).finish());

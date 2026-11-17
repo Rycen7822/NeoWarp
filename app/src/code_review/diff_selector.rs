@@ -56,7 +56,6 @@ pub(super) struct DiffSelector {
     mouse: MouseStateHandle,
     last_turn_available: bool,
     last_turn_selected: bool,
-    last_turn_confirmed: bool,
 }
 
 impl DiffSelector {
@@ -126,7 +125,6 @@ impl DiffSelector {
             mouse: Default::default(),
             last_turn_available: false,
             last_turn_selected: false,
-            last_turn_confirmed: false,
         }
     }
 
@@ -145,10 +143,9 @@ impl DiffSelector {
         ctx.notify();
     }
 
-    pub(super) fn set_last_turn(&mut self, confirmed: bool, ctx: &mut ViewContext<Self>) {
+    pub(super) fn set_last_turn(&mut self, ctx: &mut ViewContext<Self>) {
         self.last_turn_available = true;
         self.last_turn_selected = true;
-        self.last_turn_confirmed = confirmed;
         ctx.notify();
     }
 
@@ -167,8 +164,8 @@ impl DiffSelector {
                 item.into_item()
             })
             .collect();
-        if self.last_turn_available && tr("Session changes").to_lowercase().contains(&query) {
-            let mut item = MenuItemFields::new(tr("Session changes"))
+        if self.last_turn_available && tr("Captured tool changes").to_lowercase().contains(&query) {
+            let mut item = MenuItemFields::new(tr("Captured tool changes"))
                 .with_on_select_action(Action::SelectLastTurn);
             if self.last_turn_selected {
                 item = item.with_icon(Icon::Check);
@@ -283,11 +280,7 @@ impl View for DiffSelector {
             .theme()
             .main_text_color(appearance.theme().background());
         let label = if self.last_turn_selected {
-            tr(if self.last_turn_confirmed {
-                "Last turn changes"
-            } else {
-                "Session changes · turn unconfirmed"
-            })
+            tr("Captured tool changes")
         } else {
             match &self.mode {
                 DiffMode::Head => tr("Uncommitted changes"),

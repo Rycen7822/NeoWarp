@@ -3,17 +3,13 @@
 pub(super) fn lookup(english: &str) -> Option<&'static str> {
     Some(match english {
         "Session changes" => "会话变更",
-        "Session changes · turn unconfirmed" => "会话变更 · 轮次未确认",
-        "Last turn changes" => "上一轮变更",
-        "Turn unconfirmed" => "轮次未确认",
-        "No input baseline recorded" => "尚未记录输入前基线",
-        "Capturing input baseline…" => "正在记录输入前基线…",
-        "Recording file state… Ctrl+C cancels sending" => "正在记录文件状态…Ctrl+C 可取消发送",
-        "No changes in the sampled workspace" => "本次采样未发现文件变更",
+        "Captured tool changes" => "工具变更",
+        "Captured tool changes · partial coverage" => "工具变更 · 仅显示已捕获的修改，按操作累计",
+        "No tool diff captured; script and external edits may be absent" => {
+            "尚未捕获工具差异；脚本和外部修改可能不在此列"
+        }
+        "Unable to read tool changes" => "无法读取工具变更",
         "Session ended" => "会话已结束",
-        "Session changed" => "会话已切换",
-        "Input cancelled" => "输入已取消",
-        "Input queue limit reached" => "待发送输入已达上限",
         "Auto-collapse diff above (lines)" => "差异默认折叠阈值（行）",
         "Counts displayed code and context lines. 0 collapses every file. Range: 0–10000." => {
             "统计实际显示的代码与上下文行。0 表示全部默认折叠，范围为 0–10000。"

@@ -157,7 +157,6 @@ pub enum TerminalAction {
     ControlSequence(Vec<u8>),
     SubmitControlSequence(Vec<u8>),
     SubmitKeyDown(String),
-    CancelTurnInput,
     RunNativeShellCompletions {
         buffer_text: String,
         results_tx:
@@ -359,7 +358,6 @@ impl fmt::Debug for TerminalAction {
             ControlSequence(_) => f.write_str("ControlSequence"),
             SubmitControlSequence(_) => f.write_str("SubmitControlSequence"),
             SubmitKeyDown(_) => f.write_str("SubmitKeyDown"),
-            CancelTurnInput => f.write_str("CancelTurnInput"),
             KeyDown(_) => f.write_str("KeyDown"),
             TypedCharacters(_) => f.write_str("TypedCharacters"),
             NotificationsDiscoveryBanner(action) => {

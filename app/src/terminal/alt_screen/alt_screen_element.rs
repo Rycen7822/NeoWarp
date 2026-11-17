@@ -658,9 +658,6 @@ impl Element for AltScreenElement {
                 })
                 .to_escape_sequence(self.model.lock().deref())
                 {
-                    if keystroke.normalized() == "ctrl-c" {
-                        ctx.dispatch_typed_action(TerminalAction::CancelTurnInput);
-                    }
                     ctx.dispatch_typed_action(
                         if !*is_composing && keystroke.normalized() == "enter" {
                             TerminalAction::SubmitControlSequence(escape_sequence)

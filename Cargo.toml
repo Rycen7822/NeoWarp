@@ -122,7 +122,6 @@ font-kit = { git = "https://github.com/warpdotdev/font-kit", rev = "a04b225ecb63
 futures = { version = "0.3", features = ["executor", "thread-pool"] }
 futures-lite = "1.13.0"
 futures-util = { version = "0.3", default-features = false }
-fs4 = { version = "0.13.1", features = ["sync"] }
 get-size = { version = "0.1.4", features = ["derive"] }
 globset = "0.4.18"
 hashbrown = "0.17.1"
@@ -348,13 +347,6 @@ split-debuginfo = "unpacked"
 [profile.dev.package]
 # Improve the performance of core terminal logic.
 warp_terminal.opt-level = 3
-# Avoid debug overhead while capturing large snapshot trees.
-wsl_git_watcher.opt-level = 3
-gix-index.opt-level = 3
-gix-hash.opt-level = 3
-sha1dc.opt-level = 3
-ignore.opt-level = 3
-walkdir.opt-level = 3
 # Minimize the runtime overhead of CPU profiling at the cost of a small
 # increase in compile time for this crate.
 backtrace.opt-level = 3

@@ -63,6 +63,11 @@ Right-click the toolbelt to copy prompt details or choose **Edit CLI agent toolb
 chips and controls between the available bank and left/right zones; **Save changes** applies the layout immediately.
 **Cancel** discards edits, and **Restore default** restores the original arrangement before saving.
 
+Review's **Captured tool changes** view shows successful edit/patch snippets available in Codex, Pi
+and Claude Code session records. Coverage is partial: scripts, external edits and writes without an
+old-content diff may be absent. Counts accumulate tool operations rather than a net workspace diff.
+Input is sent immediately; this view does not scan or snapshot the repository or install global hooks.
+
 ## Local Data
 
 NeoWarp uses its own application IDs, settings, history, caches, and `.neowarp*` configuration directories.

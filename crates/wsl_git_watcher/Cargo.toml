@@ -9,16 +9,10 @@ license.workspace = true
 name = "neowarp-wsl-watch"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 anyhow.workspace = true
-content_inspector = "0.2.4"
-fs4.workspace = true
-gix-index = { version = "0.58.0", features = ["sha1", "sha256"] }
 ignore.workspace = true
 serde.workspace = true
-tempfile.workspace = true
-
-[target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
 notify-debouncer-full.workspace = true
 serde_json.workspace = true
