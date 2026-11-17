@@ -70,6 +70,7 @@ impl Source {
 
 #[derive(Clone, Default)]
 pub(crate) struct Cursor {
+    pub(crate) full_batch: bool,
     offset: u64,
     skip_partial: bool,
     tools: Tools,
@@ -82,6 +83,7 @@ impl Cursor {
             .len()
             .saturating_sub(4 * 1024 * 1024);
         Ok(Self {
+            full_batch: false,
             offset,
             skip_partial: offset > 0,
             tools: Tools::default(),
@@ -109,6 +111,7 @@ pub(crate) fn read(
     file.seek(SeekFrom::Start(cursor.offset))?;
     let mut bytes = Vec::new();
     file.take(MAX_READ).read_to_end(&mut bytes)?;
+    cursor.full_batch = bytes.len() == MAX_READ as usize;
     let mut requests = Vec::new();
     let mut consumed = 0;
     for (index, byte) in bytes.iter().enumerate() {
@@ -143,7 +146,7 @@ pub(crate) fn read(
             );
         }
     }
-    if consumed == 0 && bytes.len() == MAX_READ as usize {
+    if consumed == 0 && cursor.full_batch {
         // Skip an oversized record incrementally; never reread it forever.
         cursor.skip_partial = true;
         consumed = bytes.len();

@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
+use futures::future::{Either, select};
+use futures::stream::{BoxStream, StreamExt};
 use warp_terminal::model::BlockId;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{Entity, EntityId, ModelContext, SingletonEntity};
@@ -25,6 +27,7 @@ pub(crate) struct LastTurn {
     changes: BTreeMap<String, Change>,
     message: String,
     poll: Option<SpawnedFutureHandle>,
+    log_events: Option<BoxStream<'static, ()>>,
     closed: bool,
 }
 
@@ -46,6 +49,7 @@ impl LastTurn {
             changes: BTreeMap::new(),
             message: tr("Captured tool changes · partial coverage").into(),
             poll: None,
+            log_events: None,
             closed: false,
         };
         if source.supports_turns() {
@@ -66,6 +70,7 @@ impl LastTurn {
         if let Some(task) = self.poll.take() {
             task.abort();
         }
+        self.log_events = None;
         self.closed = true;
         self.message = tr("Session ended").into();
         ctx.emit(());
@@ -85,10 +90,25 @@ impl LastTurn {
         let path = self.path.clone();
         let cursor = self.cursor.clone();
         let since = self.since;
+        let mut log_events = self.log_events.take();
+        // A full read may leave more records without a new file notification.
+        let interval =
+            if log_events.is_some() && !cursor.as_ref().is_some_and(|cursor| cursor.full_batch) {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_millis(500)
+            };
         self.poll = Some(ctx.spawn(
             async move {
-                Timer::after(Duration::from_millis(500)).await;
-                blocking::unblock(move || -> anyhow::Result<_> {
+                let timer = Timer::after(interval);
+                if let Some(events) = log_events.as_mut() {
+                    if matches!(select(events.next(), timer).await, Either::Left((None, _))) {
+                        log_events = None;
+                    }
+                } else {
+                    timer.await;
+                }
+                let result = blocking::unblock(move || -> anyhow::Result<_> {
                     let path = match match path {
                         Some(path) => Some(path),
                         None => source.locate()?,
@@ -104,15 +124,25 @@ impl LastTurn {
                         turns::read(&path, source.provider(), cursor, since)?;
                     Ok(Some((path, cursor, observations, source)))
                 })
-                .await
+                .await;
+                (log_events, result)
             },
-            |me, result, ctx| {
+            |me, (log_events, result), ctx| {
                 if me.closed {
                     return;
                 }
                 me.poll = None;
+                me.log_events = log_events;
                 match result {
                     Ok(Some((path, cursor, observations, source))) => {
+                        #[cfg(windows)]
+                        if me.path.is_none() {
+                            me.log_events = crate::file_watcher::wsl::file_events(
+                                &path,
+                                &ctx.background_executor(),
+                            )
+                            .map(StreamExt::boxed);
+                        }
                         me.path = Some(path);
                         me.cursor = Some(cursor);
                         let changed = !observations.is_empty();

@@ -187,12 +187,22 @@ pub(crate) fn watch_file(
     path: &Path,
     executor: &Arc<Background>,
 ) -> Option<(FileWatch, impl futures::Stream<Item = ()> + use<>)> {
+    let events = file_events(path, executor)?;
+    let (abort, registration) = AbortHandle::new_pair();
+    Some((FileWatch(abort), Abortable::new(events, registration)))
+}
+
+/// Wakes on changes to this WSL file. Dropping the stream releases the subscription.
+pub(crate) fn file_events(
+    path: &Path,
+    executor: &Arc<Background>,
+) -> Option<impl futures::Stream<Item = ()> + Send + use<>> {
     let parent = path.parent()?.to_path_buf();
     let initial = subscribe(&parent, WatchScope::Directory, executor)?;
     let filename = PathBuf::from(path.file_name()?);
     let path = path.to_path_buf();
     let executor = executor.clone();
-    let events = async_stream::stream! {
+    Some(async_stream::stream! {
         let mut connection = Some(initial);
         let mut ready = false;
         let mut previous = None;
@@ -236,9 +246,7 @@ pub(crate) fn watch_file(
                 None => {}
             }
         }
-    };
-    let (abort, registration) = AbortHandle::new_pair();
-    Some((FileWatch(abort), Abortable::new(events, registration)))
+    })
 }
 
 pub(crate) fn subscribe(
