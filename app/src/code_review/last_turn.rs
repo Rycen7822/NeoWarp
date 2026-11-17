@@ -1,6 +1,6 @@
 //! Live, bounded tool diffs. No workspace reads or input barriers.
 use std::collections::BTreeMap;
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use warp_terminal::model::BlockId;
@@ -12,6 +12,7 @@ use crate::project_sessions::ProjectSessions;
 use crate::project_sessions::config::Provider;
 use crate::project_sessions::tool_changes::Change;
 use crate::project_sessions::turns::{self, Cursor, Observation, Source};
+use crate::util::path::local_path_for_io;
 
 pub(crate) struct LastTurn {
     pub(crate) root: PathBuf,
@@ -119,7 +120,9 @@ impl LastTurn {
                             match observation {
                                 Observation::Request => me.changes.clear(),
                                 Observation::Change(mut change) => {
-                                    let Some(path) = relative_path(&me.root, &source, &change.path)
+                                    let Some(path) = source
+                                        .native_path(&change.path)
+                                        .and_then(|native| relative_path(&me.root, &native))
                                     else {
                                         continue;
                                     };
@@ -159,9 +162,11 @@ impl LastTurn {
     }
 }
 
-fn relative_path(root: &std::path::Path, source: &Source, path: &str) -> Option<String> {
-    let native = source.native_path(path)?;
-    let path = native.strip_prefix(root).ok()?;
+fn relative_path(root: &Path, native: &Path) -> Option<String> {
+    // A Git repository root can be canonicalized to verbatim UNC while tool paths use ordinary UNC.
+    let root = local_path_for_io(root);
+    let native = local_path_for_io(native);
+    let path = native.strip_prefix(root.as_ref()).ok()?;
     let mut relative = PathBuf::new();
     for part in path.components() {
         match part {
@@ -187,3 +192,7 @@ impl Drop for LastTurn {
 pub(crate) fn now() -> u64 {
     chrono::Utc::now().timestamp_millis().max(0) as u64
 }
+
+#[cfg(all(test, windows))]
+#[path = "last_turn_tests.rs"]
+mod tests;
