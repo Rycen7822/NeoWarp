@@ -137,11 +137,10 @@ impl LastTurn {
                     Ok(Some((path, cursor, observations, source))) => {
                         #[cfg(windows)]
                         if me.path.is_none() {
-                            me.log_events = crate::file_watcher::wsl::file_events(
+                            me.log_events = Some(crate::file_watcher::file_events(
                                 &path,
                                 &ctx.background_executor(),
-                            )
-                            .map(StreamExt::boxed);
+                            ));
                         }
                         me.path = Some(path);
                         me.cursor = Some(cursor);
