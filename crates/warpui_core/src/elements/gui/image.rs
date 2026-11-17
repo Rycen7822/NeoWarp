@@ -37,8 +37,13 @@ enum BackupElementKind {
     LoadTimeout,
 }
 
+enum ImageSource {
+    Asset(AssetSource),
+    Static(Arc<StaticImage>),
+}
+
 pub struct Image {
-    source: AssetSource,
+    source: ImageSource,
     opacity: f32,
     size: Option<Vector2F>,
     origin: Option<Point>,
@@ -80,6 +85,17 @@ impl Image {
     /// (e.g. background images); only the original asset is cached and the GPU scales it.
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn new(source: AssetSource, cache_option: CacheOption) -> Self {
+        Self::with_source(ImageSource::Asset(source), cache_option)
+    }
+
+    /// Display a decoded bitmap whose lifetime is managed by the caller.
+    #[cfg_attr(debug_assertions, track_caller)]
+    pub fn from_static(image: Arc<StaticImage>) -> Self {
+        Self::with_source(ImageSource::Static(image), CacheOption::Original)
+    }
+
+    #[cfg_attr(debug_assertions, track_caller)]
+    fn with_source(source: ImageSource, cache_option: CacheOption) -> Self {
         Self {
             source,
             opacity: 1.,
@@ -186,8 +202,11 @@ impl Image {
     }
 
     fn load_timeout_key(&self) -> u64 {
+        let ImageSource::Asset(source) = &self.source else {
+            unreachable!("Only assets have load timeouts");
+        };
         let mut hasher = DefaultHasher::new();
-        self.source.hash(&mut hasher);
+        source.hash(&mut hasher);
         hasher.finish()
     }
 
@@ -289,10 +308,14 @@ impl Image {
             self.right_aligned,
         ) else {
             self.origin = None;
+            let source = match &self.source {
+                ImageSource::Asset(source) => Some(source),
+                ImageSource::Static(_) => None,
+            };
             report_error!(
                 "invalid image rect before draw_image",
                 extra: {
-                    "source" => ?self.source,
+                    "source" => ?source,
                     "fit_type" => ?self.fit_type,
                     "cache_option" => ?self.cache_option,
                     "image_size" => ?image.size(),
@@ -414,8 +437,12 @@ impl Element for Image {
         let mut size = constraint.max;
 
         if self.layout_using_paint_bounds {
-            let asset_cache = AssetCache::as_ref(app);
-            let image_size = ImageCache::as_ref(app).image_size(self.source.clone(), asset_cache);
+            let image_size = match &self.source {
+                ImageSource::Asset(source) => {
+                    ImageCache::as_ref(app).image_size(source.clone(), AssetCache::as_ref(app))
+                }
+                ImageSource::Static(image) => Some(image.size()),
+            };
             if let Some(image_size) = image_size {
                 size = dimensions(image_size.to_f32(), size, self.fit_type);
             }
@@ -454,6 +481,16 @@ impl Element for Image {
         };
 
         let bounds = (size * ctx.scene.scale_factor()).to_i32();
+        let source = match &self.source {
+            ImageSource::Static(image) => {
+                if bounds.x() > 0 && bounds.y() > 0 && size.x().is_finite() && size.y().is_finite()
+                {
+                    self.paint_static_image(image.clone(), size, origin, bounds, ctx);
+                }
+                return;
+            }
+            ImageSource::Asset(source) => source.clone(),
+        };
         if !size.x().is_finite()
             || !size.y().is_finite()
             || size.x() <= 0.0
@@ -463,7 +500,7 @@ impl Element for Image {
         {
             log::warn!(
                 "image paint with suspicious size source={:?} element_size=({}, {}) bounds=({}, {}) fit_type={:?} cache_option={:?}",
-                self.source,
+                source,
                 size.x(),
                 size.y(),
                 bounds.x(),
@@ -474,7 +511,7 @@ impl Element for Image {
         }
         let assert_cache = AssetCache::as_ref(app);
         let image = ImageCache::as_ref(app).image(
-            self.source.clone(),
+            source,
             bounds,
             self.fit_type,
             self.animated_image_behavior,

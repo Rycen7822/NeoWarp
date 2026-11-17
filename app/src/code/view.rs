@@ -31,6 +31,8 @@ use warpui::{
 use super::buffer_location::LocalOrRemotePath;
 use super::editor::view::{CodeEditorEvent, CodeEditorView};
 use super::editor_management::CodeSource;
+#[cfg(feature = "local_fs")]
+use super::image_preview::{ImagePreview, can_preview};
 use super::local_code_editor::{LocalCodeEditorEvent, LocalCodeEditorView};
 use crate::code::editor::view::CodeEditorRenderOptions;
 use crate::code::global_buffer_model::GlobalBufferModel;
@@ -173,8 +175,15 @@ struct TabDataMouseStateHandles {
 #[derive(Clone)]
 pub struct TabData {
     location: Option<LocalOrRemotePath>,
-    editor_view: ViewHandle<LocalCodeEditorView>,
+    content: TabContent,
     mouse_state_handles: TabDataMouseStateHandles,
+}
+
+#[derive(Clone)]
+enum TabContent {
+    Editor(ViewHandle<LocalCodeEditorView>),
+    #[cfg(feature = "local_fs")]
+    Image,
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +194,14 @@ pub enum PendingSaveIntent {
 }
 
 impl TabData {
+    fn editor(&self) -> Option<&ViewHandle<LocalCodeEditorView>> {
+        match &self.content {
+            TabContent::Editor(editor) => Some(editor),
+            #[cfg(feature = "local_fs")]
+            TabContent::Image => None,
+        }
+    }
+
     /// Returns the file location (local or remote), if any.
     pub fn location(&self) -> Option<&LocalOrRemotePath> {
         self.location.as_ref()
@@ -202,6 +219,8 @@ impl TabData {
 pub struct CodeView {
     tab_group: Vec<TabData>,
     active_tab_index: usize,
+    #[cfg(feature = "local_fs")]
+    active_image: Option<ViewHandle<ImagePreview>>,
     pane_configuration: ModelHandle<PaneConfiguration>,
     focus_handle: Option<PaneFocusHandle>,
     source: CodeSource,
@@ -217,6 +236,8 @@ impl CodeView {
         Self {
             tab_group: Default::default(),
             active_tab_index: 0,
+            #[cfg(feature = "local_fs")]
+            active_image: None,
             pane_configuration,
             focus_handle: None,
             source,
@@ -255,6 +276,8 @@ impl CodeView {
             active_tab_index.min(view.tab_group.len() - 1)
         };
         view.active_tab_index = clamped_index;
+        #[cfg(feature = "local_fs")]
+        view.refresh_active_image(ctx);
         view.set_title(false, ctx);
         view
     }
@@ -319,6 +342,18 @@ impl CodeView {
         location: Option<LocalOrRemotePath>,
         ctx: &mut ViewContext<Self>,
     ) -> TabData {
+        #[cfg(feature = "local_fs")]
+        if location
+            .as_ref()
+            .and_then(LocalOrRemotePath::to_local_path)
+            .is_some_and(can_preview)
+        {
+            return TabData {
+                location,
+                content: TabContent::Image,
+                mouse_state_handles: Default::default(),
+            };
+        }
         let (code_editor, tab_location) = match location {
             Some(loc) => {
                 let editor = self.construct_editor_for_location(loc.clone(), ctx);
@@ -391,7 +426,7 @@ impl CodeView {
 
         TabData {
             location: tab_location,
-            editor_view: code_editor,
+            content: TabContent::Editor(code_editor),
             mouse_state_handles: Default::default(),
         }
     }
@@ -413,13 +448,14 @@ impl CodeView {
     }
 
     pub fn local_path(&self, ctx: &AppContext) -> Option<PathBuf> {
-        self.tab_at(self.active_tab_index).and_then(|t| {
-            t.editor_view.as_ref(ctx).file_id().and_then(|file_id| {
-                GlobalBufferModel::as_ref(ctx)
-                    .file_path(file_id)
-                    .map(|p| p.to_path_buf())
-            })
-        })
+        let tab = self.tab_at(self.active_tab_index)?;
+        let Some(editor) = tab.editor() else {
+            return tab.local_path();
+        };
+        let file_id = editor.as_ref(ctx).file_id()?;
+        GlobalBufferModel::as_ref(ctx)
+            .file_path(file_id)
+            .map(Path::to_path_buf)
     }
 
     pub fn pane_configuration(&self) -> ModelHandle<PaneConfiguration> {
@@ -428,7 +464,11 @@ impl CodeView {
 
     pub fn focus(&self, ctx: &mut ViewContext<Self>) {
         if let Some(tab) = self.tab_at(self.active_tab_index) {
-            ctx.focus(&tab.editor_view);
+            if let Some(editor) = tab.editor() {
+                ctx.focus(editor);
+            } else {
+                ctx.focus_self();
+            }
         }
     }
 
@@ -469,11 +509,11 @@ impl CodeView {
         line_col: LineAndColumnArg,
         ctx: &mut ViewContext<Self>,
     ) {
-        let Some(tab) = self.tab_group.get(tab_index) else {
+        let Some(editor) = self.tab_at(tab_index).and_then(TabData::editor) else {
             return;
         };
 
-        tab.editor_view.update(ctx, |editor, ctx| {
+        editor.update(ctx, |editor, ctx| {
             editor.set_pending_scroll(line_col, ctx);
         });
     }
@@ -488,9 +528,9 @@ impl CodeView {
         self.tab_group.push(new_tab);
         let active_tab_index = self.tab_group.len() - 1;
 
-        if let (Some(loc), Some(tab)) = (&location, self.tab_group.get(active_tab_index)) {
+        if let Some(loc) = location {
             ctx.emit(CodeViewEvent::FileOpened {
-                location: loc.clone(),
+                location: loc,
                 tab_index: active_tab_index,
             });
 
@@ -502,9 +542,7 @@ impl CodeView {
 
             // For GlobalBuffer path, set_pending_scroll handles the case where the file
             // hasn't finished loading yet by deferring the scroll until FileLoaded.
-            tab.editor_view.update(ctx, |editor, ctx| {
-                editor.set_pending_scroll(scroll_position, ctx);
-            });
+            self.jump_to_line_col_in_tab(active_tab_index, scroll_position, ctx);
         }
 
         self.set_active_tab_index(active_tab_index, ctx);
@@ -512,14 +550,17 @@ impl CodeView {
 
     /// Set the title of the pane, which is the file path.
     fn set_title(&self, _unsaved_changes: bool, ctx: &mut ViewContext<Self>) {
-        let file_location = self
-            .tab_at(self.active_tab_index)
-            .and_then(|t| t.editor_view.as_ref(ctx).file_location().cloned());
-        let is_new = self
-            .tab_at(self.active_tab_index)
-            .is_some_and(|t| t.editor_view.as_ref(ctx).is_new_file());
+        let tab = self.tab_at(self.active_tab_index);
+        let editor = tab
+            .and_then(TabData::editor)
+            .map(|editor| editor.as_ref(ctx));
+        let file_location = match editor {
+            Some(editor) => editor.file_location(),
+            None => tab.and_then(TabData::location),
+        };
+        let is_new = editor.is_some_and(LocalCodeEditorView::is_new_file);
 
-        let title = match &file_location {
+        let title = match file_location {
             Some(location) => display_path_with_host(location, false, ctx),
             None => "Untitled".to_string(),
         };
@@ -549,11 +590,9 @@ impl CodeView {
         // Other errors could be returned asynchronously via the FileModelEvent::FailedToSave event.
         let result = self
             .tab_at(index)
-            .map(|tab| {
-                tab.editor_view
-                    .update(ctx, |code_diff, ctx| code_diff.save_local(ctx))
-            })
-            .unwrap_or_else(|| Err(ImmediateSaveError::NoActiveFileTab));
+            .and_then(TabData::editor)
+            .map(|editor| editor.update(ctx, |editor, ctx| editor.save_local(ctx)))
+            .unwrap_or(Err(ImmediateSaveError::NoActiveFileTab));
 
         // This will only return an error immediately if there is a failure in the sync part of the call.
         // Other errors could be returned asynchronously via the FileModelEvent::FailedToSave event.
@@ -593,9 +632,9 @@ impl CodeView {
         callback: Option<SaveCallback>,
         ctx: &mut ViewContext<Self>,
     ) -> SaveStatus {
-        if let Some(tab) = self.tab_at(index) {
+        if let Some(editor) = self.tab_at(index).and_then(TabData::editor) {
             let view_handle = ctx.handle().clone();
-            tab.editor_view.update(ctx, |editor, ctx| match callback {
+            editor.update(ctx, |editor, ctx| match callback {
                 Some(cb) => {
                     editor.save_as(
                         Some(Box::new(move |outcome, ctx| {
@@ -687,8 +726,8 @@ impl CodeView {
     }
 
     fn has_unsaved_changes(tab: &TabData, ctx: &AppContext) -> bool {
-        let local_editor = tab.editor_view.as_ref(ctx);
-        local_editor.has_unsaved_changes(ctx)
+        tab.editor()
+            .is_some_and(|editor| editor.as_ref(ctx).has_unsaved_changes(ctx))
     }
 
     /// Whether to render the transient "unsaved changes" indicator for a tab.
@@ -700,10 +739,11 @@ impl CodeView {
     /// disconnected remotes keep the indicator so unsaveable changes stay
     /// visible.
     fn show_unsaved_indicator(tab: &TabData, app: &AppContext) -> bool {
-        if !Self::has_unsaved_changes(tab, app) {
+        let Some(editor) = tab.editor().map(|editor| editor.as_ref(app)) else {
             return false;
-        }
-        !*CodeSettings::as_ref(app).auto_save || !tab.editor_view.as_ref(app).can_auto_save(app)
+        };
+        editor.has_unsaved_changes(app)
+            && (!*CodeSettings::as_ref(app).auto_save || !editor.can_auto_save(app))
     }
 
     /// Flush-saves every unsaved tab that has a backing file, marking each save
@@ -717,14 +757,10 @@ impl CodeView {
             // remote files, its host is still connected. A disconnected remote
             // buffer has a `file_id` but `save_local` would fail silently, so
             // skip it instead of attempting a save that cannot succeed.
-            let can_auto_save = self
-                .tab_at(index)
-                .is_some_and(|tab| tab.editor_view.as_ref(ctx).can_auto_save(ctx));
-            if can_auto_save {
-                if let Some(tab) = self.tab_at(index) {
-                    tab.editor_view
-                        .update(ctx, |editor, _| editor.mark_next_save_as_auto_save());
-                }
+            if let Some(editor) = self.tab_at(index).and_then(TabData::editor)
+                && editor.as_ref(ctx).can_auto_save(ctx)
+            {
+                editor.update(ctx, |editor, _| editor.mark_next_save_as_auto_save());
                 self.save_local(index, None, ctx);
             }
         }
@@ -738,21 +774,27 @@ impl CodeView {
     /// Update the TabData location for the active tab to match the LocalCodeEditor metadata.
     /// This is needed after save operations to keep local and remote locations in sync.
     fn sync_active_tab_location(&mut self, ctx: &mut ViewContext<Self>) {
-        if let Some(tab) = self.tab_group.get_mut(self.active_tab_index) {
-            tab.location = tab.editor_view.as_ref(ctx).file_location().cloned();
+        if let Some(tab) = self.tab_group.get_mut(self.active_tab_index)
+            && let Some(editor) = tab.editor()
+        {
+            tab.location = editor.as_ref(ctx).file_location().cloned();
         }
     }
 
     pub fn cleanup_all_tabs(&mut self, ctx: &mut ViewContext<Self>) {
         self.tab_group.clear();
+        #[cfg(feature = "local_fs")]
+        {
+            self.active_image = None;
+        }
         GlobalBufferModel::handle(ctx).update(ctx, |model, ctx| {
             model.remove_deallocated_buffers(ctx);
         });
     }
 
     pub fn close_overlays(&mut self, ctx: &mut ViewContext<Self>) {
-        for tab in self.tab_group.iter() {
-            tab.editor_view.update(ctx, |editor, ctx| {
+        for editor in self.tab_group.iter().filter_map(TabData::editor) {
+            editor.update(ctx, |editor, ctx| {
                 editor.close_find_bar(false, ctx);
             })
         }
@@ -795,15 +837,17 @@ impl CodeView {
                 // can't persist them without a Save As.
                 let tab_has_backing_file = self
                     .tab_at(index)
-                    .is_some_and(|tab| tab.editor_view.as_ref(ctx).file_id().is_some());
+                    .and_then(TabData::editor)
+                    .is_some_and(|editor| editor.as_ref(ctx).file_id().is_some());
                 if *CodeSettings::as_ref(ctx).auto_save && tab_has_backing_file {
                     if is_clearing_group {
                         let unsaved_indices = self.unsaved_indices(ctx);
                         for &unsaved_index in &unsaved_indices {
-                            if let Some(tab) = self.tab_group.get(unsaved_index)
-                                && tab.editor_view.as_ref(ctx).file_id().is_some()
+                            if let Some(editor) =
+                                self.tab_at(unsaved_index).and_then(TabData::editor)
+                                && editor.as_ref(ctx).file_id().is_some()
                             {
-                                tab.editor_view
+                                editor
                                     .update(ctx, |editor, _| editor.mark_next_save_as_auto_save());
                             }
                         }
@@ -814,9 +858,8 @@ impl CodeView {
                             ctx,
                         );
                     } else {
-                        if let Some(tab) = self.tab_at(index) {
-                            tab.editor_view
-                                .update(ctx, |editor, _| editor.mark_next_save_as_auto_save());
+                        if let Some(editor) = self.tab_at(index).and_then(TabData::editor) {
+                            editor.update(ctx, |editor, _| editor.mark_next_save_as_auto_save());
                         }
                         self.remove_tab_with_intent(index, Some(PendingSaveIntent::Save), ctx);
                     }
@@ -987,12 +1030,40 @@ impl CodeView {
     }
 
     fn update_tab_bar_state(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        self.refresh_active_image(ctx);
         if self.tab_group.is_empty() {
             ctx.emit(CodeViewEvent::Pane(PaneEvent::Close));
         } else {
             self.set_title_after_content_update(ctx);
             ctx.notify();
         }
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn refresh_active_image(&mut self, ctx: &mut ViewContext<Self>) {
+        let path = self
+            .tab_at(self.active_tab_index)
+            .filter(|tab| matches!(tab.content, TabContent::Image))
+            .and_then(TabData::location)
+            .and_then(LocalOrRemotePath::to_local_path);
+        let current = self
+            .active_image
+            .as_ref()
+            .map(|view| view.as_ref(ctx).path.as_path());
+        if path != current {
+            self.active_image = path
+                .map(Path::to_path_buf)
+                .map(|path| ctx.add_view(|ctx| ImagePreview::new(path, ctx)));
+        }
+    }
+
+    #[cfg(all(test, feature = "local_fs"))]
+    pub(crate) fn decoded_image_for_test(
+        &self,
+        ctx: &AppContext,
+    ) -> Option<std::sync::Arc<warpui::image_cache::StaticImage>> {
+        self.active_image.as_ref()?.as_ref(ctx).decoded().cloned()
     }
 
     fn relative_path(path: PathBuf, window_id: WindowId, app: &AppContext) -> String {
@@ -1703,12 +1774,18 @@ impl View for CodeView {
     }
 
     fn render(&self, _app: &AppContext) -> Box<dyn Element> {
-        let tab = self.tab_at(self.active_tab_index);
-        let body = if let Some(tab) = tab {
-            ChildView::new(&tab.editor_view).finish()
-        } else {
-            Empty::new().finish()
-        };
+        #[cfg(feature = "local_fs")]
+        if let Some(image) = &self.active_image {
+            return Container::new(ChildView::new(image).finish())
+                .with_padding_top(PADDING)
+                .finish();
+        }
+        let body =
+            if let Some(editor) = self.tab_at(self.active_tab_index).and_then(TabData::editor) {
+                ChildView::new(editor).finish()
+            } else {
+                Empty::new().finish()
+            };
 
         Container::new(body).with_padding_top(PADDING).finish()
     }

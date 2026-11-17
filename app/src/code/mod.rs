@@ -56,6 +56,8 @@ pub enum SaveOutcome {
 }
 
 mod icon;
+#[cfg(feature = "local_fs")]
+mod image_preview;
 
 pub mod opened_files;
 pub(crate) mod persisted_workspace;

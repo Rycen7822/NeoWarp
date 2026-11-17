@@ -1402,6 +1402,63 @@ fn test_file_browser_reuses_editor_without_replacing_terminal() {
 }
 
 #[test]
+#[cfg(feature = "local_fs")]
+fn test_file_browser_previews_png_without_opening_a_text_buffer() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let group = workspace.read(&app, |workspace, _| {
+            workspace.active_tab_pane_group().clone()
+        });
+        let terminal = group.read(&app, |group, ctx| group.active_session_id(ctx));
+        let directory = TempDir::new().unwrap();
+        let path = directory.path().join("Screenshot.PNG");
+        let pixels = [35, 120, 220, 255].repeat(6);
+        image::save_buffer_with_format(
+            &path,
+            &pixels,
+            3,
+            2,
+            image::ColorType::Rgba8,
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.open_sidebar_file(path.clone(), ctx)
+        });
+        let editor = group.read(&app, |group, ctx| {
+            assert_eq!(group.active_session_id(ctx), terminal);
+            group.code_panes(ctx).next().unwrap().1
+        });
+        let mut decoded = editor.read(&app, |editor, ctx| editor.decoded_image_for_test(ctx));
+        for _ in 0..100 {
+            if decoded.is_some() {
+                break;
+            }
+            warpui::r#async::Timer::after(std::time::Duration::from_millis(10)).await;
+            decoded = editor.read(&app, |editor, ctx| editor.decoded_image_for_test(ctx));
+        }
+        let decoded = decoded.expect("PNG should finish decoding in the code pane");
+        assert_eq!((decoded.width(), decoded.height()), (3, 2));
+        assert_eq!(decoded.rgba_bytes(), pixels);
+        editor.read(&app, |editor, ctx| {
+            assert!(!editor.active_tab_has_unsaved_changes(ctx))
+        });
+
+        let text = directory.path().join("notes.txt");
+        std::fs::write(&text, "ordinary text").unwrap();
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.open_sidebar_file(text, ctx)
+        });
+        editor.read(&app, |editor, ctx| {
+            assert_eq!(editor.tab_count(), 2);
+            assert!(editor.decoded_image_for_test(ctx).is_none());
+        });
+    });
+}
+
+#[test]
 fn test_focus_code_pane() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
