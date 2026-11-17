@@ -30,7 +30,6 @@ impl GitReviewView {
             if let Some(task) = self.refreshing.take() {
                 task.abort();
             }
-            self.turn_changes.clear();
             return None;
         }
         let summary_ready = self.refreshing.is_none()

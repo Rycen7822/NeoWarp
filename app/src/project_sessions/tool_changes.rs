@@ -1,5 +1,6 @@
 //! Successful tool observations, not a reconstruction of the working tree.
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -34,7 +35,7 @@ impl Change {
 
 #[derive(Clone, Default)]
 pub(crate) struct Tools {
-    pending: HashMap<String, (String, Value)>,
+    pending: HashMap<String, (String, Arc<Value>)>,
 }
 
 impl Tools {
@@ -128,10 +129,11 @@ impl Tools {
         if self.pending.len() >= MAX_PENDING {
             self.pending.clear();
         }
-        self.pending.insert(id.into(), (name.into(), args.clone()));
+        self.pending
+            .insert(id.into(), (name.into(), Arc::new(args.clone())));
     }
 
-    fn take(&mut self, id: &Value) -> Option<(String, Value)> {
+    fn take(&mut self, id: &Value) -> Option<(String, Arc<Value>)> {
         self.pending.remove(id.as_str()?)
     }
 }

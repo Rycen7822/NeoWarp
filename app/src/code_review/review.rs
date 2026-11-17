@@ -32,7 +32,6 @@ use crate::code::editor::view::{
 };
 use crate::code::editor::{add_color, remove_color};
 use crate::localization::tr;
-use crate::project_sessions::tool_changes::Change;
 use crate::settings::CodeSettings;
 use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons::Icon;
@@ -111,7 +110,6 @@ pub struct GitReviewView {
     fold_mouse: MouseStateHandle,
     last_turn: Option<ModelHandle<LastTurn>>,
     turn_selected: bool,
-    turn_changes: HashMap<String, Change>,
     turn_refresh_id: u64,
 }
 
@@ -220,7 +218,6 @@ impl GitReviewView {
             fold_mouse: Default::default(),
             last_turn: None,
             turn_selected: false,
-            turn_changes: HashMap::new(),
             turn_refresh_id: 0,
         };
         if !snapshot.is_some_and(|snapshot| view.restore_snapshot(snapshot, ctx)) {
@@ -237,12 +234,20 @@ impl GitReviewView {
         if model.as_ref(ctx).root != self.root {
             return;
         }
-        self.last_turn = Some(model.clone());
-        ctx.subscribe_to_model(&model, |me, _, _, ctx| {
-            if me.turn_selected {
-                me.refresh_last_turn(ctx);
+        if self
+            .last_turn
+            .as_ref()
+            .is_none_or(|previous| previous.id() != model.id())
+        {
+            if let Some(previous) = self.last_turn.replace(model.clone()) {
+                ctx.unsubscribe_to_model(&previous);
             }
-        });
+            ctx.subscribe_to_model(&model, |me, _, _, ctx| {
+                if me.turn_selected {
+                    me.refresh_last_turn(ctx);
+                }
+            });
+        }
         self.select_last_turn(ctx);
     }
 
@@ -262,7 +267,6 @@ impl GitReviewView {
         }
         self.refresh_pending = false;
         self.cancel_loading();
-        self.turn_changes.clear();
         self.file_statuses.clear();
         let mut files = Vec::new();
         if let Some(model) = &self.last_turn {
@@ -272,8 +276,6 @@ impl GitReviewView {
                     additions: change.additions,
                     deletions: change.deletions,
                 });
-                self.turn_changes
-                    .insert(change.path.clone(), change.clone());
             }
         }
         self.set_files(files, ctx);
@@ -287,13 +289,11 @@ impl GitReviewView {
                 let limit = *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
                 card.expanded = limit > 0
                     && self
-                        .turn_changes
-                        .get(&card.entry.path)
+                        .last_turn
+                        .as_ref()
+                        .and_then(|model| model.as_ref(ctx).change(&card.entry.path))
                         .is_some_and(|change| change.diff.lines().count() <= usize::from(limit));
             }
-        }
-        for index in 0..self.files.len() {
-            self.list.invalidate_height_for_index(index);
         }
         self.message = if self.files.is_empty() {
             tr("No tool diff captured; script and external edits may be absent").into()
@@ -404,7 +404,6 @@ impl GitReviewView {
         self.refresh_pending = false;
         self.cancel_loading();
         self.turn_selected = false;
-        self.turn_changes.clear();
         self.mode = mode;
         self.selector.update(ctx, |selector, ctx| {
             selector.set_mode(self.mode.clone(), ctx)
@@ -641,7 +640,11 @@ impl GitReviewView {
             );
         if card.expanded {
             if self.turn_selected {
-                if let Some(change) = self.turn_changes.get(&card.entry.path) {
+                if let Some(change) = self
+                    .last_turn
+                    .as_ref()
+                    .and_then(|model| model.as_ref(app).change(&card.entry.path))
+                {
                     let mut body =
                         Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
                     for line in change.diff.lines() {
@@ -982,7 +985,7 @@ impl View for GitReviewView {
             branch.to_owned()
         };
         let ready = if self.turn_selected {
-            !self.turn_changes.is_empty()
+            !self.files.is_empty()
         } else {
             self.mode == DiffMode::Head || self.merge_base.is_some()
         };

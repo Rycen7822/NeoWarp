@@ -104,10 +104,12 @@ pub(crate) fn read(
 ) -> Result<(Cursor, Vec<Observation>)> {
     const MAX_READ: u64 = 4 * 1024 * 1024;
     let mut file = File::open(path)?;
-    ensure!(
-        file.metadata()?.len() >= cursor.offset,
-        "Transcript was rewritten"
-    );
+    let length = file.metadata()?.len();
+    ensure!(length >= cursor.offset, "Transcript was rewritten");
+    if length == cursor.offset {
+        cursor.full_batch = false;
+        return Ok((cursor, Vec::new()));
+    }
     file.seek(SeekFrom::Start(cursor.offset))?;
     let mut bytes = Vec::new();
     file.take(MAX_READ).read_to_end(&mut bytes)?;

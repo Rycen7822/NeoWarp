@@ -66,11 +66,16 @@ impl LastTurn {
         self.changes.values()
     }
 
+    pub(crate) fn change(&self, path: &str) -> Option<&Change> {
+        self.changes.get(path)
+    }
+
     pub(crate) fn end(&mut self, ctx: &mut ModelContext<Self>) {
         if let Some(task) = self.poll.take() {
             task.abort();
         }
         self.log_events = None;
+        self.cursor = None;
         self.closed = true;
         self.message = tr("Session ended").into();
         ctx.emit(());
@@ -144,38 +149,9 @@ impl LastTurn {
                         }
                         me.path = Some(path);
                         me.cursor = Some(cursor);
-                        let changed = !observations.is_empty();
-                        for observation in observations {
-                            match observation {
-                                Observation::Request => me.changes.clear(),
-                                Observation::Change(mut change) => {
-                                    let Some(path) = source
-                                        .native_path(&change.path)
-                                        .and_then(|native| relative_path(&me.root, &native))
-                                    else {
-                                        continue;
-                                    };
-                                    change.path = path.clone();
-                                    let bytes: usize =
-                                        me.changes.values().map(|change| change.diff.len()).sum();
-                                    if bytes + change.diff.len() > 2 * 1024 * 1024 {
-                                        continue;
-                                    }
-                                    if let Some(previous) = me.changes.get_mut(&path) {
-                                        if previous.diff.len() + change.diff.len() <= 64 * 1024 {
-                                            previous.diff.push_str("\n@@ next tool operation @@\n");
-                                            previous.diff.push_str(&change.diff);
-                                            previous.additions += change.additions;
-                                            previous.deletions += change.deletions;
-                                        }
-                                    } else if me.changes.len() < 128 {
-                                        me.changes.insert(path, change);
-                                    }
-                                }
-                            }
-                        }
                         me.message = tr("Captured tool changes · partial coverage").into();
-                        if changed {
+                        if !observations.is_empty() {
+                            me.apply_observations(observations, &source);
                             ctx.emit(());
                         }
                     }
@@ -188,6 +164,43 @@ impl LastTurn {
                 me.schedule_poll(ctx);
             },
         ));
+    }
+
+    fn apply_observations(&mut self, observations: Vec<Observation>, source: &Source) {
+        const SEPARATOR: &str = "\n@@ next tool operation @@\n";
+        const MAX_TURN_BYTES: usize = 2 * 1024 * 1024;
+        let mut bytes: usize = self.changes.values().map(|change| change.diff.len()).sum();
+        for observation in observations {
+            let mut change = match observation {
+                Observation::Request => {
+                    self.changes.clear();
+                    bytes = 0;
+                    continue;
+                }
+                Observation::Change(change) => change,
+            };
+            let Some(path) = source
+                .native_path(&change.path)
+                .and_then(|native| relative_path(&self.root, &native))
+            else {
+                continue;
+            };
+            if let Some(previous) = self.changes.get_mut(&path) {
+                let appended = SEPARATOR.len() + change.diff.len();
+                if previous.diff.len() + appended <= 64 * 1024 && bytes + appended <= MAX_TURN_BYTES
+                {
+                    previous.diff.push_str(SEPARATOR);
+                    previous.diff.push_str(&change.diff);
+                    previous.additions += change.additions;
+                    previous.deletions += change.deletions;
+                    bytes += appended;
+                }
+            } else if self.changes.len() < 128 && bytes + change.diff.len() <= MAX_TURN_BYTES {
+                change.path = path.clone();
+                bytes += change.diff.len();
+                self.changes.insert(path, change);
+            }
+        }
     }
 }
 
