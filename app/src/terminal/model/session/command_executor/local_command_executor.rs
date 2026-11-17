@@ -2,11 +2,13 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+#[cfg(unix)]
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use command::r#async::Command;
+#[cfg(unix)]
 use parking_lot::Mutex;
 
 use super::{CommandExecutor, CommandOutput, ExecuteCommandOptions};
@@ -43,19 +45,20 @@ fn terminate_process_group(process_group_id: u32) {
         }
     }
 }
-#[cfg(not(unix))]
-fn terminate_process_group(_: u32) {}
 
+#[cfg(unix)]
 #[derive(Debug, Default)]
 struct ActiveProcessGroups {
     process_groups: Mutex<HashMap<u32, Arc<ActiveProcessGroup>>>,
 }
 
+#[cfg(unix)]
 #[derive(Debug)]
 struct ActiveProcessGroup {
     id: u32,
 }
 
+#[cfg(unix)]
 impl ActiveProcessGroups {
     fn register(&self, process_group_id: u32) -> Arc<ActiveProcessGroup> {
         let process_group = Arc::new(ActiveProcessGroup {
@@ -102,11 +105,13 @@ impl ActiveProcessGroups {
     }
 }
 
+#[cfg(unix)]
 struct SpawnedChildCleanup {
     process_group: Option<Arc<ActiveProcessGroup>>,
     active_process_groups: Arc<ActiveProcessGroups>,
 }
 
+#[cfg(unix)]
 impl SpawnedChildCleanup {
     fn new(process_group_id: u32, active_process_groups: Arc<ActiveProcessGroups>) -> Self {
         let process_group = active_process_groups.register(process_group_id);
@@ -123,6 +128,7 @@ impl SpawnedChildCleanup {
     }
 }
 
+#[cfg(unix)]
 impl Drop for SpawnedChildCleanup {
     fn drop(&mut self) {
         if let Some(process_group) = self.process_group.take() {
@@ -186,6 +192,7 @@ pub struct LocalCommandExecutor {
     local_shell_path: Option<PathBuf>,
     shell_type: ShellType,
 
+    #[cfg(unix)]
     active_process_groups: Arc<ActiveProcessGroups>,
 }
 
@@ -194,6 +201,7 @@ impl LocalCommandExecutor {
         Self {
             local_shell_path,
             shell_type,
+            #[cfg(unix)]
             active_process_groups: Arc::default(),
         }
     }
@@ -314,28 +322,26 @@ impl LocalCommandExecutor {
         // The purpose of the executor is to produce output. If the child
         // has been dropped, there's no way to get the output anymore,
         // so there's no need for the process itself to stick around.
-        let child = command_process
-            .kill_on_drop(true)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        let child_cleanup =
-            SpawnedChildCleanup::new(child.id(), self.active_process_groups.clone());
-
-        let output = child
-            .output()
-            .await
-            .map(|output| output.into())
-            .map_err(|e| {
-                log::warn!("error executing local command");
-                anyhow!(e)
-            });
-        if output.is_ok() {
-            child_cleanup.complete();
-        }
-        output
+        command_process.kill_on_drop(true).stdin(Stdio::null());
+        #[cfg(windows)]
+        let output = command_process.output_with_small_pipes().await;
+        #[cfg(unix)]
+        let output = {
+            let child = command_process
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            let cleanup = SpawnedChildCleanup::new(child.id(), self.active_process_groups.clone());
+            let output = child.output().await;
+            if output.is_ok() {
+                cleanup.complete();
+            }
+            output
+        };
+        output.map(Into::into).map_err(|error| {
+            log::warn!("error executing local command");
+            anyhow!(error)
+        })
     }
 }
 
@@ -367,6 +373,7 @@ impl CommandExecutor for LocalCommandExecutor {
     }
 
     fn cancel_active_commands(&self) {
+        #[cfg(unix)]
         self.active_process_groups.cancel_all();
     }
 }

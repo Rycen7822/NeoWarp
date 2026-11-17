@@ -564,7 +564,6 @@ pub async fn get_repository_info(
 /// findable from macOS GUI launches (launchd's minimal `PATH` excludes it).
 #[cfg(feature = "local_fs")]
 async fn run_gh_command(repo_path: &Path, args: &[&str], path_env: Option<&str>) -> Result<String> {
-    use command::Stdio;
     use command::r#async::Command;
 
     log::debug!(
@@ -575,16 +574,13 @@ async fn run_gh_command(repo_path: &Path, args: &[&str], path_env: Option<&str>)
     let mut cmd = Command::new("gh");
     cmd.args(args)
         .current_dir(repo_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .kill_on_drop(true);
     if let Some(path_env) = path_env {
         cmd.env("PATH", path_env);
     }
     let output = cmd
-        .output()
+        .output_with_small_pipes()
         .await
         .map_err(|e| anyhow!("Failed to execute gh command: {e}"))?;
 

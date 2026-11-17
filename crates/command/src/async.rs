@@ -423,6 +423,16 @@ impl Command {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn output(&mut self) -> impl Future<Output = io::Result<Output>> {
+        self.collect_output(4 * 1024 * 1024)
+    }
+
+    /// Capture output from a helper using smaller Windows buffers.
+    /// The buffer size does not limit the returned output.
+    pub fn output_with_small_pipes(&mut self) -> impl Future<Output = io::Result<Output>> {
+        self.collect_output(512 * 1024)
+    }
+
+    fn collect_output(&mut self, pipe_capacity: usize) -> impl Future<Output = io::Result<Output>> {
         if self.stdin_is_default {
             self.inner.stdin(Stdio::null());
         }
@@ -430,7 +440,7 @@ impl Command {
         #[cfg(windows)]
         {
             // async-process uses an 8 MiB buffer per Windows output stream.
-            // Own the default capture pipes to bound helper command buffers to 4 MiB.
+            // Own the default capture pipes so we can choose their buffer size.
             let prepared = (|| {
                 let stdout = self.stdout_is_default.then(std::io::pipe).transpose()?;
                 let stderr = self.stderr_is_default.then(std::io::pipe).transpose()?;
@@ -458,8 +468,8 @@ impl Command {
                 let (mut output, (stdout, stderr)) = futures_lite::future::try_zip(
                     child.output(),
                     futures_lite::future::try_zip(
-                        read_output_pipe(stdout),
-                        read_output_pipe(stderr),
+                        read_output_pipe(stdout, pipe_capacity),
+                        read_output_pipe(stderr, pipe_capacity),
                     ),
                 )
                 .await?;
@@ -474,6 +484,7 @@ impl Command {
         }
         #[cfg(not(windows))]
         {
+            let _ = pipe_capacity;
             if self.stdout_is_default {
                 self.inner.stdout(Stdio::piped());
             }
@@ -486,14 +497,17 @@ impl Command {
 }
 
 #[cfg(windows)]
-async fn read_output_pipe(pipe: Option<std::io::PipeReader>) -> io::Result<Option<Vec<u8>>> {
+async fn read_output_pipe(
+    pipe: Option<std::io::PipeReader>,
+    capacity: usize,
+) -> io::Result<Option<Vec<u8>>> {
     use futures_lite::AsyncReadExt as _;
 
     let Some(pipe) = pipe else {
         return Ok(None);
     };
     let mut bytes = Vec::new();
-    blocking::Unblock::with_capacity(4 * 1024 * 1024, pipe)
+    blocking::Unblock::with_capacity(capacity, pipe)
         .read_to_end(&mut bytes)
         .await?;
     Ok(Some(bytes))

@@ -312,9 +312,7 @@ async fn capture_interactive_shell_env(
     // stdin(null) prevents any prompts from blocking
     let output: std::process::Output = command
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
+        .output_with_small_pipes()
         .await
         .map_err(|e| anyhow!("Failed to spawn interactive shell: {}", e))?;
 
