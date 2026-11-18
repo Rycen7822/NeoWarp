@@ -498,6 +498,7 @@ impl DiffModel {
         &mut self,
         new: MultilineString<LF>,
         version: BufferVersion,
+        captured_ops: Option<Vec<DiffOp>>,
         ctx: &mut ModelContext<Self>,
     ) {
         if let Some((abort_handle, current_version)) = self.abort_handle.take() {
@@ -516,7 +517,9 @@ impl DiffModel {
 
         let handle = ctx
             .spawn(
-                async move { Self::compute_diff_internal(&base_text, &new).await },
+                async move {
+                    Self::compute_diff_internal(&base_text, &new, captured_ops.as_deref()).await
+                },
                 move |model, (change_mapping, deletion_mapping), ctx| {
                     model.status.change_mapping = change_mapping;
                     model.status.deletion_mapping = deletion_mapping;
@@ -539,7 +542,7 @@ impl DiffModel {
         let new = AnyMultilineString::infer(new);
 
         let (change_mapping, deletion_mapping) =
-            Self::compute_diff_internal(&base_text, new.to_format().as_ref()).await;
+            Self::compute_diff_internal(&base_text, new.to_format().as_ref(), None).await;
         self.status.change_mapping = change_mapping;
         self.status.deletion_mapping = deletion_mapping;
     }
@@ -547,6 +550,7 @@ impl DiffModel {
     async fn compute_diff_internal(
         base: &MultilineStr<LF>,
         new: &MultilineStr<LF>,
+        captured_ops: Option<&[DiffOp]>,
     ) -> (RangeMap<usize, ChangeType>, HashMap<usize, Range<usize>>) {
         let diffs = TextDiff::configure()
             .algorithm(similar::Algorithm::Patience)
@@ -554,7 +558,9 @@ impl DiffModel {
         let mut deletion_mapping = HashMap::new();
         let mut change_mapping = RangeMap::new();
 
-        for change in diffs.ops() {
+        // A captured edit is already a diff. Use the editor's inline highlighting without
+        // realigning lines across independent tool operations.
+        for change in captured_ops.unwrap_or_else(|| diffs.ops()) {
             futures_lite::future::yield_now().await;
             match change {
                 DiffOp::Equal { .. } => continue,

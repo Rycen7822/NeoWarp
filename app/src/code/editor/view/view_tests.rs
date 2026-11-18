@@ -43,9 +43,9 @@ fn review_snapshot_updates_same_count_content_and_stays_read_only() {
     App::test((), |mut app| async move {
         let (_window, editor) = initialize_editor(&mut app);
         editor.update(&mut app, |view, ctx| {
-            view.set_review_content("base\n", "first\n", ctx);
+            view.set_review_content("base\n", "first\n", None, ctx);
             assert_eq!(view.text(ctx).as_str(), "first\n");
-            view.set_review_content("base\n", "later\n", ctx);
+            view.set_review_content("base\n", "later\n", None, ctx);
             view.set_review_wrapping(true, ctx);
             view.handle_action(
                 &CodeEditorViewAction::UserTyped(UserInput::new("unwanted")),

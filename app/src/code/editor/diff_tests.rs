@@ -18,6 +18,7 @@ fn test_diff_generation() {
                 "Hallo Welt\nThis is the second line.\nThis is life.\nMoar and more",
             )
             .unwrap(),
+            None,
         )
         .await;
         assert_eq!(
@@ -47,6 +48,7 @@ fn test_diff_generation() {
             MultilineStr::try_new("Hello World\nThis is the second line.\nThis is the third.")
                 .unwrap(),
             MultilineStr::try_new("Hello World\nThis is the third.").unwrap(),
+            None,
         )
         .await;
         assert!(change_mapping.is_empty());
@@ -55,6 +57,7 @@ fn test_diff_generation() {
         let (change_mapping, deletion_mapping) = DiffModel::compute_diff_internal(
             MultilineStr::try_new("Hello\nWorld\n").unwrap(),
             MultilineStr::try_new("Hallo\nWorlds\n").unwrap(),
+            None,
         )
         .await;
 

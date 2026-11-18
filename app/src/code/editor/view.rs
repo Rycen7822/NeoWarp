@@ -146,6 +146,7 @@ pub struct CodeEditorView {
     display_options: CodeEditorViewDisplayOptions,
     pending_scroll: Option<ScrollTrigger>,
     pending_review_state: Option<(BufferVersion, ReviewEditorState)>,
+    captured_review: bool,
     supports_vim_mode: bool,
     vim_model: ModelHandle<VimModel>,
     // Track the most recent Vim search direction to determine how to cycle (n/N) thereafter.
@@ -242,9 +243,11 @@ impl CodeEditorView {
         &mut self,
         base: &str,
         current: &str,
+        captured_ops: Option<Vec<similar::DiffOp>>,
         ctx: &mut ViewContext<Self>,
     ) {
         use warp_editor::multiline::{LF, MultilineString};
+        self.captured_review = captured_ops.is_some();
         self.model.update(ctx, |model, ctx| {
             model
                 .buffer()
@@ -253,7 +256,12 @@ impl CodeEditorView {
             let version = model.buffer_version(ctx);
             model.diff().update(ctx, |diff, ctx| {
                 diff.set_base(MultilineString::<LF>::apply(base));
-                diff.compute_diff(MultilineString::<LF>::apply(current), version, ctx);
+                diff.compute_diff(
+                    MultilineString::<LF>::apply(current),
+                    version,
+                    captured_ops,
+                    ctx,
+                );
             });
             model.show_review_diff(ctx);
         });
@@ -382,6 +390,7 @@ impl CodeEditorView {
             },
             pending_scroll: None,
             pending_review_state: None,
+            captured_review: false,
             supports_vim_mode,
             vim_model,
             last_search_direction: Direction::Forward,
@@ -797,6 +806,7 @@ impl CodeEditorView {
             text_color: theme.sub_text_color(theme.background()).into(),
             highlight_text_color: theme.main_text_color(theme.background()).into(),
             starting_line_number: self.display_options.starting_line_number,
+            show_numbers: !self.captured_review,
             mode: *editor_settings.code_editor_line_number_mode.value(),
             active_line_number: self.active_cursor_line_for_line_numbers(ctx),
             active_cursor_is_visible: self.is_focused(ctx) && self.is_editable(ctx),

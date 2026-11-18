@@ -213,6 +213,7 @@ pub struct LineNumberConfig {
     pub text_color: ColorU,
     pub highlight_text_color: ColorU,
     pub starting_line_number: Option<usize>,
+    pub show_numbers: bool,
     pub mode: CodeEditorLineNumberMode,
     pub active_line_number: Option<LineCount>,
     pub active_cursor_is_visible: bool,
@@ -579,7 +580,7 @@ impl<V: EditorView> EditorWrapper<V> {
                 .is_some_and(|hovered_line| hovered_line.line_range() == line.line_range());
 
             let element = self.render_gutter_element(
-                Some(current_line),
+                line_number_config.show_numbers.then_some(current_line),
                 line_number_config,
                 height,
                 overlay,

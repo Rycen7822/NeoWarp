@@ -10,6 +10,7 @@ fn config(
         text_color: ColorU::transparent_black(),
         highlight_text_color: ColorU::transparent_black(),
         starting_line_number,
+        show_numbers: true,
         mode,
         active_line_number,
         active_cursor_is_visible: true,

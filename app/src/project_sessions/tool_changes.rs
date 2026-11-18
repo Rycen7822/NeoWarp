@@ -146,6 +146,14 @@ fn tool_change(name: &str, args: &Value, details: &Value) -> Option<Change> {
         .as_str()
         .or_else(|| args["file_path"].as_str())?;
     if let Some(diff) = details["diff"].as_str() {
+        if let Some(patch) = details["patch"].as_str()
+            && let Some(header) = patch.find("\n@@ ")
+        {
+            return Change::new(path, patch[header + 1..].into());
+        }
+        if details["firstChangedLine"].is_number() {
+            return Change::new(path, strip_pi_line_numbers(diff));
+        }
         return Change::new(path, diff.into());
     }
     if let Some(hunks) = details["structuredPatch"].as_array() {
@@ -193,6 +201,32 @@ fn tool_change(name: &str, args: &Value, details: &Value) -> Option<Change> {
         }
     }
     Change::new(path, diff)
+}
+
+// Older Pi edit results only include the display diff with a padded line number after each marker.
+fn strip_pi_line_numbers(diff: &str) -> String {
+    let mut result = String::with_capacity(diff.len());
+    for line in diff.lines() {
+        let Some(marker @ (b' ' | b'+' | b'-')) = line.as_bytes().first().copied() else {
+            result.push_str(line);
+            result.push('\n');
+            continue;
+        };
+        let rest = line[1..].trim_start_matches(' ');
+        let number = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if number > 0
+            && let Some(text) = rest[number..].strip_prefix(' ')
+        {
+            result.push(char::from(marker));
+            result.push_str(text);
+        } else if marker == b' ' && rest == "..." {
+            result.push_str("@@");
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+    result
 }
 
 fn patch_changes(patch: &str) -> Vec<Change> {

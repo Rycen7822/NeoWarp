@@ -24,6 +24,7 @@ pub(crate) struct LastTurn {
     path: Option<PathBuf>,
     cursor: Option<Cursor>,
     since: u64,
+    generation: u64,
     changes: BTreeMap<String, Change>,
     message: String,
     poll: Option<SpawnedFutureHandle>,
@@ -46,6 +47,7 @@ impl LastTurn {
             path: None,
             cursor: None,
             since: now(),
+            generation: 0,
             changes: BTreeMap::new(),
             message: tr("Captured tool changes · partial coverage").into(),
             poll: None,
@@ -68,6 +70,10 @@ impl LastTurn {
 
     pub(crate) fn change(&self, path: &str) -> Option<&Change> {
         self.changes.get(path)
+    }
+
+    pub(super) fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub(crate) fn end(&mut self, ctx: &mut ModelContext<Self>) {
@@ -174,6 +180,7 @@ impl LastTurn {
             let mut change = match observation {
                 Observation::Request => {
                     self.changes.clear();
+                    self.generation = self.generation.wrapping_add(1);
                     bytes = 0;
                     continue;
                 }

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use similar::DiffOp;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warpui::r#async::SpawnedFutureHandle;
 use warpui::clipboard::ClipboardContent;
@@ -61,6 +62,7 @@ struct FileCard {
     editor_state: Option<ReviewEditorState>,
     base: Option<Arc<String>>,
     cached_current: Option<Box<str>>,
+    tool_revision: Option<(EntityId, u64, usize)>,
     expanded: bool,
     auto_collapse_pending: bool,
     dirty: bool,
@@ -78,6 +80,7 @@ impl FileCard {
             editor_state: None,
             base: None,
             cached_current: None,
+            tool_revision: None,
             expanded: collapse_limit != 0,
             auto_collapse_pending: true,
             dirty: true,
@@ -263,37 +266,49 @@ impl GitReviewView {
     }
 
     fn refresh_last_turn(&mut self, ctx: &mut ViewContext<Self>) {
+        let Some(model) = self.last_turn.clone() else {
+            return;
+        };
         if let Some(task) = self.refreshing.take() {
             task.abort();
         }
         self.refresh_pending = false;
         self.cancel_loading();
         self.file_statuses.clear();
-        let mut files = Vec::new();
-        if let Some(model) = &self.last_turn {
-            for change in model.as_ref(ctx).changes() {
-                files.push(FileChangeEntry {
-                    path: change.path.clone(),
-                    additions: change.additions,
-                    deletions: change.deletions,
-                });
-            }
-        }
+        let files = model
+            .as_ref(ctx)
+            .changes()
+            .map(|change| FileChangeEntry {
+                path: change.path.clone(),
+                additions: change.additions,
+                deletions: change.deletions,
+            })
+            .collect();
         self.set_files(files, ctx);
-        for card in &mut self.files {
-            card.dirty = false;
-            card.editor = None;
-            card.base = None;
-            card.cached_current = None;
-            card.editor_state = None;
+        let turn = model.as_ref(ctx);
+        let source = (model.id(), turn.generation());
+        for (card, change) in self.files.iter_mut().zip(turn.changes()) {
+            // Within a turn, the capture only appends to each file's diff.
+            let revision = (source.0, source.1, change.diff.len());
+            if card.tool_revision == Some(revision) {
+                continue;
+            }
+            if card
+                .tool_revision
+                .map(|(id, generation, _)| (id, generation))
+                != Some(source)
+            {
+                card.editor = None;
+                card.base = None;
+                card.cached_current = None;
+                card.editor_state = None;
+            }
+            card.tool_revision = Some(revision);
+            card.dirty = true;
+            card.message = tr("Loading changes…").into();
             if std::mem::take(&mut card.auto_collapse_pending) {
                 let limit = *CodeSettings::as_ref(ctx).diff_auto_collapse_lines;
-                card.expanded = limit > 0
-                    && self
-                        .last_turn
-                        .as_ref()
-                        .and_then(|model| model.as_ref(ctx).change(&card.entry.path))
-                        .is_some_and(|change| change.diff.lines().count() <= usize::from(limit));
+                card.expanded = limit > 0 && change.diff.lines().count() <= usize::from(limit);
             }
         }
         self.message = if self.files.is_empty() {
@@ -466,9 +481,6 @@ impl GitReviewView {
     }
 
     fn load_visible(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
-        if self.turn_selected {
-            return;
-        }
         // The list may measure preceding items to estimate height; those are not load requests.
         if (!self.turn_selected && self.mode != DiffMode::Head && self.merge_base.is_none())
             || index >= self.files.len()
@@ -488,6 +500,23 @@ impl GitReviewView {
             return;
         }
         card.dirty = false;
+        if self.turn_selected {
+            if let Some(change) = self
+                .last_turn
+                .as_ref()
+                .and_then(|model| model.as_ref(ctx).change(&card.entry.path))
+            {
+                let (base, current, ops) = captured_review(&change.diff);
+                apply_file_result(
+                    self,
+                    index,
+                    validate_content(Arc::new(base), current),
+                    Some(ops),
+                    ctx,
+                );
+            }
+            return;
+        }
         if let Some(current) = card.cached_current.take() {
             let base = card
                 .base
@@ -497,6 +526,7 @@ impl GitReviewView {
                 self,
                 index,
                 base.map(|base| (base, current.into_string())),
+                None,
                 ctx,
             );
             return;
@@ -541,7 +571,7 @@ impl GitReviewView {
             && !self.files[index].dirty
             && self.files[index].expanded
         {
-            apply_file_result(self, index, result, ctx);
+            apply_file_result(self, index, result, None, ctx);
         }
         ctx.notify();
     }
@@ -646,40 +676,7 @@ impl GitReviewView {
                     .finish(),
             );
         if card.expanded {
-            if self.turn_selected {
-                if let Some(change) = self
-                    .last_turn
-                    .as_ref()
-                    .and_then(|model| model.as_ref(app).change(&card.entry.path))
-                {
-                    let mut body =
-                        Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
-                    for line in change.diff.lines() {
-                        let color = if line.starts_with('+') {
-                            add_color(appearance)
-                        } else if line.starts_with('-') {
-                            remove_color(appearance)
-                        } else {
-                            theme.main_text_color(theme.background()).into()
-                        };
-                        body.add_child(
-                            Text::new(
-                                line.replace('\t', "    "),
-                                appearance.monospace_font_family(),
-                                12.,
-                            )
-                            .soft_wrap(self.wrap_lines)
-                            .with_color(color)
-                            .finish(),
-                        );
-                    }
-                    column.add_child(
-                        Container::new(body.finish())
-                            .with_padding(Padding::uniform(12.))
-                            .finish(),
-                    );
-                }
-            } else if let Some(editor) = &card.editor
+            if let Some(editor) = &card.editor
                 && !card.auto_collapse_pending
             {
                 column.add_child(
@@ -737,6 +734,7 @@ fn apply_file_result(
     me: &mut GitReviewView,
     index: usize,
     result: Result<(Arc<String>, String)>,
+    captured_ops: Option<Vec<DiffOp>>,
     ctx: &mut ViewContext<GitReviewView>,
 ) {
     let result_path = me.files[index].entry.path.clone();
@@ -798,11 +796,12 @@ fn apply_file_result(
                 me.files[index].editor = Some(editor.clone());
                 editor
             };
+            let tool_review = captured_ops.is_some();
             editor.update(ctx, |editor, ctx| {
-                editor.set_review_content(&base, &current, ctx);
+                editor.set_review_content(&base, &current, captured_ops, ctx);
                 editor.set_review_wrapping(me.wrap_lines, ctx);
             });
-            me.files[index].base = Some(base);
+            me.files[index].base = (!tool_review).then_some(base);
             me.files[index].message.clear();
         }
         Err(error) => {
@@ -904,6 +903,69 @@ fn validate_content(base: Arc<String>, current: String) -> Result<(Arc<String>, 
         anyhow::bail!("line is too long to display; open it in an external editor");
     }
     Ok((base, current))
+}
+
+// Tool hunks can overlap or revisit the same lines. Build a display buffer with
+// explicit edits so the editor does not combine them into a net file diff.
+fn captured_review(diff: &str) -> (String, String, Vec<DiffOp>) {
+    let (mut base, mut current) = (String::new(), String::new());
+    let (mut old_line, mut new_line) = (0, 0);
+    let mut ops = Vec::new();
+    let mut change_start = None;
+    let mut gap = false;
+    for line in diff.lines().chain(std::iter::once("")) {
+        let marker = line.as_bytes().first().copied();
+        if !matches!(marker, Some(b'+' | b'-'))
+            && let Some((old_index, new_index)) = change_start.take()
+        {
+            let old_len = old_line - old_index;
+            let new_len = new_line - new_index;
+            ops.push(match (old_len, new_len) {
+                (0, _) => DiffOp::Insert {
+                    old_index,
+                    new_index,
+                    new_len,
+                },
+                (_, 0) => DiffOp::Delete {
+                    old_index,
+                    old_len,
+                    new_index,
+                },
+                _ => DiffOp::Replace {
+                    old_index,
+                    old_len,
+                    new_index,
+                    new_len,
+                },
+            });
+        }
+        let Some(marker @ (b' ' | b'+' | b'-')) = marker else {
+            if line.starts_with("@@") && (old_line > 0 || new_line > 0) {
+                gap = true;
+            }
+            continue;
+        };
+        if std::mem::take(&mut gap) {
+            base.push_str("⋯\n");
+            current.push_str("⋯\n");
+            old_line += 1;
+            new_line += 1;
+        }
+        if marker != b' ' {
+            change_start.get_or_insert((old_line, new_line));
+        }
+        if marker != b'+' {
+            base.push_str(&line[1..]);
+            base.push('\n');
+            old_line += 1;
+        }
+        if marker != b'-' {
+            current.push_str(&line[1..]);
+            current.push('\n');
+            new_line += 1;
+        }
+    }
+    (base, current, ops)
 }
 
 #[derive(Debug, Clone)]

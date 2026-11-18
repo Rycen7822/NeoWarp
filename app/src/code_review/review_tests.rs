@@ -59,7 +59,7 @@ fn toolbar_folding_releases_bodies_and_reopens_lazily() {
             });
             let weak_editor = editor.downgrade();
             editor.update(ctx, |editor, ctx| {
-                editor.set_review_content("old", "new", ctx)
+                editor.set_review_content("old", "new", None, ctx)
             });
             review.files[0].editor = Some(editor);
             review.files[0].base = Some(Arc::new("old".into()));
@@ -88,6 +88,44 @@ fn toolbar_folding_releases_bodies_and_reopens_lazily() {
             );
         });
     });
+}
+
+#[test]
+fn captured_edits_keep_both_replacements_in_editor_order() {
+    use serde_json::json;
+
+    use crate::project_sessions::config::Provider;
+    use crate::project_sessions::tool_changes::Tools;
+
+    let mut tools = Tools::default();
+    tools.observe(
+        &json!({"message":{"role":"assistant","content":[
+            {"type":"toolCall","id":"edit","name":"edit","arguments":{"path":"code.ts"}}
+        ]}}),
+        Provider::Pi,
+    );
+    let changes = tools.observe(
+        &json!({"message":{
+            "role":"toolResult","toolCallId":"edit",
+            "details":{"diff":"- 38 const value = 1;\n+ 38 const value = 2;","firstChangedLine":38},
+            "nestedCalls":{"calls":[{"name":"edit","status":"ok","arguments":{
+                "path":"code.ts","oldText":"const value = 2;","newText":"const value = 1;"
+            }}]}
+        }}),
+        Provider::Pi,
+    );
+    let diff = format!(
+        "{}\n@@ next tool operation @@\n{}",
+        changes[0].diff, changes[1].diff
+    );
+    let (base, current, edits) = captured_review(&diff);
+    assert_eq!(base, "const value = 1;\n⋯\nconst value = 2;\n");
+    assert_eq!(current, "const value = 2;\n⋯\nconst value = 1;\n");
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0].old_range(), 0..1);
+    assert_eq!(edits[0].new_range(), 0..1);
+    assert_eq!(edits[1].old_range(), 2..3);
+    assert_eq!(edits[1].new_range(), 2..3);
 }
 
 async fn fixture() -> tempfile::TempDir {

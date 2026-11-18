@@ -907,7 +907,7 @@ impl CodeEditorModel {
                 }
 
                 self.diff.update(ctx, move |diff, ctx| {
-                    diff.compute_diff(content, *buffer_version, ctx)
+                    diff.compute_diff(content, *buffer_version, None, ctx)
                 });
 
                 // If we are delaying rendering, push these updates to the delay rendering state. Otherwise, flush them to diff and rendering model.
