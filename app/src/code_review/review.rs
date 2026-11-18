@@ -10,10 +10,11 @@ use warpui::r#async::SpawnedFutureHandle;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
-    Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Empty, Expanded, Flex, List,
-    ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
+    Align, Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Empty, Expanded, Flex,
+    List, ListState, MouseStateHandle, NewScrollable, Padding, ParentElement, ScrollStateHandle,
     Shrinkable, Text,
 };
+use warpui::text_layout::{ClipConfig, ClipDirection, ClipStyle};
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::units::Pixels;
 use warpui::{
@@ -591,13 +592,20 @@ impl GitReviewView {
             })
             .finish(),
         );
-        let path = card.entry.path.clone();
         header.add_child(
-            Shrinkable::new(
+            Expanded::new(
                 1.,
-                Text::new_inline(path, appearance.ui_font_family(), 13.)
-                    .with_color(theme.main_text_color(theme.surface_2()).into())
-                    .finish(),
+                Align::new(
+                    Text::new_inline(card.entry.path.clone(), appearance.ui_font_family(), 13.)
+                        .with_color(theme.main_text_color(theme.surface_2()).into())
+                        .with_clip(ClipConfig {
+                            direction: ClipDirection::Start,
+                            style: ClipStyle::Ellipsis,
+                        })
+                        .finish(),
+                )
+                .left()
+                .finish(),
             )
             .finish(),
         );
@@ -610,12 +618,6 @@ impl GitReviewView {
                 })
                 .finish(),
         );
-        header.add_child(diff_badge(
-            card.entry.additions,
-            card.entry.deletions,
-            appearance,
-        ));
-        header.add_child(Expanded::new(1., Empty::new().finish()).finish());
         let path = crate::util::path::local_path_for_io(&self.root).join(&card.entry.path);
         header.add_child(
             icon_button(
@@ -630,6 +632,11 @@ impl GitReviewView {
             })
             .finish(),
         );
+        header.add_child(diff_badge(
+            card.entry.additions,
+            card.entry.deletions,
+            appearance,
+        ));
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(
