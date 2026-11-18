@@ -99,13 +99,13 @@ enum State {
 pub(super) struct ImagePreview {
     pub(super) path: PathBuf,
     state: State,
-    scale: f32,
+    zoom_percent: i16,
     horizontal_scroll: ClippedScrollStateHandle,
     vertical_scroll: ClippedScrollStateHandle,
 }
 
 impl ImagePreview {
-    pub(super) fn new(path: PathBuf, scale: f32, ctx: &mut ViewContext<Self>) -> Self {
+    pub(super) fn new(path: PathBuf, zoom_percent: i16, ctx: &mut ViewContext<Self>) -> Self {
         let input = path.clone();
         let task = ctx.spawn(
             blocking::unblock(move || decode(&input)),
@@ -123,14 +123,14 @@ impl ImagePreview {
         Self {
             path,
             state: State::Loading(task),
-            scale,
+            zoom_percent,
             horizontal_scroll: Default::default(),
             vertical_scroll: Default::default(),
         }
     }
 
-    pub(super) fn set_scale(&mut self, scale: f32, ctx: &mut ViewContext<Self>) {
-        self.scale = scale;
+    pub(super) fn set_zoom_percent(&mut self, zoom_percent: i16, ctx: &mut ViewContext<Self>) {
+        self.zoom_percent = zoom_percent;
         ctx.notify();
     }
 
@@ -166,7 +166,7 @@ impl View for ImagePreview {
                 return Container::new(
                     ImageViewport {
                         image: image.clone(),
-                        scale: self.scale,
+                        scale: f32::from(self.zoom_percent) / 100.,
                         horizontal_scroll: self.horizontal_scroll.clone(),
                         vertical_scroll: self.vertical_scroll.clone(),
                         child: Empty::new().finish(),

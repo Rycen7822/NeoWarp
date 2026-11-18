@@ -408,16 +408,17 @@ impl<V: EditorView> EditorWrapper<V> {
         let mut removed_hunk_line_number: Option<LineCount> = None;
         let mut removed_hunk_line_index: usize = 0;
         for (block_idx, block) in blocks.iter().enumerate() {
-            let Some(mut line_count) = model.start_line_index(&**block) else {
-                continue;
-            };
-            if let Some(buffer) = wrapped_buffer
+            let line_count = if let Some(buffer) = wrapped_buffer
                 && !block.is_hidden_section()
             {
                 // Render offsets omit the buffer's leading newline marker.
                 let point = (block.viewport_item().block_offset() + 1).to_buffer_point(buffer);
-                line_count = LineCount::from(point.row.saturating_sub(1) as usize);
-            }
+                LineCount::from(point.row.saturating_sub(1) as usize)
+            } else if let Some(line_count) = model.start_line_index(&**block) {
+                line_count
+            } else {
+                continue;
+            };
 
             let offset = block.viewport_item().viewport_offset;
             let diff_hunk = self.diff_status.diff_hunk(line_count, appearance);

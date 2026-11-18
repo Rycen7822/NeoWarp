@@ -9,6 +9,8 @@ use warpui::elements::DropTargetData;
 
 use crate::terminal::shell::ShellType;
 
+const DEFAULT_PREVIEW_ZOOM: i16 = 100;
+
 pub mod buffer_location;
 pub mod code_block;
 pub mod editor;

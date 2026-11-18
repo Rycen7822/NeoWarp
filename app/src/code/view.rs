@@ -37,7 +37,9 @@ use super::image_preview::{ImagePreview, can_preview};
 use super::local_code_editor::{LocalCodeEditorEvent, LocalCodeEditorView};
 use crate::code::editor::view::CodeEditorRenderOptions;
 use crate::code::global_buffer_model::GlobalBufferModel;
-use crate::code::{EditorTabBarDropTargetData, ImmediateSaveError, SaveOutcome, SaveStatus};
+use crate::code::{
+    DEFAULT_PREVIEW_ZOOM, EditorTabBarDropTargetData, ImmediateSaveError, SaveOutcome, SaveStatus,
+};
 use crate::input::Vector2F;
 use crate::localization::tr;
 use crate::menu::{MenuItem, MenuItemFields};
@@ -71,7 +73,6 @@ const LANGUAGE_ICON_WIDTH: f32 = 16.;
 const TAB_INTERNAL_MARGIN: f32 = 4.;
 const TAB_HORIZONTAL_MARGIN: f32 = 8.;
 const TAB_PADDING: f32 = 2.;
-const DEFAULT_PREVIEW_ZOOM: i16 = 100;
 const MIN_PREVIEW_ZOOM: i16 = 50;
 const MAX_PREVIEW_ZOOM: i16 = 300;
 const PREVIEW_ZOOM_STEP: i16 = 10;
@@ -192,7 +193,6 @@ struct PreviewControls {
 pub struct TabData {
     location: Option<LocalOrRemotePath>,
     content: TabContent,
-    zoom_percent: i16,
     mouse_state_handles: TabDataMouseStateHandles,
 }
 
@@ -200,7 +200,9 @@ pub struct TabData {
 enum TabContent {
     Editor(ViewHandle<LocalCodeEditorView>),
     #[cfg(feature = "local_fs")]
-    Image,
+    Image {
+        zoom_percent: i16,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -215,7 +217,15 @@ impl TabData {
         match &self.content {
             TabContent::Editor(editor) => Some(editor),
             #[cfg(feature = "local_fs")]
-            TabContent::Image => None,
+            TabContent::Image { .. } => None,
+        }
+    }
+
+    fn zoom_percent(&self, app: &AppContext) -> i16 {
+        match &self.content {
+            TabContent::Editor(local) => local.as_ref(app).editor().as_ref(app).zoom_percent(),
+            #[cfg(feature = "local_fs")]
+            TabContent::Image { zoom_percent } => *zoom_percent,
         }
     }
 
@@ -369,8 +379,9 @@ impl CodeView {
         {
             return TabData {
                 location,
-                content: TabContent::Image,
-                zoom_percent: DEFAULT_PREVIEW_ZOOM,
+                content: TabContent::Image {
+                    zoom_percent: DEFAULT_PREVIEW_ZOOM,
+                },
                 mouse_state_handles: Default::default(),
             };
         }
@@ -447,7 +458,6 @@ impl CodeView {
         TabData {
             location: tab_location,
             content: TabContent::Editor(code_editor),
-            zoom_percent: DEFAULT_PREVIEW_ZOOM,
             mouse_state_handles: Default::default(),
         }
     }
@@ -1063,19 +1073,19 @@ impl CodeView {
 
     #[cfg(feature = "local_fs")]
     fn refresh_active_image(&mut self, ctx: &mut ViewContext<Self>) {
-        let image = self
-            .tab_at(self.active_tab_index)
-            .filter(|tab| matches!(tab.content, TabContent::Image))
-            .and_then(|tab| Some((tab.location()?.to_local_path()?, tab.zoom_percent)));
+        let image = self.preview_tab().and_then(|tab| match tab.content {
+            TabContent::Image { zoom_percent } => {
+                Some((tab.location()?.to_local_path()?, zoom_percent))
+            }
+            TabContent::Editor(_) => None,
+        });
         let current = self
             .active_image
             .as_ref()
             .map(|view| view.as_ref(ctx).path.as_path());
         if image.map(|(path, _)| path) != current {
             self.active_image = image.map(|(path, zoom)| {
-                ctx.add_view(|ctx| {
-                    ImagePreview::new(path.to_path_buf(), f32::from(zoom) / 100., ctx)
-                })
+                ctx.add_view(|ctx| ImagePreview::new(path.to_path_buf(), zoom, ctx))
             });
         }
     }
@@ -1085,10 +1095,10 @@ impl CodeView {
             .filter(|tab| tab.location.is_some())
     }
 
-    fn preview_editor(&self, app: &AppContext) -> Option<ViewHandle<CodeEditorView>> {
+    fn preview_editor<'a>(&self, app: &'a AppContext) -> Option<&'a ViewHandle<CodeEditorView>> {
         self.preview_tab()?
             .editor()
-            .map(|editor| editor.as_ref(app).editor().clone())
+            .map(|editor| editor.as_ref(app).editor())
     }
 
     fn change_preview_zoom(&mut self, delta: i16, ctx: &mut ViewContext<Self>) {
@@ -1099,24 +1109,23 @@ impl CodeView {
         else {
             return;
         };
-        let zoom = tab
-            .zoom_percent
+        let current = tab.zoom_percent(ctx);
+        let zoom = current
             .saturating_add(delta)
             .clamp(MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM);
-        if zoom == tab.zoom_percent {
+        if zoom == current {
             return;
         }
-        tab.zoom_percent = zoom;
-        let scale = f32::from(zoom) / 100.;
-        match &tab.content {
+        match &mut tab.content {
             TabContent::Editor(local) => {
                 let editor = local.as_ref(ctx).editor().clone();
-                editor.update(ctx, |editor, ctx| editor.set_font_scale(scale, ctx));
+                editor.update(ctx, |editor, ctx| editor.set_zoom_percent(zoom, ctx));
             }
             #[cfg(feature = "local_fs")]
-            TabContent::Image => {
+            TabContent::Image { zoom_percent } => {
+                *zoom_percent = zoom;
                 if let Some(image) = &self.active_image {
-                    image.update(ctx, |image, ctx| image.set_scale(scale, ctx));
+                    image.update(ctx, |image, ctx| image.set_zoom_percent(zoom, ctx));
                 }
             }
         }
@@ -1416,8 +1425,9 @@ impl CodeView {
         .finish()
     }
 
-    fn render_preview_zoom(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {
-        let zoom = self.preview_tab()?.zoom_percent;
+    fn render_preview_zoom(&self, app: &AppContext) -> Option<Box<dyn Element>> {
+        let zoom = self.preview_tab()?.zoom_percent(app);
+        let appearance = Appearance::as_ref(app);
         let mut row = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_main_axis_size(MainAxisSize::Min);
@@ -1468,6 +1478,35 @@ impl CodeView {
         ))
     }
 
+    fn render_trailing_controls(
+        &self,
+        header_ctx: &view::HeaderRenderContext,
+        app: &AppContext,
+    ) -> (Flex, u32) {
+        let show_close = self
+            .focus_handle
+            .as_ref()
+            .is_some_and(|handle| handle.is_in_split_pane(app));
+        let wrap = self.render_preview_wrap(app);
+        let count = u32::from(wrap.is_some())
+            + u32::from(header_ctx.has_overflow_items)
+            + u32::from(show_close);
+        let mut buttons = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_main_axis_size(MainAxisSize::Min);
+        buttons.add_children(wrap);
+        buttons.add_child(
+            render_pane_header_buttons::<CodeViewAction, CodeViewAction>(
+                header_ctx,
+                Appearance::as_ref(app),
+                show_close,
+                None,
+                None,
+            ),
+        );
+        (buttons, count)
+    }
+
     fn preview_button(
         appearance: &Appearance,
         button: Button,
@@ -1510,7 +1549,7 @@ impl CodeView {
                     .finish(),
             );
         }
-        if let Some(zoom) = self.render_preview_zoom(appearance) {
+        if let Some(zoom) = self.render_preview_zoom(app) {
             header_row.add_child(
                 Container::new(Align::new(zoom).finish())
                     .with_padding_left(PADDING)
@@ -1669,25 +1708,7 @@ impl CodeView {
             Expanded::new(1., clipped_tabs).finish()
         });
 
-        let show_close_button = self
-            .focus_handle
-            .as_ref()
-            .is_some_and(|h| h.is_in_split_pane(app));
-
-        let mut buttons = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_main_axis_size(MainAxisSize::Min);
-        buttons.add_children(self.render_preview_wrap(app));
-        buttons.add_child(
-            render_pane_header_buttons::<CodeViewAction, CodeViewAction>(
-                header_ctx,
-                appearance,
-                show_close_button,
-                None,
-                None,
-            ),
-        );
-
+        let (buttons, _) = self.render_trailing_controls(header_ctx, app);
         header_row.add_child(
             Container::new(Align::new(buttons.finish()).finish())
                 .with_padding_right(4.)
@@ -1706,59 +1727,26 @@ impl CodeView {
         header_ctx: &view::HeaderRenderContext,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let title = self
-            .tab_group
-            .first()
-            .and_then(|tab| {
-                tab.location
-                    .as_ref()
-                    .map(|loc| display_name_with_host(loc, app))
-                    .filter(|n| !n.is_empty())
-            })
+        let tab = self.tab_group.first();
+        let title = tab
+            .and_then(TabData::location)
+            .map(|location| display_name_with_host(location, app))
+            .filter(|title| !title.is_empty())
             .unwrap_or_else(|| "Untitled".to_string());
 
         let appearance = Appearance::as_ref(app);
         let is_pane_dragging = header_ctx.draggable_state.is_dragging();
-        let mut right_row = Flex::row()
-            .with_main_axis_alignment(MainAxisAlignment::End)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_main_axis_size(MainAxisSize::Min);
-
-        let show_close_button = self
-            .focus_handle
-            .as_ref()
-            .is_some_and(|h| h.is_in_split_pane(app));
-
-        let zoom = self.render_preview_zoom(appearance);
-        let wrap = self.render_preview_wrap(app);
-        let right_count = u32::from(show_close_button)
-            + u32::from(header_ctx.has_overflow_items)
-            + u32::from(wrap.is_some());
+        let zoom = self.render_preview_zoom(app);
+        let (right_row, right_count) = self.render_trailing_controls(header_ctx, app);
         let button_count = right_count.max(if zoom.is_some() { 2 } else { 0 });
-        right_row.add_children(wrap);
-        right_row.add_child(
-            render_pane_header_buttons::<CodeViewAction, CodeViewAction>(
-                header_ctx,
-                appearance,
-                show_close_button,
-                None,
-                None,
-            ),
-        );
 
         let buttons_width = button_count as f32 * ICON_DIMENSIONS;
         let edge_width = view::StandardHeaderOptions::DEFAULT_CONTROL_CONTAINER_WIDTH;
 
-        // Get tooltip path and handle from the first tab (if any).
-        let tab = self.tab_group.first();
-        let tab_handle = tab.map(|tab| tab.mouse_state_handles.tab_handle.clone());
-
-        // Check unsaved changes for the active tab.
-        let has_unsaved = tab.is_some_and(|tab| Self::show_unsaved_indicator(tab, app));
-
         // Build the center title element, with a hover tooltip showing the full path.
-        let title_element: Box<dyn Element> = match tab_handle {
-            Some(handle) => Hoverable::new(handle, |hover_state| {
+        let title_element = if let Some(tab) = tab {
+            let has_unsaved = Self::show_unsaved_indicator(tab, app);
+            Hoverable::new(tab.mouse_state_handles.tab_handle.clone(), |hover_state| {
                 let title_text =
                     render_pane_header_title_text(title.clone(), appearance, ClipConfig::start());
 
@@ -1779,57 +1767,37 @@ impl CodeView {
 
                 let mut stack = Stack::new();
                 stack.add_child(title_row.finish());
-                if hover_state.is_hovered() {
-                    let tooltip_path = tab
-                        .and_then(|tab| tab.location())
-                        .map(|loc| loc.display_path());
-                    if let Some(ref path) = tooltip_path {
-                        let tooltip = appearance
-                            .ui_builder()
-                            .tool_tip(path.clone())
-                            .build()
-                            .finish();
-                        stack.add_positioned_overlay_child(
-                            tooltip,
-                            OffsetPositioning::offset_from_parent(
-                                vec2f(0., 4.),
-                                ParentOffsetBounds::Unbounded,
-                                ParentAnchor::BottomMiddle,
-                                ChildAnchor::TopMiddle,
-                            ),
-                        );
-                    }
+                if hover_state.is_hovered()
+                    && let Some(location) = tab.location()
+                {
+                    let tooltip = appearance
+                        .ui_builder()
+                        .tool_tip(location.display_path())
+                        .build()
+                        .finish();
+                    stack.add_positioned_overlay_child(
+                        tooltip,
+                        OffsetPositioning::offset_from_parent(
+                            vec2f(0., 4.),
+                            ParentOffsetBounds::Unbounded,
+                            ParentAnchor::BottomMiddle,
+                            ChildAnchor::TopMiddle,
+                        ),
+                    );
                 }
                 stack.finish()
             })
-            .finish(),
-            None => {
-                let title_text =
-                    render_pane_header_title_text(title, appearance, ClipConfig::start());
-                if has_unsaved {
-                    let dot_color = appearance
-                        .theme()
-                        .sub_text_color(appearance.theme().background());
-                    let mut row = Flex::row()
-                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                        .with_main_axis_size(MainAxisSize::Min);
-                    row.add_child(
-                        Container::new(render_unsaved_changes_icon(dot_color.into()))
-                            .with_margin_right(4.)
-                            .finish(),
-                    );
-                    row.add_child(title_text);
-                    row.finish()
-                } else {
-                    title_text
-                }
-            }
+            .finish()
+        } else {
+            render_pane_header_title_text(title, appearance, ClipConfig::start())
         };
 
         render_three_column_header(
             zoom.unwrap_or_else(|| Empty::new().finish()),
             title_element,
-            right_row.finish(),
+            right_row
+                .with_main_axis_alignment(MainAxisAlignment::End)
+                .finish(),
             CenteredHeaderEdgeWidth {
                 min: buttons_width,
                 max: edge_width,
@@ -1991,7 +1959,7 @@ impl TypedActionView for CodeView {
             }
 
             CodeViewAction::TogglePreviewWrap => {
-                if let Some(editor) = self.preview_editor(ctx) {
+                if let Some(editor) = self.preview_editor(ctx).cloned() {
                     let enable = !editor.as_ref(ctx).word_wrap(ctx);
                     editor.update(ctx, |editor, ctx| editor.set_word_wrap(enable, ctx));
                     self.notify_preview_controls(ctx);
