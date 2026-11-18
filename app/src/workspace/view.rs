@@ -226,6 +226,10 @@ use crate::workspace::toast_stack::{
     ToastStack, ToastStack as WorkspaceToastStack, ToastStackEvent as WorkspaceToastStackEvent,
 };
 pub const WORKSPACE_PADDING: f32 = 1.0;
+#[cfg(feature = "local_fs")]
+const MIN_TERMINAL_WIDTH: f32 = 240.;
+#[cfg(feature = "local_fs")]
+const MIN_REVIEW_WIDTH: f32 = 320.;
 
 /// The minimum font size at which terminal text will be rendered.
 const MIN_FONT_SIZE: f32 = 5.0;
@@ -514,6 +518,8 @@ pub struct Workspace {
     git_review_width: ResizableStateHandle,
     #[cfg(feature = "local_fs")]
     sidebar: super::sidebar::Sidebar,
+    #[cfg(feature = "local_fs")]
+    sidebar_width: ResizableStateHandle,
     #[cfg(feature = "local_fs")]
     project_session_editor:
         Option<ViewHandle<Modal<crate::project_sessions::editor::SessionEditor>>>,
@@ -1465,6 +1471,8 @@ impl Workspace {
             git_review_width: resizable_state_handle(800.),
             #[cfg(feature = "local_fs")]
             sidebar: super::sidebar::Sidebar::Closed(super::SidebarTab::Files),
+            #[cfg(feature = "local_fs")]
+            sidebar_width: resizable_state_handle(280.),
             #[cfg(feature = "local_fs")]
             project_session_editor: None,
             #[cfg(feature = "local_fs")]
@@ -10306,7 +10314,25 @@ impl Workspace {
         let mut prev_panel_added = false;
         #[cfg(feature = "local_fs")]
         if let Some(sidebar) = self.sidebar.render() {
-            panels_view.add_child(ConstrainedBox::new(sidebar).with_width(280.).finish());
+            let review_open = self.git_review_view.is_some();
+            panels_view.add_child(
+                Resizable::new(self.sidebar_width.clone(), sidebar)
+                    .with_dragbar_side(DragBarSide::Right)
+                    .with_dragbar_offset(1.)
+                    .with_bounds_callback(Box::new(move |window_size| {
+                        let available = (window_size.x() - 2. * WORKSPACE_PADDING - 1.).max(0.);
+                        let (review_width, regions) = if review_open {
+                            (MIN_REVIEW_WIDTH, 3.)
+                        } else {
+                            (0., 2.)
+                        };
+                        let max_width = (available - MIN_TERMINAL_WIDTH - review_width)
+                            .max(available / regions);
+                        (180_f32.min(max_width), max_width)
+                    }))
+                    .on_resize(|ctx, _| ctx.notify())
+                    .finish(),
+            );
             prev_panel_added = true;
         }
 
@@ -10372,7 +10398,7 @@ impl Workspace {
 
         #[cfg(feature = "local_fs")]
         if let Some(review) = &self.git_review_view {
-            let sidebar_width = if self.sidebar.is_open() { 281. } else { 0. };
+            let sidebar_width = self.sidebar.is_open().then(|| self.sidebar_width.clone());
             panels_view = panels_view.with_child(
                 Resizable::new(
                     self.git_review_width.clone(),
@@ -10385,11 +10411,18 @@ impl Workspace {
                 )
                 .with_dragbar_side(DragBarSide::Left)
                 .with_bounds_callback(Box::new(move |window_size| {
+                    let sidebar_width = sidebar_width.as_ref().map_or(0., |state| {
+                        state
+                            .lock()
+                            .expect("Sidebar width should be accessible")
+                            .size()
+                            + 1.
+                    });
                     let available =
                         (window_size.x() - sidebar_width - 2. * WORKSPACE_PADDING - 2.).max(0.);
                     // Keep room for the terminal; very narrow windows share the available space.
-                    let max_width = (available - 240.).max(available * 0.5);
-                    (320_f32.min(max_width), max_width)
+                    let max_width = (available - MIN_TERMINAL_WIDTH).max(available * 0.5);
+                    (MIN_REVIEW_WIDTH.min(max_width), max_width)
                 }))
                 .on_resize(|ctx, _| ctx.notify())
                 .finish(),
