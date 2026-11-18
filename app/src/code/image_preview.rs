@@ -6,11 +6,22 @@ use std::sync::Arc;
 
 use anyhow::{Result, ensure};
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
+use pathfinder_geometry::vector::{Vector2F, vec2f};
 use warp_core::ui::appearance::Appearance;
 use warpui::r#async::SpawnedFutureHandle;
-use warpui::elements::{Align, Container, Image, Padding, Text};
+use warpui::elements::new_scrollable::{
+    ClippedAxisConfiguration, DualAxisConfig, ScrollableAppearance,
+};
+use warpui::elements::{
+    Align, ClippedScrollStateHandle, ConstrainedBox, Container, Empty, Fill, Image, NewScrollable,
+    Padding, Point, ScrollbarWidth, Text,
+};
+use warpui::event::DispatchedEvent;
 use warpui::image_cache::StaticImage;
-use warpui::{AppContext, Element, Entity, SingletonEntity, View, ViewContext};
+use warpui::{
+    AfterLayoutContext, AppContext, Element, Entity, EventContext, LayoutContext, PaintContext,
+    SingletonEntity, SizeConstraint, View, ViewContext,
+};
 
 use crate::localization::tr;
 use crate::util::path::local_path_for_io;
@@ -88,10 +99,13 @@ enum State {
 pub(super) struct ImagePreview {
     pub(super) path: PathBuf,
     state: State,
+    scale: f32,
+    horizontal_scroll: ClippedScrollStateHandle,
+    vertical_scroll: ClippedScrollStateHandle,
 }
 
 impl ImagePreview {
-    pub(super) fn new(path: PathBuf, ctx: &mut ViewContext<Self>) -> Self {
+    pub(super) fn new(path: PathBuf, scale: f32, ctx: &mut ViewContext<Self>) -> Self {
         let input = path.clone();
         let task = ctx.spawn(
             blocking::unblock(move || decode(&input)),
@@ -109,7 +123,15 @@ impl ImagePreview {
         Self {
             path,
             state: State::Loading(task),
+            scale,
+            horizontal_scroll: Default::default(),
+            vertical_scroll: Default::default(),
         }
+    }
+
+    pub(super) fn set_scale(&mut self, scale: f32, ctx: &mut ViewContext<Self>) {
+        self.scale = scale;
+        ctx.notify();
     }
 
     #[cfg(test)]
@@ -141,9 +163,18 @@ impl View for ImagePreview {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let message = match &self.state {
             State::Ready(image) => {
-                return Container::new(Image::from_static(image.clone()).finish())
-                    .with_padding(Padding::uniform(12.))
-                    .finish();
+                return Container::new(
+                    ImageViewport {
+                        image: image.clone(),
+                        scale: self.scale,
+                        horizontal_scroll: self.horizontal_scroll.clone(),
+                        vertical_scroll: self.vertical_scroll.clone(),
+                        child: Empty::new().finish(),
+                    }
+                    .finish(),
+                )
+                .with_padding(Padding::uniform(12.))
+                .finish();
             }
             State::Loading(_) => tr("Loading image…"),
             State::Failed => tr("Unable to preview image."),
@@ -158,5 +189,95 @@ impl View for ImagePreview {
             .finish(),
         )
         .finish()
+    }
+}
+
+/// Fits at 100% and uses the usual two-axis scrollbars for the magnified bitmap.
+struct ImageViewport {
+    image: Arc<StaticImage>,
+    scale: f32,
+    horizontal_scroll: ClippedScrollStateHandle,
+    vertical_scroll: ClippedScrollStateHandle,
+    child: Box<dyn Element>,
+}
+
+impl Element for ImageViewport {
+    fn layout(
+        &mut self,
+        constraint: SizeConstraint,
+        ctx: &mut LayoutContext,
+        app: &AppContext,
+    ) -> Vector2F {
+        let original = self.image.size().to_f32();
+        let available = vec2f(
+            if constraint.max.x().is_finite() {
+                constraint.max.x()
+            } else {
+                original.x()
+            },
+            if constraint.max.y().is_finite() {
+                constraint.max.y()
+            } else {
+                original.y()
+            },
+        );
+        let fit = (available.x() / original.x()).min(available.y() / original.y());
+        let size = (original * (fit * self.scale)).round().max(vec2f(1., 1.));
+        let bitmap = ConstrainedBox::new(Image::from_static(self.image.clone()).finish())
+            .with_width(size.x())
+            .with_height(size.y())
+            .finish();
+        let canvas_size = size.max(available).max(constraint.min);
+        let canvas = ConstrainedBox::new(Align::new(bitmap).finish())
+            .with_width(canvas_size.x())
+            .with_height(canvas_size.y())
+            .finish();
+        let theme = Appearance::as_ref(app).theme();
+        let scrollbar = ScrollableAppearance::new(ScrollbarWidth::Auto, true);
+        self.child = NewScrollable::horizontal_and_vertical(
+            DualAxisConfig::Clipped {
+                horizontal: ClippedAxisConfiguration {
+                    handle: self.horizontal_scroll.clone(),
+                    ..Default::default()
+                },
+                vertical: ClippedAxisConfiguration {
+                    handle: self.vertical_scroll.clone(),
+                    ..Default::default()
+                },
+                child: canvas,
+            },
+            theme.nonactive_ui_detail().into(),
+            theme.active_ui_detail().into(),
+            Fill::None,
+        )
+        .with_horizontal_scrollbar(scrollbar)
+        .with_vertical_scrollbar(scrollbar)
+        .finish();
+        self.child.layout(constraint, ctx, app)
+    }
+
+    fn after_layout(&mut self, ctx: &mut AfterLayoutContext, app: &AppContext) {
+        self.child.after_layout(ctx, app);
+    }
+
+    fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
+        self.child.paint(origin, ctx, app);
+    }
+
+    fn size(&self) -> Option<Vector2F> {
+        self.child.size()
+    }
+
+    fn origin(&self) -> Option<Point> {
+        self.child.origin()
+    }
+
+    fn dispatch_event(
+        &mut self,
+        event: &DispatchedEvent,
+        ctx: &mut EventContext,
+        app: &AppContext,
+    ) -> bool {
+        self.child.dispatch_event(event, ctx, app)
     }
 }

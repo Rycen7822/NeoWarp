@@ -799,7 +799,7 @@ fn apply_file_result(
             let tool_review = captured_ops.is_some();
             editor.update(ctx, |editor, ctx| {
                 editor.set_review_content(&base, &current, captured_ops, ctx);
-                editor.set_review_wrapping(me.wrap_lines, ctx);
+                editor.set_word_wrap(me.wrap_lines, ctx);
             });
             me.files[index].base = (!tool_review).then_some(base);
             me.files[index].message.clear();
@@ -994,7 +994,7 @@ impl TypedActionView for GitReviewView {
                 for (index, card) in self.files.iter().enumerate() {
                     if let Some(editor) = &card.editor {
                         editor.update(ctx, |editor, ctx| {
-                            editor.set_review_wrapping(self.wrap_lines, ctx)
+                            editor.set_word_wrap(self.wrap_lines, ctx)
                         });
                     }
                     self.list.invalidate_height_for_index(index);

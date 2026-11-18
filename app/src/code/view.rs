@@ -22,6 +22,7 @@ use warpui::fonts::{Properties, Weight};
 use warpui::keymap::EditableBinding;
 use warpui::modals::{AlertDialogWithCallbacks, ModalButton};
 use warpui::text_layout::ClipConfig;
+use warpui::ui_components::button::Button;
 use warpui::ui_components::components::UiComponent;
 use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
@@ -38,6 +39,7 @@ use crate::code::editor::view::CodeEditorRenderOptions;
 use crate::code::global_buffer_model::GlobalBufferModel;
 use crate::code::{EditorTabBarDropTargetData, ImmediateSaveError, SaveOutcome, SaveStatus};
 use crate::input::Vector2F;
+use crate::localization::tr;
 use crate::menu::{MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view::header::components::{
@@ -56,6 +58,7 @@ use crate::settings::CodeSettings;
 use crate::tab::TAB_BAR_BORDER_HEIGHT;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
+use crate::ui_components::icons::Icon;
 use crate::util::path::{display_name_with_host, display_path_with_host};
 use crate::view_components::DismissibleToast;
 use crate::workspace::{ActiveSession, TabBarDropTargetData, ToastStack, WorkspaceRegistry};
@@ -68,6 +71,10 @@ const LANGUAGE_ICON_WIDTH: f32 = 16.;
 const TAB_INTERNAL_MARGIN: f32 = 4.;
 const TAB_HORIZONTAL_MARGIN: f32 = 8.;
 const TAB_PADDING: f32 = 2.;
+const DEFAULT_PREVIEW_ZOOM: i16 = 100;
+const MIN_PREVIEW_ZOOM: i16 = 50;
+const MAX_PREVIEW_ZOOM: i16 = 300;
+const PREVIEW_ZOOM_STEP: i16 = 10;
 
 // Keybinding constants shared by code views
 pub const SAVE_FILE_BINDING_NAME: &str = "code_view:save";
@@ -136,6 +143,8 @@ pub enum CodeViewAction {
     CloseAll,
     CloseSaved,
     ToggleMaximized,
+    TogglePreviewWrap,
+    ChangePreviewZoom(i16),
     #[cfg(feature = "local_fs")]
     CopyFilePath,
     /// Open the active code tab's file in the platform's file manager
@@ -172,10 +181,18 @@ struct TabDataMouseStateHandles {
     tab_draggable_state: DraggableState,
 }
 
+#[derive(Default)]
+struct PreviewControls {
+    zoom_out: MouseStateHandle,
+    zoom_in: MouseStateHandle,
+    wrap: MouseStateHandle,
+}
+
 #[derive(Clone)]
 pub struct TabData {
     location: Option<LocalOrRemotePath>,
     content: TabContent,
+    zoom_percent: i16,
     mouse_state_handles: TabDataMouseStateHandles,
 }
 
@@ -219,6 +236,7 @@ impl TabData {
 pub struct CodeView {
     tab_group: Vec<TabData>,
     active_tab_index: usize,
+    preview_controls: PreviewControls,
     #[cfg(feature = "local_fs")]
     active_image: Option<ViewHandle<ImagePreview>>,
     pane_configuration: ModelHandle<PaneConfiguration>,
@@ -236,6 +254,7 @@ impl CodeView {
         Self {
             tab_group: Default::default(),
             active_tab_index: 0,
+            preview_controls: Default::default(),
             #[cfg(feature = "local_fs")]
             active_image: None,
             pane_configuration,
@@ -351,6 +370,7 @@ impl CodeView {
             return TabData {
                 location,
                 content: TabContent::Image,
+                zoom_percent: DEFAULT_PREVIEW_ZOOM,
                 mouse_state_handles: Default::default(),
             };
         }
@@ -427,6 +447,7 @@ impl CodeView {
         TabData {
             location: tab_location,
             content: TabContent::Editor(code_editor),
+            zoom_percent: DEFAULT_PREVIEW_ZOOM,
             mouse_state_handles: Default::default(),
         }
     }
@@ -1042,20 +1063,69 @@ impl CodeView {
 
     #[cfg(feature = "local_fs")]
     fn refresh_active_image(&mut self, ctx: &mut ViewContext<Self>) {
-        let path = self
+        let image = self
             .tab_at(self.active_tab_index)
             .filter(|tab| matches!(tab.content, TabContent::Image))
-            .and_then(TabData::location)
-            .and_then(LocalOrRemotePath::to_local_path);
+            .and_then(|tab| Some((tab.location()?.to_local_path()?, tab.zoom_percent)));
         let current = self
             .active_image
             .as_ref()
             .map(|view| view.as_ref(ctx).path.as_path());
-        if path != current {
-            self.active_image = path
-                .map(Path::to_path_buf)
-                .map(|path| ctx.add_view(|ctx| ImagePreview::new(path, ctx)));
+        if image.map(|(path, _)| path) != current {
+            self.active_image = image.map(|(path, zoom)| {
+                ctx.add_view(|ctx| {
+                    ImagePreview::new(path.to_path_buf(), f32::from(zoom) / 100., ctx)
+                })
+            });
         }
+    }
+
+    fn preview_tab(&self) -> Option<&TabData> {
+        self.tab_at(self.active_tab_index)
+            .filter(|tab| tab.location.is_some())
+    }
+
+    fn preview_editor(&self, app: &AppContext) -> Option<ViewHandle<CodeEditorView>> {
+        self.preview_tab()?
+            .editor()
+            .map(|editor| editor.as_ref(app).editor().clone())
+    }
+
+    fn change_preview_zoom(&mut self, delta: i16, ctx: &mut ViewContext<Self>) {
+        let Some(tab) = self
+            .tab_group
+            .get_mut(self.active_tab_index)
+            .filter(|tab| tab.location.is_some())
+        else {
+            return;
+        };
+        let zoom = tab
+            .zoom_percent
+            .saturating_add(delta)
+            .clamp(MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM);
+        if zoom == tab.zoom_percent {
+            return;
+        }
+        tab.zoom_percent = zoom;
+        let scale = f32::from(zoom) / 100.;
+        match &tab.content {
+            TabContent::Editor(local) => {
+                let editor = local.as_ref(ctx).editor().clone();
+                editor.update(ctx, |editor, ctx| editor.set_font_scale(scale, ctx));
+            }
+            #[cfg(feature = "local_fs")]
+            TabContent::Image => {
+                if let Some(image) = &self.active_image {
+                    image.update(ctx, |image, ctx| image.set_scale(scale, ctx));
+                }
+            }
+        }
+        self.notify_preview_controls(ctx);
+    }
+
+    fn notify_preview_controls(&self, ctx: &mut ViewContext<Self>) {
+        self.pane_configuration
+            .update(ctx, |config, ctx| config.notify_header_content_changed(ctx));
     }
 
     #[cfg(all(test, feature = "local_fs"))]
@@ -1346,6 +1416,78 @@ impl CodeView {
         .finish()
     }
 
+    fn render_preview_zoom(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {
+        let zoom = self.preview_tab()?.zoom_percent;
+        let mut row = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_main_axis_size(MainAxisSize::Min);
+        for (icon, mouse, enabled, delta, label) in [
+            (
+                Icon::Minus,
+                &self.preview_controls.zoom_out,
+                zoom > MIN_PREVIEW_ZOOM,
+                -PREVIEW_ZOOM_STEP,
+                "Zoom out preview",
+            ),
+            (
+                Icon::Plus,
+                &self.preview_controls.zoom_in,
+                zoom < MAX_PREVIEW_ZOOM,
+                PREVIEW_ZOOM_STEP,
+                "Zoom in preview",
+            ),
+        ] {
+            let button = icon_button(appearance, icon, false, mouse.clone());
+            row.add_child(Self::preview_button(
+                appearance,
+                if enabled { button } else { button.disabled() },
+                CodeViewAction::ChangePreviewZoom(delta),
+                label,
+            ));
+        }
+        Some(row.finish())
+    }
+
+    fn render_preview_wrap(&self, app: &AppContext) -> Option<Box<dyn Element>> {
+        let wrapping = self.preview_editor(app)?.as_ref(app).word_wrap(app);
+        let appearance = Appearance::as_ref(app);
+        Some(Self::preview_button(
+            appearance,
+            icon_button(
+                appearance,
+                Icon::TextWrap,
+                wrapping,
+                self.preview_controls.wrap.clone(),
+            ),
+            CodeViewAction::TogglePreviewWrap,
+            if wrapping {
+                "Disable word wrap"
+            } else {
+                "Enable word wrap"
+            },
+        ))
+    }
+
+    fn preview_button(
+        appearance: &Appearance,
+        button: Button,
+        action: CodeViewAction,
+        label: &'static str,
+    ) -> Box<dyn Element> {
+        let builder = appearance.ui_builder().clone();
+        button
+            .with_tooltip(move || builder.tool_tip(tr(label).to_owned()).build().finish())
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(
+                    PaneHeaderAction::<CodeViewAction, CodeViewAction>::CustomAction(
+                        action.clone(),
+                    ),
+                );
+            })
+            .finish()
+    }
+
     /// Renders the tab bar with explicit draggable handling for multi-tab case.
     fn render_tab_bar_with_draggable(
         &self,
@@ -1365,6 +1507,16 @@ impl CodeView {
             header_row.add_child(
                 Container::new(Empty::new().finish())
                     .with_padding_left(header_ctx.header_left_inset)
+                    .finish(),
+            );
+        }
+        if let Some(zoom) = self.render_preview_zoom(appearance) {
+            header_row.add_child(
+                Container::new(Align::new(zoom).finish())
+                    .with_padding_left(PADDING)
+                    .with_border(
+                        Border::bottom(TAB_BAR_BORDER_HEIGHT).with_border_fill(theme.outline()),
+                    )
                     .finish(),
             );
         }
@@ -1522,16 +1674,22 @@ impl CodeView {
             .as_ref()
             .is_some_and(|h| h.is_in_split_pane(app));
 
-        let buttons = render_pane_header_buttons::<CodeViewAction, CodeViewAction>(
-            header_ctx,
-            appearance,
-            show_close_button,
-            None,
-            None,
+        let mut buttons = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_main_axis_size(MainAxisSize::Min);
+        buttons.add_children(self.render_preview_wrap(app));
+        buttons.add_child(
+            render_pane_header_buttons::<CodeViewAction, CodeViewAction>(
+                header_ctx,
+                appearance,
+                show_close_button,
+                None,
+                None,
+            ),
         );
 
         header_row.add_child(
-            Container::new(Align::new(buttons).finish())
+            Container::new(Align::new(buttons.finish()).finish())
                 .with_padding_right(4.)
                 .with_border(
                     Border::bottom(TAB_BAR_BORDER_HEIGHT).with_border_fill(theme.outline()),
@@ -1571,6 +1729,13 @@ impl CodeView {
             .as_ref()
             .is_some_and(|h| h.is_in_split_pane(app));
 
+        let zoom = self.render_preview_zoom(appearance);
+        let wrap = self.render_preview_wrap(app);
+        let right_count = u32::from(show_close_button)
+            + u32::from(header_ctx.has_overflow_items)
+            + u32::from(wrap.is_some());
+        let button_count = right_count.max(if zoom.is_some() { 2 } else { 0 });
+        right_row.add_children(wrap);
         right_row.add_child(
             render_pane_header_buttons::<CodeViewAction, CodeViewAction>(
                 header_ctx,
@@ -1581,7 +1746,6 @@ impl CodeView {
             ),
         );
 
-        let button_count = show_close_button as u32 + header_ctx.has_overflow_items as u32;
         let buttons_width = button_count as f32 * ICON_DIMENSIONS;
         let edge_width = view::StandardHeaderOptions::DEFAULT_CONTROL_CONTAINER_WIDTH;
 
@@ -1663,7 +1827,7 @@ impl CodeView {
         };
 
         render_three_column_header(
-            Empty::new().finish(),
+            zoom.unwrap_or_else(|| Empty::new().finish()),
             title_element,
             right_row.finish(),
             CenteredHeaderEdgeWidth {
@@ -1826,14 +1990,23 @@ impl TypedActionView for CodeView {
                 });
             }
 
+            CodeViewAction::TogglePreviewWrap => {
+                if let Some(editor) = self.preview_editor(ctx) {
+                    let enable = !editor.as_ref(ctx).word_wrap(ctx);
+                    editor.update(ctx, |editor, ctx| editor.set_word_wrap(enable, ctx));
+                    self.notify_preview_controls(ctx);
+                }
+            }
+            CodeViewAction::ChangePreviewZoom(delta) => self.change_preview_zoom(*delta, ctx),
+
             #[cfg(feature = "local_fs")]
             CodeViewAction::CopyFilePath => {
                 if let Some(location) = self
                     .tab_at(self.active_tab_index)
                     .and_then(|t| t.location.as_ref())
                 {
-                    ctx.clipboard()
-                        .write(ClipboardContent::plain_text(location.display_path()));
+                    let path = crate::util::path::clipboard_file_path(location);
+                    ctx.clipboard().write(ClipboardContent::plain_text(path));
                 }
             }
             #[cfg(feature = "local_fs")]

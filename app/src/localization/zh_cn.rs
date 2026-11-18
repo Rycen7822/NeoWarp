@@ -24,6 +24,8 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Refresh changes" => "刷新更改",
         "Enable word wrap" => "开启自动换行",
         "Disable word wrap" => "关闭自动换行",
+        "Zoom in preview" => "放大预览",
+        "Zoom out preview" => "缩小预览",
         "Collapse all diffs" => "折叠全部差异",
         "Expand all diffs" => "展开全部差异",
         "Appearance" => "外观",

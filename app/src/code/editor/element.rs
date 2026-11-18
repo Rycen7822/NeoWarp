@@ -9,10 +9,12 @@ use pathfinder_geometry::vector::{Vector2F, vec2f};
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::theme::Fill;
 use warp_core::ui::theme::color::internal_colors;
+use warp_editor::content::buffer::{Buffer, ToBufferPoint};
 use warp_editor::editor::EditorView;
 use warp_editor::render::element::{RichTextElement, VerticalExpansionBehavior};
 use warp_editor::render::model::{
-    BlockLocation, ExpansionType, LineCount, RenderState, gutter_expansion_button_types,
+    BlockLocation, ExpansionType, LineCount, RenderState, WidthSetting,
+    gutter_expansion_button_types,
 };
 use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
 use warpui::elements::{
@@ -239,6 +241,7 @@ impl LineNumberConfig {
 
 pub struct EditorWrapper<V: EditorView> {
     editor: RichTextElement<V>,
+    buffer: ModelHandle<Buffer>,
     element_size: Option<Vector2F>,
     element_origin: Option<Point>,
     /// Whether the editor should expand vertically to fill the available space.
@@ -341,6 +344,7 @@ impl<V: EditorView> EditorWrapper<V> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         editor: RichTextElement<V>,
+        buffer: ModelHandle<Buffer>,
         vertical_expansion_behavior: VerticalExpansionBehavior,
         line_number_config: LineNumberConfig,
         diff_status: DiffStatus,
@@ -352,6 +356,7 @@ impl<V: EditorView> EditorWrapper<V> {
     ) -> Self {
         Self {
             editor,
+            buffer,
             vertical_expansion_behavior,
             element_size: None,
             element_origin: None,
@@ -394,6 +399,8 @@ impl<V: EditorView> EditorWrapper<V> {
 
         let mut elements = Vec::new();
         let model = self.model().as_ref(app);
+        let wrapped_buffer =
+            (model.width_setting() == &WidthSetting::FitViewport).then(|| self.buffer.as_ref(app));
         let hovered_range = self.state_handle.hovered_diff_hunk.lock();
         let line_decorations = model.decorations().line_decoration_ranges();
         let last_block_idx = blocks.len().saturating_sub(1);
@@ -401,9 +408,16 @@ impl<V: EditorView> EditorWrapper<V> {
         let mut removed_hunk_line_number: Option<LineCount> = None;
         let mut removed_hunk_line_index: usize = 0;
         for (block_idx, block) in blocks.iter().enumerate() {
-            let Some(line_count) = model.start_line_index(&**block) else {
+            let Some(mut line_count) = model.start_line_index(&**block) else {
                 continue;
             };
+            if let Some(buffer) = wrapped_buffer
+                && !block.is_hidden_section()
+            {
+                // Render offsets omit the buffer's leading newline marker.
+                let point = (block.viewport_item().block_offset() + 1).to_buffer_point(buffer);
+                line_count = LineCount::from(point.row.saturating_sub(1) as usize);
+            }
 
             let offset = block.viewport_item().viewport_offset;
             let diff_hunk = self.diff_status.diff_hunk(line_count, appearance);

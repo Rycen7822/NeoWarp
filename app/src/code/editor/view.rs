@@ -147,6 +147,7 @@ pub struct CodeEditorView {
     pending_scroll: Option<ScrollTrigger>,
     pending_review_state: Option<(BufferVersion, ReviewEditorState)>,
     captured_review: bool,
+    font_scale: f32,
     supports_vim_mode: bool,
     vim_model: ModelHandle<VimModel>,
     // Track the most recent Vim search direction to determine how to cycle (n/N) thereafter.
@@ -268,7 +269,16 @@ impl CodeEditorView {
         ctx.notify();
     }
 
-    pub(crate) fn set_review_wrapping(&mut self, enabled: bool, ctx: &mut ViewContext<Self>) {
+    pub(crate) fn word_wrap(&self, ctx: &AppContext) -> bool {
+        self.model
+            .as_ref(ctx)
+            .render_state()
+            .as_ref(ctx)
+            .width_setting()
+            == &WidthSetting::FitViewport
+    }
+
+    pub(crate) fn set_word_wrap(&mut self, enabled: bool, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             let changed = model.render_state().update(ctx, |render, ctx| {
                 let changed = render.set_width_setting(if enabled {
@@ -285,6 +295,12 @@ impl CodeEditorView {
                 model.rebuild_layout_and_refresh_diff(ctx);
             }
         });
+        ctx.notify();
+    }
+
+    pub(crate) fn set_font_scale(&mut self, scale: f32, ctx: &mut ViewContext<Self>) {
+        self.font_scale = scale;
+        self.handle_appearance_or_font_change(ctx);
         ctx.notify();
     }
 
@@ -391,6 +407,7 @@ impl CodeEditorView {
             pending_scroll: None,
             pending_review_state: None,
             captured_review: false,
+            font_scale: 1.,
             supports_vim_mode,
             vim_model,
             last_search_direction: Direction::Forward,
@@ -802,7 +819,7 @@ impl CodeEditorView {
         let editor_settings = AppEditorSettings::as_ref(ctx);
         LineNumberConfig {
             font_family: appearance.monospace_font_family(),
-            font_size: appearance.monospace_font_size(),
+            font_size: appearance.monospace_font_size() * self.font_scale,
             text_color: theme.sub_text_color(theme.background()).into(),
             highlight_text_color: theme.main_text_color(theme.background()).into(),
             starting_line_number: self.display_options.starting_line_number,
@@ -914,7 +931,8 @@ impl CodeEditorView {
 
     /// Handles [`Appearance`] changes by updating the render model.
     fn handle_appearance_or_font_change(&mut self, ctx: &mut ViewContext<Self>) {
-        let new_styles = code_text_styles(Appearance::as_ref(ctx));
+        let mut new_styles = code_text_styles(Appearance::as_ref(ctx));
+        new_styles.base_text.font_size *= self.font_scale;
         self.model.update(ctx, move |model, ctx| {
             model.handle_appearance_or_font_change(new_styles, ctx);
         });
@@ -1398,6 +1416,7 @@ impl View for CodeEditorView {
 
         let code_editor = EditorWrapper::new(
             editor_rich_content,
+            self.model.as_ref(app).buffer().clone(),
             self.display_options.vertical_expansion_behavior,
             line_number_config,
             diff_status,

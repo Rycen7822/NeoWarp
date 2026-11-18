@@ -46,14 +46,14 @@ fn review_snapshot_updates_same_count_content_and_stays_read_only() {
             view.set_review_content("base\n", "first\n", None, ctx);
             assert_eq!(view.text(ctx).as_str(), "first\n");
             view.set_review_content("base\n", "later\n", None, ctx);
-            view.set_review_wrapping(true, ctx);
+            view.set_word_wrap(true, ctx);
             view.handle_action(
                 &CodeEditorViewAction::UserTyped(UserInput::new("unwanted")),
                 ctx,
             );
             assert_eq!(view.text(ctx).as_str(), "later\n");
             assert_eq!(view.interaction_state(ctx), InteractionState::Selectable);
-            view.set_review_wrapping(false, ctx);
+            view.set_word_wrap(false, ctx);
             assert_eq!(view.text(ctx).as_str(), "later\n");
         });
     });
