@@ -609,6 +609,11 @@ impl GitReviewView {
             )
             .finish(),
         );
+        header.add_child(diff_badge(
+            card.entry.additions,
+            card.entry.deletions,
+            appearance,
+        ));
         let copy_path = card.entry.path.clone();
         header.add_child(
             icon_button(appearance, Icon::Copy, false, card.copy_mouse.clone())
@@ -632,11 +637,6 @@ impl GitReviewView {
             })
             .finish(),
         );
-        header.add_child(diff_badge(
-            card.entry.additions,
-            card.entry.deletions,
-            appearance,
-        ));
         let mut column = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(
