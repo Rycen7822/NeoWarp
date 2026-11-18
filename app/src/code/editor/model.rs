@@ -56,9 +56,7 @@ use warpui::text::point::Point;
 use warpui::units::IntoPixels;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
-use super::diff::{
-    DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk, add_inline_overlay_color,
-};
+use super::diff::{DiffBackgrounds, DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk};
 use crate::appearance::Appearance;
 use crate::code::editor::line_iterator::LineIterator;
 use crate::editor::InteractionState;
@@ -537,9 +535,9 @@ impl CodeEditorModel {
                 };
 
                 let mut line_iterator = LineIterator::new(base.lines());
+                let backgrounds = DiffBackgrounds::for_theme(Appearance::as_ref(ctx).theme());
 
                 for diff_index in 0..self.diff().as_ref(ctx).diff_hunk_count() {
-                    let appearance = Appearance::as_ref(ctx);
                     let should_highlight = match focused_diff_index {
                         Some(focused_index) => diff_index == focused_index,
                         None => true,
@@ -548,7 +546,7 @@ impl CodeEditorModel {
                         match self.diff.as_ref(ctx).renderable_diff_hunk_by_index(
                             diff_index,
                             &mut line_iterator,
-                            appearance,
+                            &backgrounds,
                         ) {
                             Some(RenderableDiffHunk::Add { line_decoration }) => {
                                 (Vec::new(), Some(line_decoration), None::<Vec<Decoration>>)
@@ -582,7 +580,7 @@ impl CodeEditorModel {
                                                 start: start_char + inline.start - 1,
                                                 end: start_char + inline.end - 1,
                                                 background: Some(Fill::Solid(
-                                                    add_inline_overlay_color(appearance),
+                                                    backgrounds.added_inline,
                                                 )),
                                                 dashed_underline: None,
                                             }

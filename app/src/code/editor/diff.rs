@@ -10,7 +10,8 @@ use pathfinder_color::ColorU;
 use rangemap::{RangeMap, RangeSet};
 use similar::{ChangeTag, DiffOp, TextDiff};
 use string_offset::CharOffset;
-use warp_core::ui::theme::{AnsiColorIdentifier, Fill};
+use warp_core::ui::color::contrast::relative_luminance;
+use warp_core::ui::theme::{AnsiColorIdentifier, Fill, WarpTheme};
 use warp_editor::content::edit::TemporaryBlock;
 use warp_editor::content::text::LineCount as BufferLineCount;
 use warp_editor::content::version::BufferVersion;
@@ -21,8 +22,33 @@ use warpui::{Entity, ModelContext};
 use crate::appearance::Appearance;
 use crate::code::editor::line_iterator::LineIterator;
 
-const OVERLAY_ALPHA: u8 = 56;
-const INLINE_OVERLAY_ALPHA: u8 = 71;
+pub(super) struct DiffBackgrounds {
+    added: ColorU,
+    removed: ColorU,
+    pub(super) added_inline: ColorU,
+    removed_inline: ColorU,
+}
+
+impl DiffBackgrounds {
+    pub(super) fn for_theme(theme: &WarpTheme) -> Self {
+        // Match Codex CLI's truecolor line fills and use stronger tints for inline edits.
+        if relative_luminance(theme.background().into_solid()) > 0.5 {
+            Self {
+                added: ColorU::new(218, 251, 225, 255),
+                removed: ColorU::new(255, 235, 233, 255),
+                added_inline: ColorU::new(172, 238, 187, 255),
+                removed_inline: ColorU::new(255, 206, 203, 255),
+            }
+        } else {
+            Self {
+                added: ColorU::new(33, 58, 43, 255),
+                removed: ColorU::new(74, 34, 29, 255),
+                added_inline: ColorU::new(47, 75, 58, 255),
+                removed_inline: ColorU::new(94, 45, 40, 255),
+            }
+        }
+    }
+}
 
 /// Get the theme-appropriate add color
 pub(crate) fn add_color(appearance: &Appearance) -> ColorU {
@@ -43,42 +69,6 @@ pub(crate) fn replace_color(appearance: &Appearance) -> ColorU {
     AnsiColorIdentifier::Yellow
         .to_ansi_color(&appearance.theme().terminal_colors().normal)
         .into()
-}
-
-/// Get the theme-appropriate remove overlay color
-pub(crate) fn remove_overlay_color(appearance: &Appearance) -> ColorU {
-    let ansi_color =
-        AnsiColorIdentifier::Red.to_ansi_color(&appearance.theme().terminal_colors().normal);
-    let mut color: ColorU = ansi_color.into();
-    color.a = OVERLAY_ALPHA;
-    color
-}
-
-/// Get the theme-appropriate add overlay color
-pub(crate) fn add_overlay_color(appearance: &Appearance) -> ColorU {
-    let ansi_color =
-        AnsiColorIdentifier::Green.to_ansi_color(&appearance.theme().terminal_colors().normal);
-    let mut color: ColorU = ansi_color.into();
-    color.a = OVERLAY_ALPHA;
-    color
-}
-
-/// Get the theme-appropriate add inline overlay color
-pub(crate) fn add_inline_overlay_color(appearance: &Appearance) -> ColorU {
-    let ansi_color =
-        AnsiColorIdentifier::Green.to_ansi_color(&appearance.theme().terminal_colors().normal);
-    let mut color: ColorU = ansi_color.into();
-    color.a = INLINE_OVERLAY_ALPHA;
-    color
-}
-
-/// Get the theme-appropriate remove inline overlay color
-pub(crate) fn remove_inline_overlay_color(appearance: &Appearance) -> ColorU {
-    let ansi_color =
-        AnsiColorIdentifier::Red.to_ansi_color(&appearance.theme().terminal_colors().normal);
-    let mut color: ColorU = ansi_color.into();
-    color.a = INLINE_OVERLAY_ALPHA;
-    color
 }
 
 pub enum DiffModelEvent {
@@ -294,11 +284,11 @@ impl DiffModel {
     }
 
     /// Get a single renderable diff hunk by its index.
-    pub fn renderable_diff_hunk_by_index<'a>(
+    pub(super) fn renderable_diff_hunk_by_index<'a>(
         &self,
         index: usize,
         lines: &mut LineIterator<'a, impl Iterator<Item = &'a str>>,
-        appearance: &Appearance,
+        backgrounds: &DiffBackgrounds,
     ) -> Option<RenderableDiffHunk> {
         let (range, is_addition) = self.diff_by_index(index)?;
 
@@ -312,7 +302,7 @@ impl DiffModel {
                     removed_lines.push(TemporaryBlock {
                         content,
                         insert_before: LineCount::from(range.start),
-                        line_decoration: Some(remove_overlay_color(appearance).into()),
+                        line_decoration: Some(backgrounds.removed.into()),
                         inline_text_decorations: Vec::new(),
                     });
                 }
@@ -351,7 +341,7 @@ impl DiffModel {
                                                 CharOffset::from(overlap_end - line_start),
                                             )
                                             .with_background(Fill::Solid(
-                                                remove_inline_overlay_color(appearance),
+                                                backgrounds.removed_inline,
                                             )),
                                         )
                                     } else {
@@ -363,7 +353,7 @@ impl DiffModel {
                             removed_lines.push(TemporaryBlock {
                                 content,
                                 insert_before: LineCount::from(range.start),
-                                line_decoration: Some(remove_overlay_color(appearance).into()),
+                                line_decoration: Some(backgrounds.removed.into()),
                                 inline_text_decorations,
                             });
 
@@ -375,7 +365,7 @@ impl DiffModel {
                         line_decoration: LineDecoration {
                             start: LineCount::from(range.start),
                             end: LineCount::from(range.end),
-                            overlay: add_overlay_color(appearance).into(),
+                            overlay: backgrounds.added.into(),
                         },
                         inline_highlights: insertion
                             .iter()
@@ -388,7 +378,7 @@ impl DiffModel {
                     line_decoration: LineDecoration {
                         start: LineCount::from(range.start),
                         end: LineCount::from(range.end),
-                        overlay: add_overlay_color(appearance).into(),
+                        overlay: backgrounds.added.into(),
                     },
                 }),
             }
