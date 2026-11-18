@@ -116,7 +116,7 @@ runs:
       with:
         xcode-version: '26'
 
-    - name: Configure Ubuntu mirror fallback
+    - name: Configure Ubuntu package sources
       if: ${{ inputs.target_os == 'linux' }}
       shell: bash
       run: |
@@ -124,6 +124,11 @@ runs:
           'https://mirrors.kernel.org/ubuntu/' \
           'https://archive.ubuntu.com/ubuntu/' |
           sudo tee /etc/apt/apt-mirrors.txt
+        # Build and test packages come from Ubuntu. PowerShell is preinstalled on the runner.
+        printf '%s\n' \
+          'Dir::Etc::sourcelist "sources.list.d/ubuntu.sources";' \
+          'Dir::Etc::sourceparts "/dev/null";' |
+          sudo tee /etc/apt/apt.conf.d/99-neowarp-sources
 
     - name: Install dependencies
       shell: bash
