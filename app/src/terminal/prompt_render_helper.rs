@@ -4,8 +4,8 @@ use std::num::NonZeroUsize;
 use settings::Setting as _;
 use warp_core::semantic_selection::SemanticSelection;
 use warpui::elements::{
-    Container, DispatchEventResult, Element, EventHandler, SavePosition, SelectableArea,
-    SelectionHandle, Text,
+    Container, CrossAxisAlignment, DispatchEventResult, Element, EventHandler, MainAxisSize,
+    ParentElement, SavePosition, SelectableArea, SelectionHandle, Text, Wrap,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::presenter::ChildView;
@@ -22,6 +22,8 @@ use super::shell::ShellType;
 use super::{SizeInfo, TerminalModel, prompt, should_right_click_paste};
 use crate::appearance::Appearance;
 use crate::context_chips::display::PromptDisplay;
+use crate::context_chips::display_chip::{UdiChipConfig, render_udi_chip};
+use crate::context_chips::prompt::{ContextChipKind, Prompt};
 use crate::context_chips::spacing;
 use crate::features::FeatureFlag;
 use crate::settings::{FontSettings, InputSettings};
@@ -34,6 +36,7 @@ use crate::terminal::model::blockgrid::BlockGrid;
 use crate::terminal::model::session::Sessions;
 use crate::terminal::view::{PADDING_LEFT as TERMINAL_VIEW_PADDING_LEFT, TerminalAction};
 use crate::themes::theme::PromptColors;
+use crate::ui_components::icons::Icon;
 
 /// How long we're willing to wait after precmd for a marker-based prompt to appear before we
 /// display an empty prompt grid in the input.
@@ -97,6 +100,10 @@ pub(in crate::terminal) enum PromptAndPaddingElement {
     // This is boxed because `Text` is large, and without boxing, it
     // bloats the size of the `PromptAndPaddingElement` enum.
     Text(Box<Text>),
+    StartingInDirectory {
+        directory: String,
+        status: Box<Text>,
+    },
     // This is boxed because `BlockGridElement` is large, and without boxing, it
     // bloats the size of the `PromptAndPaddingElement` enum.
     BlockGrid(Box<BlockGridElement>),
@@ -107,14 +114,31 @@ impl PromptAndPaddingElement {
     pub(in crate::terminal) fn text(&self, ctx: &AppContext) -> String {
         match self {
             Self::Text(text_element) => text_element.text().to_owned(),
+            Self::StartingInDirectory { directory, status } => {
+                format!("{directory}  {}", status.text())
+            }
             Self::BlockGrid(block_grid_element) => block_grid_element.text(),
             Self::ContextChips(view) => view.as_ref(ctx).text(ctx),
         }
     }
 
-    pub(in crate::terminal) fn render(self) -> Box<dyn Element> {
+    pub(in crate::terminal) fn render(self, appearance: &Appearance) -> Box<dyn Element> {
         match self {
             Self::Text(text_element) => text_element.finish(),
+            Self::StartingInDirectory { directory, status } => {
+                let chip = UdiChipConfig::new_with_icon(
+                    Icon::Folder,
+                    appearance.theme().ansi_fg_cyan(),
+                    directory,
+                );
+                Wrap::row()
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_main_axis_size(MainAxisSize::Min)
+                    .with_spacing(spacing::UDI_CHIP_MARGIN)
+                    .with_child(render_udi_chip(chip, appearance))
+                    .with_child(status.finish())
+                    .finish()
+            }
             Self::BlockGrid(block_grid_element) => block_grid_element.finish(),
             Self::ContextChips(view) => ChildView::new(&view).finish(),
         }
@@ -234,10 +258,10 @@ impl PromptRenderHelper {
             };
         }
 
-        if !sessions.is_empty() {
-            "Starting shell...".to_string()
-        } else {
+        if sessions.is_empty() || model.starting_wsl_zsh_directory().is_some() {
             format!("Starting {}...", model.shell_launch_state().display_name())
+        } else {
+            "Starting shell...".to_string()
         }
     }
 
@@ -261,6 +285,28 @@ impl PromptRenderHelper {
         .with_compute_baseline_position_fn(grid_compute_baseline_position_fn(
             appearance.monospace_font_family(),
         ))
+    }
+
+    fn builtin_prompt_element(
+        &self,
+        model: &TerminalModel,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> PromptAndPaddingElement {
+        if let Some(directory) = model.starting_wsl_zsh_directory()
+            && Prompt::as_ref(app).has_chip(&ContextChipKind::WorkingDirectory)
+        {
+            PromptAndPaddingElement::StartingInDirectory {
+                directory: directory.to_owned(),
+                status: Box::new(self.bootstrapping_shell_text(model, appearance, app)),
+            }
+        } else if model.block_list().is_bootstrapped() {
+            PromptAndPaddingElement::ContextChips(self.prompt_view.clone())
+        } else {
+            PromptAndPaddingElement::Text(Box::new(
+                self.bootstrapping_shell_text(model, appearance, app),
+            ))
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -518,18 +564,8 @@ impl PromptRenderHelper {
                 (Some(prompt), None, None)
             }
         } else {
-            let element = {
-                if model.block_list().is_bootstrapped() {
-                    PromptAndPaddingElement::ContextChips(self.prompt_view.clone())
-                } else {
-                    PromptAndPaddingElement::Text(Box::new(
-                        self.bootstrapping_shell_text(model, appearance, app),
-                    ))
-                }
-            };
-
             let prompt = PromptAndPadding {
-                element,
+                element: self.builtin_prompt_element(model, appearance, app),
                 padding_left: 0.,
                 padding_right,
             };
@@ -559,7 +595,8 @@ impl PromptRenderHelper {
         let size_info = app.model(&self.input_render_state_model_handle).size_info();
         let terminal_spacing = TerminalSettings::as_ref(app)
             .terminal_input_spacing(appearance.line_height_ratio(), app);
-        let prompt_with_padding_container = Container::new(prompt_and_padding.element.render())
+        let content = prompt_and_padding.element.render(appearance);
+        let prompt_with_padding_container = Container::new(content)
             .with_padding_top({
                 if should_render_prompt_using_editor_decorator_elements {
                     0.0
@@ -626,15 +663,7 @@ impl PromptRenderHelper {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let element = {
-            if model.block_list().is_bootstrapped() {
-                PromptAndPaddingElement::ContextChips(self.prompt_view.clone())
-            } else {
-                PromptAndPaddingElement::Text(Box::new(
-                    self.bootstrapping_shell_text(model, appearance, app),
-                ))
-            }
-        };
+        let element = self.builtin_prompt_element(model, appearance, app);
 
         let view_id = self.prompt_parent_view_id;
         let position_id = format!("{}_{}", PromptSide::Left, view_id);
@@ -642,7 +671,7 @@ impl PromptRenderHelper {
         let terminal_spacing = TerminalSettings::as_ref(app)
             .terminal_input_spacing(appearance.line_height_ratio(), app);
 
-        let prompt_with_padding_container = Container::new(element.render())
+        let prompt_with_padding_container = Container::new(element.render(appearance))
             .with_padding_top({
                 (terminal_spacing.block_padding.padding_top * size_info.cell_height_px().as_f32()
                     - get_input_box_top_border_width())

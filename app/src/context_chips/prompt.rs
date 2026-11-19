@@ -256,6 +256,10 @@ impl Prompt {
         self.config.chip_kinds()
     }
 
+    pub fn has_chip(&self, kind: &ContextChipKind) -> bool {
+        self.config.chips.iter().any(|chip| chip.chip() == kind)
+    }
+
     /// Updates the in-memory prompt configuration to reflect a settings change.
     fn handle_session_settings_change(
         &mut self,

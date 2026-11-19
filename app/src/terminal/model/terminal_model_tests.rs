@@ -221,6 +221,50 @@ fn handles_inline_iterm_image_payload() {
     assert_eq!(metadata.image_size.y(), 1.0);
 }
 
+#[test]
+fn wsl_zsh_reports_its_starting_directory_until_the_first_regular_prompt() {
+    let mut terminal = TerminalModel::mock(None, None);
+    let id = SessionId::from(456);
+    terminal.register_session_id(id);
+    terminal.set_pending_shell_launch_data(ShellLaunchData::WSL {
+        distro: "Ubuntu".to_owned(),
+    });
+    terminal.init_shell(InitShellValue {
+        session_id: id,
+        shell: "zsh".into(),
+        ..Default::default()
+    });
+    assert_eq!(terminal.starting_wsl_zsh_directory(), None);
+
+    let completion = CompletionMetadata {
+        next_block_id: BlockId::new(),
+        ..Default::default()
+    };
+    terminal.command_finished(CommandFinishedValue {
+        completion_metadata: completion.clone(),
+        session_id: Some(id.as_u64()),
+    });
+    terminal.precmd_with_completion_metadata(PrecmdValue {
+        completion_metadata: completion,
+        prompt_metadata: PromptMetadata {
+            session_id: Some(id.as_u64()),
+            pwd: Some("/project".into()),
+            ..Default::default()
+        },
+    });
+    assert_eq!(terminal.starting_wsl_zsh_directory(), Some("/project"));
+    assert!(terminal.terminal_input_state() == TerminalInputState::NotBootstrapped);
+
+    terminal.bootstrapped(BootstrappedValue {
+        shell: "zsh".into(),
+        session_id: Some(id.as_u64()),
+        ..Default::default()
+    });
+    assert_eq!(terminal.starting_wsl_zsh_directory(), Some("/project"));
+    command_finished_and_precmd(&mut terminal);
+    assert_eq!(terminal.starting_wsl_zsh_directory(), None);
+}
+
 // Ensures that an SSH session successfully bootstraps even if the block list is empty and that
 // the parent shell resumes after the nested shell exits.
 #[test]

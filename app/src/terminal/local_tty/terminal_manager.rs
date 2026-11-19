@@ -998,10 +998,8 @@ impl<S> TerminalManager<S> {
         let is_honor_ps1_enabled = *SessionSettings::as_ref(ctx).honor_ps1;
 
         // Skip per-prompt `node --version` detection unless its prompt chip is shown.
-        let node_version_chip_enabled = !is_honor_ps1_enabled
-            && Prompt::as_ref(ctx)
-                .chip_kinds()
-                .contains(&ContextChipKind::NodeVersion);
+        let node_version_chip_enabled =
+            !is_honor_ps1_enabled && Prompt::as_ref(ctx).has_chip(&ContextChipKind::NodeVersion);
 
         // `enable_ssh_warpification` is the single source of truth for whether the SSH
         // wrapper is active. The bootstrap scripts check `WARP_USE_SSH_WRAPPER` (derived

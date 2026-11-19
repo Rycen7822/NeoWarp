@@ -394,6 +394,9 @@ pub struct TerminalModel {
     /// After bootstrapping, this is set to None.
     pending_shell_launch_data: Option<ShellLaunchData>,
 
+    /// Identifies the early directory reported by WSL zsh across the bootstrap handshake.
+    wsl_zsh_login_session_id: Option<SessionId>,
+
     /// The resolved shell launch data for the login shell.
     /// Unlike `pending_shell_launch_data`, this persists after bootstrap
     /// so that subsystems (e.g. plugin auto-install) can read the actual
@@ -1032,6 +1035,7 @@ impl TerminalModel {
             event_proxy,
             pending_ssh_wrapper_session: None,
             pending_shell_launch_data: None,
+            wsl_zsh_login_session_id: None,
             active_shell_launch_data: None,
             pending_session_info: None,
             ignore_bootstrapping_messages: false,
@@ -1590,6 +1594,21 @@ impl TerminalModel {
 
     pub fn get_pending_session_info(&self) -> &Option<SessionInfo> {
         &self.pending_session_info
+    }
+
+    pub(in crate::terminal) fn starting_wsl_zsh_directory(&self) -> Option<&str> {
+        let session_id = self.wsl_zsh_login_session_id?;
+        let block = self.block_list.active_block();
+        if self.block_list.is_bootstrapping_precmd_done()
+            || block.session_id() != Some(session_id)
+            || !block.has_received_precmd()
+        {
+            return None;
+        }
+        block
+            .pwd()
+            .map(String::as_str)
+            .filter(|pwd| !pwd.is_empty())
     }
 
     pub fn is_term_mode_set(&self, mode: TermMode) -> bool {
@@ -2598,13 +2617,10 @@ impl ansi::Handler for TerminalModel {
             if !data.is_subshell && self.is_determining_wsl_shell() {
                 self.set_login_shell_spawned(shell_type);
             }
-            let bootstrap_from_file = data.bootstrap_from_file
-                && !data.is_subshell
-                && shell_type == ShellType::Zsh
-                && matches!(
-                    self.pending_shell_launch_data,
-                    Some(ShellLaunchData::WSL { .. })
-                );
+            let is_wsl_zsh_login =
+                !data.is_subshell && shell_type == ShellType::Zsh && self.is_pending_wsl();
+            self.wsl_zsh_login_session_id = is_wsl_zsh_login.then_some(data.session_id);
+            let bootstrap_from_file = data.bootstrap_from_file && is_wsl_zsh_login;
 
             let pending_session_info = SessionInfo::create_pending(
                 shell_type,
