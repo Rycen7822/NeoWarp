@@ -608,28 +608,6 @@ impl WslShellStarter {
     pub fn session_id(&self) -> SessionId {
         self.session_id
     }
-
-    /// Gives the Windows path to the WSL home directory (e.g. `\\WSL$\home\user`).
-    pub fn home_directory(&self) -> Option<PathBuf> {
-        let command_result = command::blocking::Command::new("wsl")
-            .arg("--distribution")
-            .arg(&self.distribution)
-            .arg("--shell-type")
-            .arg("standard")
-            .arg("--")
-            .arg("printenv")
-            .arg("HOME")
-            .output();
-        let home_dir =
-            decode_wsl_path_result(command_result).filter(|s| !s.as_bytes().is_empty())?;
-        warp_util::path::convert_wsl_to_windows_host_path(
-            &home_dir.to_typed_path(),
-            &self.distribution,
-        )
-        .context("error conversion WSL home dir for host")
-        .inspect_err(|err| report_error!(err))
-        .ok()
-    }
 }
 
 /// If the given `path_or_command` resolves to a supported shell binary, returns a tuple

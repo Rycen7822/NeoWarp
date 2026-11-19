@@ -899,6 +899,9 @@ pub struct InitShellValue {
     #[serde(default)]
     pub is_subshell: bool,
 
+    #[serde(default)]
+    pub bootstrap_from_file: bool,
+
     #[serde(deserialize_with = "trim_null_byte_deserializer", default)]
     pub user: String,
 

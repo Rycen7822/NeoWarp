@@ -66,11 +66,24 @@ fn main() -> Result<()> {
         println!("cargo:rerun-if-env-changed=WARP_APP_NAME");
         let target_dir = app_target_dir();
         copy_windows_assets(&target_dir);
+        stage_wsl_zsh_bootstrap(&target_dir)?;
 
         #[cfg(windows)]
         embed_resource_file(&target_dir);
     }
 
+    Ok(())
+}
+
+fn stage_wsl_zsh_bootstrap(target_dir: &Path) -> Result<()> {
+    println!("cargo:rerun-if-changed=assets/bundled/bootstrap/zsh.sh");
+    println!("cargo:rerun-if-changed=assets/bundled/bootstrap/zsh_body.sh");
+    let body = include_str!("assets/bundled/bootstrap/zsh_body.sh")
+        .replace("@@USING_CON_PTY_BOOLEAN@@", "true");
+    let script = include_str!("assets/bundled/bootstrap/zsh.sh")
+        .replace("#include bundled/bootstrap/zsh_body.sh", &body)
+        .replace("\r\n", "\n");
+    fs::write(target_dir.join("wsl-zsh-bootstrap.sh"), script)?;
     Ok(())
 }
 

@@ -717,15 +717,6 @@ fn on_shell_determined<S: TerminalSurface>(
         }
     };
 
-    // In WSL, default to the WSL home directory, not the native Windows home directory.
-    let startup_directory = if let (ShellStarter::Wsl(wsl_shell_starter), None) =
-        (&shell_starter, &startup_directory)
-    {
-        wsl_shell_starter.home_directory()
-    } else {
-        startup_directory
-    };
-
     // Show a "shell unsupported" banner, if applicable.
     if is_fallback_shell
         && user_default_shell_unsupported_banner_model_handle.as_ref(ctx)
@@ -880,6 +871,23 @@ impl<S> TerminalManager<S> {
                 &crate::ASSETS,
                 session_id,
             );
+            #[cfg(windows)]
+            let init_shell_script = if matches!(shell_starter, ShellStarter::Wsl(_))
+                && shell_type == crate::terminal::shell::ShellType::Zsh
+            {
+                let path = crate::util::windows::install_dir()
+                    .ok()
+                    .map(|dir| dir.join("wsl-zsh-bootstrap.sh"));
+                let path = path
+                    .as_deref()
+                    .and_then(|path| dunce::simplified(path).to_str())
+                    .map(warp_util::path::convert_windows_path_to_wsl)
+                    .unwrap_or_default();
+                let path = warp_terminal::shell::shell_escape_single_quotes(&path, shell_type);
+                format!(" _warp_bootstrap_path='{path}';{init_shell_script}")
+            } else {
+                init_shell_script
+            };
             self.event_loop_tx
                 .send(Message::Input(init_shell_script.into_bytes().into()))?;
             self.event_loop_tx

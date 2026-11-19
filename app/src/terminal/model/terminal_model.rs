@@ -1990,6 +1990,7 @@ pub enum CommandType {
 pub enum HandlerEvent {
     InitShell {
         pending_session_info: Box<SessionInfo>,
+        bootstrap_from_file: bool,
     },
     Bootstrapped(BootstrappedEvent),
     Precmd {
@@ -2578,6 +2579,13 @@ impl ansi::Handler for TerminalModel {
 
             let shell_type = ShellType::from_name(&data.shell)
                 .unwrap_or_else(|| panic!("invalid shell name: {}", data.shell));
+            let bootstrap_from_file = data.bootstrap_from_file
+                && !data.is_subshell
+                && shell_type == ShellType::Zsh
+                && matches!(
+                    self.pending_shell_launch_data,
+                    Some(ShellLaunchData::WSL { .. })
+                );
 
             let pending_session_info = SessionInfo::create_pending(
                 shell_type,
@@ -2595,6 +2603,7 @@ impl ansi::Handler for TerminalModel {
 
             self.emit_handler_event(HandlerEvent::InitShell {
                 pending_session_info: Box::new(pending_session_info),
+                bootstrap_from_file,
             });
             self.commit_lifecycle_transition(&transition);
         }

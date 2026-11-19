@@ -259,6 +259,7 @@ fn init_shell_hook_round_trips_through_serialization() {
             session_id: 9.into(),
             shell: "zsh".to_string(),
             is_subshell: false,
+            bootstrap_from_file: true,
             user: "me".to_string(),
             hostname: "host".to_string(),
             wsl_name: Some("Ubuntu".to_string()),

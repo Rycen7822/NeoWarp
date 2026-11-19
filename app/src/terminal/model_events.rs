@@ -69,6 +69,7 @@ impl ModelEventDispatcher {
         let event_to_emit = match event {
             Event::Handler(HandlerEvent::InitShell {
                 pending_session_info,
+                bootstrap_from_file,
             }) => {
                 self.sessions.update(ctx, |sessions, ctx| {
                     sessions.register_pending_session(pending_session_info.as_ref(), ctx);
@@ -84,6 +85,7 @@ impl ModelEventDispatcher {
                 } else {
                     ModelEvent::Handler(AnsiHandlerEvent::InitShell {
                         pending_session_info,
+                        bootstrap_from_file,
                     })
                 }
             }
@@ -451,6 +453,7 @@ pub enum ModelEvent {
 pub enum AnsiHandlerEvent {
     InitShell {
         pending_session_info: Box<SessionInfo>,
+        bootstrap_from_file: bool,
     },
     Bootstrapped {
         session_id: SessionId,

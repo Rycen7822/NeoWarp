@@ -204,7 +204,9 @@ pub(super) fn spawn(
         ShellStarter::Direct(shell_starter) | ShellStarter::MSYS2(shell_starter) => {
             shell_command(shell_starter)?
         }
-        ShellStarter::Wsl(wsl_shell_starter) => wsl_shell_command(wsl_shell_starter)?,
+        ShellStarter::Wsl(wsl_shell_starter) => {
+            wsl_shell_command(wsl_shell_starter, options.start_dir.is_none())?
+        }
     };
     let mut process_information = PROCESS_INFORMATION::default();
 
@@ -267,7 +269,10 @@ pub enum EncodingError {
     Other(#[from] windows::core::Error),
 }
 
-fn wsl_shell_command(wsl_shell_starter: &WslShellStarter) -> Result<HSTRING, EncodingError> {
+fn wsl_shell_command(
+    wsl_shell_starter: &WslShellStarter,
+    start_in_home: bool,
+) -> Result<HSTRING, EncodingError> {
     let mut encoded_shell_command = Vec::<u16>::new();
 
     log::info!(
@@ -275,6 +280,9 @@ fn wsl_shell_command(wsl_shell_starter: &WslShellStarter) -> Result<HSTRING, Enc
         wsl_shell_starter.distribution()
     );
     append_quoted(&WslShellStarter::wsl_command(), &mut encoded_shell_command);
+    if start_in_home {
+        encoded_shell_command.extend(" --cd ~".encode_utf16());
+    }
     for arg in wsl_shell_starter.args() {
         encoded_shell_command.push(' ' as u16);
         if arg.encode_wide().any(|c| c == 0) {

@@ -85,6 +85,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 Source: "{#TargetProfileDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#TargetProfileDir}\neowarp-wsl-watch"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#TargetProfileDir}\wsl-zsh-bootstrap.sh"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#TargetProfileDir}\{#PluginDir}\neowarp_accessibility.dll"; DestDir: "{app}\{#PluginDir}"; Flags: ignoreversion
 Source: "{#TargetProfileDir}\{#PluginDir}\plugin.json"; DestDir: "{app}\{#PluginDir}"; Flags: ignoreversion
 Source: "{#AssetsDir}\{#Arch}\conpty.dll"; DestDir: "{app}"; Flags: ignoreversion
