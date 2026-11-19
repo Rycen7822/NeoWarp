@@ -535,6 +535,11 @@ if [[ -z $WARP_BOOTSTRAPPED ]]; then
 
   # Format a string value according to JSON syntax.
   warp_escape_json () {
+      # Most prompt fields are short and need no escaping. Stream long lists through sed below.
+      if [[ $# == 1 && ${#1} -le 4096 && $1 != *[[:cntrl:]\"\\]* ]]; then
+          builtin print -rn -- "$1"
+          return
+      fi
       # Explanation of the sed replacements (each command is separated by a `;`):
       # s/(["\\])/\\\1/g - Replace all double-quote (") and backslash (\) characters with the escaped versions (\" and \\)
       # s/\b/\\b/g - Replace all backspace characters with \b
