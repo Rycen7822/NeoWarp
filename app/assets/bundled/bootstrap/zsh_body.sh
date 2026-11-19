@@ -1749,7 +1749,13 @@ esac
     local shell_options="$(warp_escape_json "`setopt`")"
 
     local escaped_editor="$(warp_escape_json "$EDITOR")"
-    local escaped_shell_path="$(warp_escape_json "${commands[zsh]}")"
+    local escaped_shell_path="$(
+      # Prime this entry so a cache miss doesn't enumerate every PATH directory (including WSL mounts).
+      if [[ -o hashlistall ]]; then
+        builtin hash zsh 2>/dev/null || :
+      fi
+      warp_escape_json "${commands[zsh]}"
+    )"
     local escaped_cdpath="$(warp_escape_json "$CDPATH")"
     local escaped_json="{\"hook\": \"Bootstrapped\", \"value\": {\"histfile\": \"$escaped_histfile\", \"session_id\": $WARP_SESSION_ID, \"shell\": \"zsh\", \"home_dir\": \"$HOME\", \"path\": \"$escaped_path\", \"cdpath\": \"$escaped_cdpath\", \"editor\": \"$escaped_editor\", \"env_var_names\":  \"$env_var_names\", \"abbreviations\": \"$escaped_abbrs\", \"aliases\": \"$escaped_aliases\", \"function_names\": \"$function_names\",  \"builtins\": \"$escaped_builtins\",  \"keywords\": \"$escaped_keywords\", \"shell_version\": \"$ZSH_VERSION\", \"shell_options\": \"$shell_options\", \"shell_plugins\": \"$escaped_shell_plugins\", \"os_category\": \"$os_category\", \"linux_distribution\": \"$linux_distribution\", \"wsl_name\": \"${WSL_DISTRO_NAME:-}\", \"shell_path\": \"$escaped_shell_path\"}}"
     warp_send_json_message "$escaped_json"
