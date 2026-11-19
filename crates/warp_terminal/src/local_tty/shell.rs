@@ -1,13 +1,11 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::{io, process};
 
 use anyhow::Context as _;
-use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
-use typed_path::UnixPathBuf;
 use warp_core::channel::{Channel, ChannelState};
 use warp_core::session_id::SessionId;
+#[cfg(unix)]
 use warp_errors::report_error;
 #[cfg(windows)]
 use warp_util::path::windows::{powershell_5_path, powershell_7_path, wsl_path};
@@ -15,7 +13,9 @@ use warp_util::path::{
     canonicalize_git_bash_path, is_msys2_path, resolve_executable, warp_shell_path,
 };
 
-use crate::bootstrap::{generate_session_id, init_shell_script_for_shell};
+use crate::bootstrap::{
+    generate_session_id, init_shell_script_argument, init_shell_script_for_shell,
+};
 use crate::shell::{ShellLaunchData, ShellName, ShellType, shell_escape_single_quotes};
 
 pub const ZSH_SHELL_PATH: &str = "/bin/zsh";
@@ -59,17 +59,10 @@ impl ShellStarter {
                 );
                 Self::Direct(starter)
             }
-            Self::Wsl(starter) => {
-                let mut starter = starter.clone();
-                starter.session_id = generate_session_id();
-                starter.args = wsl_arguments_for_session_spawning_command(
-                    &starter.distribution,
-                    &starter.shell_path,
-                    starter.shell_type,
-                    starter.session_id,
-                );
-                Self::Wsl(starter)
-            }
+            Self::Wsl(starter) => Self::Wsl(WslShellStarter::new(
+                &starter.distribution,
+                starter.shell.clone(),
+            )),
             Self::MSYS2(starter) => {
                 let mut starter = starter.clone();
                 starter.session_id = generate_session_id();
@@ -226,7 +219,7 @@ impl ShellStarter {
         Self::compute_fallback_shell().map(|fallback_shell| fallback_shell.into())
     }
 
-    fn compute_fallback_shell() -> Option<ShellStarterSource> {
+    pub fn compute_fallback_shell() -> Option<ShellStarterSource> {
         cfg_if::cfg_if! {
             if #[cfg(unix)] {
                 let pw_shell_path = super::unix::resolve_current_user().map(|user| user.shell);
@@ -311,9 +304,11 @@ impl ShellStarter {
         }
     }
 
-    pub fn shell_type(&self) -> ShellType {
+    pub fn shell_type(&self) -> Option<ShellType> {
         match self {
-            ShellStarter::Direct(starter) | ShellStarter::MSYS2(starter) => starter.shell_type(),
+            ShellStarter::Direct(starter) | ShellStarter::MSYS2(starter) => {
+                Some(starter.shell_type())
+            }
             ShellStarter::Wsl(starter) => starter.shell_type(),
         }
     }
@@ -371,8 +366,8 @@ pub struct DirectShellStarter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WslShellStarter {
-    shell_type: ShellType,
-    shell_path: String,
+    /// Absent when the distribution chooses its default shell at launch.
+    shell: Option<(String, ShellType)>,
 
     /// Arguments to be passed to the shell binary at [`shell_path`] when spawning a new Warp
     /// session.
@@ -406,7 +401,9 @@ impl ShellStarterSource {
     #[cfg(any(test, feature = "test-util"))]
     pub fn shell_type(&self) -> ShellType {
         match self {
-            Self::Override(starter) => starter.shell_type(),
+            Self::Override(starter) => starter
+                .shell_type()
+                .expect("test shell is selected in advance"),
             Self::Environment(starter) => starter.shell_type(),
             Self::UserDefault(starter) => starter.shell_type(),
             Self::Fallback { starter, .. } => starter.shell_type(),
@@ -442,24 +439,12 @@ pub enum ShellStarterSourceOrWslName {
 }
 
 impl ShellStarterSourceOrWslName {
-    /// Converts the [`ShellStarterSourceOrWslName`] to a [`ShellStarterSource`].
-    /// For non WSL shells this is a trivial conversion and is synchronous.
-    /// For WSL shells this requires starting a new WSL instance so we can compute the shell type,
-    /// which can potentially be extremely latent.
-    pub async fn to_shell_starter_source(self) -> Option<ShellStarterSource> {
+    pub fn into_shell_starter_source(self) -> ShellStarterSource {
         match self {
-            ShellStarterSourceOrWslName::Source(source) => Some(source),
-            ShellStarterSourceOrWslName::WSLName { distro_name } => {
-                if let Some(wsl_shell_starter) =
-                    WslShellStarter::init_from_wsl_distribution(distro_name.as_ref()).await
-                {
-                    return Some(ShellStarterSource::Override(ShellStarter::Wsl(
-                        wsl_shell_starter,
-                    )));
-                }
-
-                ShellStarter::compute_fallback_shell()
-            }
+            Self::Source(source) => source,
+            Self::WSLName { distro_name } => ShellStarterSource::Override(ShellStarter::Wsl(
+                WslShellStarter::new(&distro_name, None),
+            )),
         }
     }
 
@@ -536,64 +521,37 @@ impl WslShellStarter {
         {
             return None;
         }
-        let session_id = generate_session_id();
-        Some(Self {
-            shell_type,
-            shell_path: shell_path.to_owned(),
-            distribution: distribution.to_owned(),
-            session_id,
-            args: wsl_arguments_for_session_spawning_command(
-                distribution,
-                shell_path,
-                shell_type,
-                session_id,
-            ),
-        })
+        Some(Self::new(
+            distribution,
+            Some((shell_path.to_owned(), shell_type)),
+        ))
     }
 
-    async fn init_from_wsl_distribution(distribution: &str) -> Option<Self> {
-        // We store the path as a String because we can't easily store a Unix path on Windows.
-        // This command can have a lot of latency because it might spin up a VM.
-        let command_result = command::r#async::Command::new("wsl")
-            .arg("--distribution")
-            .arg(distribution)
-            .arg("--shell-type")
-            .arg("standard")
-            .arg("--")
-            .arg("printenv")
-            .arg("SHELL")
-            .output()
-            .await;
-        let shell_path = decode_wsl_path_result(command_result)?
-            .to_string_lossy()
-            .into_owned();
-
-        // We don't need to check the validity of the path or the existence of the binary since
-        // we get this information directly from a spun-up shell in WSL.
-        let shell_type = if shell_path.contains("bash") {
-            ShellType::Bash
-        } else if shell_path.contains("zsh") {
-            ShellType::Zsh
-        } else if shell_path.contains("fish") {
-            ShellType::Fish
-        } else {
-            log::warn!("The shell {shell_path:#} is not yet supported in WSL");
-            return None;
+    fn new(distribution: &str, shell: Option<(String, ShellType)>) -> Self {
+        let session_id = generate_session_id();
+        let args = match &shell {
+            Some((path, shell_type)) => wsl_arguments_for_session_spawning_command(
+                distribution,
+                path,
+                *shell_type,
+                session_id,
+            ),
+            None => wsl_default_shell_arguments(distribution, session_id),
         };
-
-        Self::for_shell(distribution, &shell_path, shell_type)
+        Self {
+            shell,
+            distribution: distribution.to_owned(),
+            session_id,
+            args,
+        }
     }
 
     pub fn args(&self) -> &Vec<OsString> {
         &self.args
     }
 
-    pub fn shell_type(&self) -> ShellType {
-        self.shell_type
-    }
-
-    pub fn shell_path(&self) -> String {
-        self.shell_path.clone()
+    pub fn shell_type(&self) -> Option<ShellType> {
+        self.shell.as_ref().map(|(_, shell_type)| *shell_type)
     }
 
     pub fn wsl_command() -> OsString {
@@ -608,6 +566,29 @@ impl WslShellStarter {
     pub fn session_id(&self) -> SessionId {
         self.session_id
     }
+}
+
+fn wsl_default_shell_arguments(distribution: &str, session_id: SessionId) -> Vec<OsString> {
+    let zsh_request = serde_json::json!({
+        "hook": "InitShell",
+        "value": { "session_id": session_id, "shell": "zsh", "request_zsh_init": true }
+    });
+    vec![
+        "--distribution".into(),
+        distribution.into(),
+        "--shell-type".into(),
+        "standard".into(),
+        "--exec".into(),
+        "/bin/sh".into(),
+        "-c".into(),
+        include_str!("wsl_default_shell.sh")
+            .replace("\r\n", "\n")
+            .into(),
+        "neowarp".into(),
+        init_shell_script_argument(ShellType::Bash, &crate::ASSETS, session_id).into(),
+        init_shell_script_argument(ShellType::Fish, &crate::ASSETS, session_id).into(),
+        hex::encode(zsh_request.to_string()).into(),
+    ]
 }
 
 /// If the given `path_or_command` resolves to a supported shell binary, returns a tuple
@@ -802,67 +783,6 @@ pub fn ssh_socket_dir() -> String {
     };
     socket_dir.push_str("/.ssh");
     socket_dir
-}
-
-/// Take the output of a wsl.exe subcommand and try to decode it while reporting errors.
-/// NOTE: The empty string Some("") may be returned.
-fn decode_wsl_path_result(result: io::Result<process::Output>) -> Option<UnixPathBuf> {
-    let output = match result.context("error finding wsl.exe") {
-        Ok(output) => output,
-        Err(err) => {
-            report_error!(err);
-            return None;
-        }
-    };
-    if !output.status.success() {
-        // Errors with wsl.exe usage itself outputs error messages in UTF-16.
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStringExt as _;
-            let wsl_err_msg = OsString::from_wide(bytemuck::cast_slice(&output.stdout));
-            if !wsl_err_msg.is_empty() {
-                log::error!("Error invoking wsl.exe: {wsl_err_msg:?}");
-                report_error!("Error invoking wsl.exe");
-                return None;
-            }
-        }
-        // If wsl.exe was correctly invoked but the Linux command had an error, that will
-        // be UTF-8.
-        if let Ok(inner_err_msg) = String::from_utf8(output.stderr) {
-            log::error!("Error from WSL command: {inner_err_msg}");
-            report_error!("Error from WSL command");
-        }
-        return None;
-    }
-
-    Some(UnixPathBuf::from(
-        take_until_utf16_crlf(output.stdout)
-            .into_iter()
-            .take_while(|b| *b != b'\n')
-            .collect_vec(),
-    ))
-}
-
-/// Takes bytes until [13, 0, 10, 0] is found in the byte sequence, dropping the rest.
-///
-/// This is useful for removing warning/error messages from successful wsl.exe commands. Even
-/// successful invocations of wsl.exe may have warnings or errors appended to the end. In those
-/// cases the format looks like:
-/// 1. UTF-8 encoded output from the WSL distro.
-/// 2. A UTF-16 encoded CRLF.
-/// 3. A UTF-16 error message.
-///
-/// See this ticket for an example and why this is necessary:
-/// https://linear.app/warpdotdev/issue/CORE-3539
-fn take_until_utf16_crlf(bytes: Vec<u8>) -> Vec<u8> {
-    const UTF16_CRLF: &[u8] = b"\r\0\n\0";
-    match bytes
-        .windows(UTF16_CRLF.len())
-        .position(|bytes| bytes == UTF16_CRLF)
-    {
-        Some(index) => Vec::from(&bytes[0..index]),
-        None => bytes,
-    }
 }
 
 #[cfg(test)]

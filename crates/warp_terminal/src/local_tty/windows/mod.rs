@@ -500,7 +500,13 @@ impl EventedPty for Pty {
     }
 
     fn next_child_event(&mut self) -> Option<super::ChildEvent> {
-        None
+        match self.handle.process_termination_status() {
+            Ok(status) => status.map(super::ChildEvent::Exited),
+            Err(error) => {
+                log::warn!("Could not confirm the PTY child exit: {error:#}");
+                None
+            }
+        }
     }
 
     fn on_resize(&mut self, size: &crate::SizeInfo) {

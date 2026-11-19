@@ -26,6 +26,8 @@ use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, Vie
 
 use super::event_loop::EventLoop;
 use super::mio_channel;
+#[cfg(windows)]
+use super::shell::ShellStarterSourceOrWslName;
 use super::shell::{ShellStarter, ShellStarterSource};
 #[cfg(unix)]
 use super::terminal_attributes::TerminalAttributesPoller;
@@ -45,11 +47,11 @@ use crate::terminal::model::session::{Sessions, SessionsEvent};
 #[cfg(unix)]
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::model::terminal_model::{ExitReason, ShellProcessInfo};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::terminal::model_events::ModelEvent as TerminalModelEvent;
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::terminal::session_settings::SessionSettings;
-use crate::terminal::shell::ShellName;
+use crate::terminal::shell::{ShellName, ShellType};
 use crate::terminal::shell_recovery::ShellReplacementRequest;
 use crate::terminal::terminal_manager::BlockSpacing;
 use crate::terminal::warpify::settings::WarpifySettings;
@@ -108,6 +110,8 @@ pub struct TerminalManager<S> {
 
     recovery_resources: Option<ShellRecoveryResources>,
     pending_shell_recovery: Option<PendingShellRecovery>,
+    #[cfg(windows)]
+    pending_wsl_startup: Option<WslStartupFallback>,
 }
 
 /// Shared inputs needed to construct a terminal surface for a local PTY.
@@ -160,6 +164,13 @@ struct ShellStartupResources {
     channel_event_proxy: ChannelEventListener,
     #[cfg(unix)]
     model_events: ModelHandle<ModelEventDispatcher>,
+}
+
+#[cfg(windows)]
+struct WslStartupFallback {
+    startup_directory: Option<PathBuf>,
+    env_vars: HashMap<OsString, OsString>,
+    unsupported_banner: ModelHandle<BannerState>,
 }
 
 #[derive(Clone)]
@@ -332,6 +343,8 @@ impl<S> TerminalManager<S> {
             inactive_pty_reads_rx,
             recovery_resources: None,
             pending_shell_recovery: None,
+            #[cfg(windows)]
+            pending_wsl_startup: None,
         };
 
         // Run surface-specific wiring after the manager exists, because this
@@ -356,12 +369,32 @@ impl<S> TerminalManager<S> {
                     }
                 },
             );
+            #[cfg(windows)]
+            if matches!(
+                wsl_name_or_shell_starter,
+                Some(ShellStarterSourceOrWslName::WSLName { .. })
+            ) {
+                ctx.subscribe_to_model(
+                    &model_events,
+                    |manager: &mut Box<dyn TerminalManagerTrait>, _, event, ctx| {
+                        let Some(manager) = manager.as_any_mut().downcast_mut::<Self>() else {
+                            return;
+                        };
+                        match event {
+                            TerminalModelEvent::WslShellLaunchFailed => {
+                                manager.start_wsl_fallback(ctx)
+                            }
+                            TerminalModelEvent::ShellSpawned(_) => {
+                                manager.pending_wsl_startup = None
+                            }
+                            _ => {}
+                        }
+                    },
+                );
+            }
             ctx.spawn(
                 async move {
-                    match wsl_name_or_shell_starter {
-                        Some(starter_source) => starter_source.to_shell_starter_source().await,
-                        None => None,
-                    }
+                    wsl_name_or_shell_starter.map(|source| source.into_shell_starter_source())
                 },
                 move |terminal_manager: &mut Box<dyn TerminalManagerTrait>,
                       shell_starter_source,
@@ -443,6 +476,57 @@ impl<S> TerminalManager<S> {
                 surface.on_shell_replaced(pending.planned_request_id, Err(error), ctx);
             });
         }
+    }
+
+    #[cfg(windows)]
+    fn start_wsl_fallback(&mut self, ctx: &mut ModelContext<Box<dyn TerminalManagerTrait>>)
+    where
+        S: TerminalSurface,
+        <S as Entity>::Event: PtyIntentEvent,
+    {
+        let Some((fallback, handle, resources)) = self
+            .pending_wsl_startup
+            .take()
+            .zip(self.event_loop_handle.take())
+            .zip(self.recovery_resources.take())
+            .map(|((fallback, handle), resources)| (fallback, handle, resources))
+        else {
+            self.model.lock().finalize_exit(ExitReason::ShellNotFound);
+            return;
+        };
+        log::info!("WSL exited before shell initialization; starting the Windows fallback shell");
+        ctx.spawn(
+            join_event_loop(handle, REPLACEMENT_SHELL_STOP_TIMEOUT),
+            move |manager, result, ctx| {
+                let Some(manager) = manager.as_any_mut().downcast_mut::<Self>() else {
+                    return;
+                };
+                let event_loop_rx = match result {
+                    Ok(receiver) => receiver,
+                    Err(error) => {
+                        log::warn!("Failed to stop WSL startup: {error:#}");
+                        manager
+                            .model
+                            .lock()
+                            .finalize_exit(ExitReason::ShellNotFound);
+                        return;
+                    }
+                };
+                while event_loop_rx.try_recv().is_ok() {}
+                on_shell_determined(
+                    manager,
+                    fallback.startup_directory,
+                    fallback.env_vars,
+                    fallback.unsupported_banner,
+                    ShellStartupResources {
+                        event_loop_rx,
+                        channel_event_proxy: resources.channel_event_proxy,
+                    },
+                    ShellStarter::compute_fallback_shell(),
+                    ctx,
+                );
+            },
+        );
     }
 
     pub(super) fn replace_shell(
@@ -728,10 +812,18 @@ fn on_shell_determined<S: TerminalSurface>(
         })
     }
 
-    manager
-        .model()
-        .lock()
-        .set_login_shell_spawned(shell_starter.shell_type());
+    if let Some(shell_type) = shell_starter.shell_type() {
+        manager.model().lock().set_login_shell_spawned(shell_type);
+    } else {
+        #[cfg(windows)]
+        {
+            manager.pending_wsl_startup = Some(WslStartupFallback {
+                startup_directory: startup_directory.clone(),
+                env_vars: env_vars.clone(),
+                unsupported_banner: user_default_shell_unsupported_banner_model_handle,
+            });
+        }
+    }
 
     let shell_launch_data = shell_starter.launch_data();
 
@@ -783,11 +875,18 @@ fn on_shell_determined<S: TerminalSurface>(
         }) {
         Ok(pty) => pty,
         Err(err) => {
+            #[cfg(windows)]
+            {
+                manager.pending_wsl_startup = None;
+            }
             report_error!(&err);
             manager.view.update(ctx, |surface, ctx| {
                 surface.on_pty_spawn_failed(err, ctx);
             });
-            manager.model().lock().exit(ExitReason::PtySpawnFailed);
+            manager
+                .model()
+                .lock()
+                .finalize_exit(ExitReason::PtySpawnFailed);
             return;
         }
     };
@@ -861,40 +960,28 @@ impl<S> TerminalManager<S> {
         shell_starter: &ShellStarter,
         session_id: SessionId,
     ) -> Result<(), SendError<Message>> {
-        let shell_type = shell_starter.shell_type();
-        if shell_type == crate::terminal::shell::ShellType::Zsh
-            // For more on why this is necessary on Git Bash, see https://linear.app/warpdotdev/issue/CORE-3202.
-            || shell_starter.is_msys2()
-        {
-            let init_shell_script = crate::terminal::bootstrap::init_shell_script_for_shell(
+        let Some(shell_type) = shell_starter.shell_type() else {
+            return Ok(());
+        };
+        // Git Bash also needs its init script sent through the PTY (CORE-3202).
+        if shell_type != ShellType::Zsh && !shell_starter.is_msys2() {
+            return Ok(());
+        }
+        let init_shell_script = match shell_starter {
+            #[cfg(windows)]
+            ShellStarter::Wsl(_) if shell_type == ShellType::Zsh => {
+                crate::terminal::bootstrap::wsl_zsh_init_script(session_id)
+            }
+            _ => crate::terminal::bootstrap::init_shell_script_for_shell(
                 shell_type,
                 &crate::ASSETS,
                 session_id,
-            );
-            #[cfg(windows)]
-            let init_shell_script = if matches!(shell_starter, ShellStarter::Wsl(_))
-                && shell_type == crate::terminal::shell::ShellType::Zsh
-            {
-                let path = crate::util::windows::install_dir()
-                    .ok()
-                    .map(|dir| dir.join("wsl-zsh-bootstrap.sh"));
-                let path = path
-                    .as_deref()
-                    .and_then(|path| dunce::simplified(path).to_str())
-                    .map(warp_util::path::convert_windows_path_to_wsl)
-                    .unwrap_or_default();
-                let path = warp_terminal::shell::shell_escape_single_quotes(&path, shell_type);
-                format!(" _warp_bootstrap_path='{path}';{init_shell_script}")
-            } else {
-                init_shell_script
-            };
-            self.event_loop_tx
-                .send(Message::Input(init_shell_script.into_bytes().into()))?;
-            self.event_loop_tx
-                .send(Message::Input(shell_type.execute_command_bytes().into()))
-        } else {
-            Ok(())
-        }
+            ),
+        };
+        self.event_loop_tx
+            .send(Message::Input(init_shell_script.into_bytes().into()))?;
+        self.event_loop_tx
+            .send(Message::Input(shell_type.execute_command_bytes().into()))
     }
 
     fn create_pty(

@@ -13,6 +13,21 @@ use super::{
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::shell::ShellType;
 
+#[cfg(windows)]
+pub(super) fn wsl_zsh_init_script(session_id: SessionId) -> String {
+    let init = init_shell_script_for_shell(ShellType::Zsh, &crate::ASSETS, session_id);
+    let path = crate::util::windows::install_dir()
+        .ok()
+        .map(|dir| dir.join("wsl-zsh-bootstrap.sh"));
+    let path = path
+        .as_deref()
+        .and_then(|path| dunce::simplified(path).to_str())
+        .map(warp_util::path::convert_windows_path_to_wsl)
+        .unwrap_or_default();
+    let path = warp_terminal::shell::shell_escape_single_quotes(&path, ShellType::Zsh);
+    format!(" _warp_bootstrap_path='{path}';{init}")
+}
+
 #[cfg(feature = "local_fs")]
 pub fn is_container_subshell(session_info: &SessionInfo) -> bool {
     session_info.subshell_info.as_ref().is_some_and(|info| {

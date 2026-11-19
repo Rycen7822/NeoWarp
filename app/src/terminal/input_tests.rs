@@ -322,9 +322,7 @@ pub async fn add_window_with_bootstrapped_terminal_and_window_id(
     let shell_starter_source =
         ShellStarter::init(crate::terminal::available_shells::AvailableShell::default())
             .expect("Could not create a shell starter source or wsl name")
-            .to_shell_starter_source()
-            .await
-            .expect("Could not create a shell starter source");
+            .into_shell_starter_source();
     let shell_type = shell_starter_source.shell_type();
 
     let session_info = session_info

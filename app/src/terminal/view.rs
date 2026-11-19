@@ -4871,6 +4871,7 @@ impl TerminalView {
                         .finalize_exit(ExitReason::ShellProcessExited { status: *status });
                 }
             }
+            ModelEvent::WslShellLaunchFailed => {}
             ModelEvent::Exit { .. } => {
                 log::debug!(target: "project_sessions", "projects event=terminal_exit terminal={:?}", ctx.view_id());
                 #[cfg(feature = "local_fs")]

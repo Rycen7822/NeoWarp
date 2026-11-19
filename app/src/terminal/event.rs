@@ -66,6 +66,7 @@ pub enum Event {
     ShellExitObserved {
         status: ObservedExitStatus,
     },
+    WslShellLaunchFailed,
     Exit {
         reason: ExitReason,
     },
@@ -407,6 +408,7 @@ impl Debug for Event {
             Event::TerminalClear => write!(f, "TerminalClear"),
             Event::Bell => write!(f, "Bell"),
             Event::ShellExitObserved { status } => write!(f, "ShellExitObserved({status:?})"),
+            Event::WslShellLaunchFailed => write!(f, "WslShellLaunchFailed"),
             Event::Exit { reason } => write!(f, "Exit({reason:?})"),
             Event::CursorBlinkingChange(blinking) => write!(f, "CursorBlinking({blinking})"),
             Event::PreInteractiveSSHSession => write!(f, "Pre-Interactive SSH Session"),

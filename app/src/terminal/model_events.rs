@@ -213,6 +213,7 @@ impl ModelEventDispatcher {
             }
             Event::Bell => ModelEvent::Bell,
             Event::ShellExitObserved { status } => ModelEvent::ShellExitObserved { status },
+            Event::WslShellLaunchFailed => ModelEvent::WslShellLaunchFailed,
             Event::Exit { reason } => ModelEvent::Exit { reason },
             Event::PreInteractiveSSHSession => ModelEvent::PreInteractiveSSHSession,
             Event::SSH(ssh) => ModelEvent::SSH(ssh),
@@ -371,6 +372,7 @@ pub enum ModelEvent {
     ShellExitObserved {
         status: ObservedExitStatus,
     },
+    WslShellLaunchFailed,
     Exit {
         reason: ExitReason,
     },

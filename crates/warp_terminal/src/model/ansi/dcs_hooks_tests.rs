@@ -260,6 +260,7 @@ fn init_shell_hook_round_trips_through_serialization() {
             shell: "zsh".to_string(),
             is_subshell: false,
             bootstrap_from_file: true,
+            request_zsh_init: false,
             user: "me".to_string(),
             hostname: "host".to_string(),
             wsl_name: Some("Ubuntu".to_string()),

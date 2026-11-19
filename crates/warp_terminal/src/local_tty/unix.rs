@@ -338,7 +338,7 @@ fn build_host_shell_command(
         if node_version_chip_enabled { "1" } else { "0" },
     );
 
-    if matches!(shell_starter.shell_type(), ShellType::Bash) {
+    if matches!(shell_starter.shell_type(), Some(ShellType::Bash)) {
         // Set initial very large values so bash imports the user's existing
         // history without truncating the file or in-memory list on startup.
         builder.env("HISTFILESIZE", BASH_HISTORY_SIZE_SENTINEL);
@@ -496,7 +496,7 @@ impl Pty {
 
         log::info!(
             "Successfully spawned child {} process with pid {}",
-            shell.name(),
+            shell.map(|kind| kind.name()).unwrap_or("WSL"),
             pid
         );
 

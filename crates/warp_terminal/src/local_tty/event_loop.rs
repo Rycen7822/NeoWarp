@@ -176,7 +176,12 @@ where
                 }
                 Message::Resize(size) => self.pty.on_resize(&size),
                 Message::ShutdownForReplacement => return ChannelResult::ReplaceShell,
-                Message::ChildExited => return ChannelResult::TerminateLoop { child_exited: true },
+                Message::ChildExited => {
+                    // The Windows notification may have been queued by a previous PTY.
+                    if self.pty.next_child_event().is_some() {
+                        return ChannelResult::TerminateLoop { child_exited: true };
+                    }
+                }
             }
         }
 

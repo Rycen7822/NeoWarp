@@ -1080,6 +1080,12 @@ impl TerminalModel {
 
     /// Reacts to the PTY going away, deferring planned shell replacement to its owner.
     pub fn exit(&mut self, reason: ExitReason) {
+        if self.is_determining_wsl_shell() {
+            self.pending_shell_launch_data = None;
+            self.shell_process_info = None;
+            self.event_proxy.send_app_event(Event::WslShellLaunchFailed);
+            return;
+        }
         if self.shell_replacement_pending {
             self.shell_process_info = None;
             let status = match reason {
@@ -1094,6 +1100,16 @@ impl TerminalModel {
             return;
         }
         self.finalize_exit(reason);
+    }
+
+    fn is_determining_wsl_shell(&self) -> bool {
+        matches!(
+            self.shell_launch_state,
+            ShellLaunchState::DeterminingShell { .. }
+        ) && matches!(
+            self.pending_shell_launch_data,
+            Some(ShellLaunchData::WSL { .. })
+        )
     }
 
     pub fn prepare_shell_replacement(&mut self) {
@@ -2579,6 +2595,9 @@ impl ansi::Handler for TerminalModel {
 
             let shell_type = ShellType::from_name(&data.shell)
                 .unwrap_or_else(|| panic!("invalid shell name: {}", data.shell));
+            if !data.is_subshell && self.is_determining_wsl_shell() {
+                self.set_login_shell_spawned(shell_type);
+            }
             let bootstrap_from_file = data.bootstrap_from_file
                 && !data.is_subshell
                 && shell_type == ShellType::Zsh
@@ -2606,6 +2625,23 @@ impl ansi::Handler for TerminalModel {
                 bootstrap_from_file,
             });
             self.commit_lifecycle_transition(&transition);
+        }
+    }
+
+    #[cfg(windows)]
+    fn initialize_wsl_zsh<W: std::io::Write>(&mut self, session_id: SessionId, writer: &mut W) {
+        if self.ignore_bootstrapping_messages
+            || !self.is_determining_wsl_shell()
+            || !self.is_registered_session(session_id)
+        {
+            return;
+        }
+        let init = crate::terminal::bootstrap::wsl_zsh_init_script(session_id);
+        let result = writer
+            .write_all(init.as_bytes())
+            .and_then(|_| writer.write_all(ShellType::Zsh.execute_command_bytes()));
+        if let Err(error) = result {
+            log::warn!("Could not reply to WSL zsh initialization: {error}");
         }
     }
 

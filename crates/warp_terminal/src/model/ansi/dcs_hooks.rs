@@ -902,6 +902,10 @@ pub struct InitShellValue {
     #[serde(default)]
     pub bootstrap_from_file: bool,
 
+    /// The WSL dispatcher selected zsh and needs its initial command written to the PTY.
+    #[serde(default)]
+    pub request_zsh_init: bool,
+
     #[serde(deserialize_with = "trim_null_byte_deserializer", default)]
     pub user: String,
 

@@ -604,6 +604,10 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
                 self.handler.pre_interactive_ssh_session(value)
             }
             Ok(DProtoHook::SSH { value }) => self.handler.ssh(value),
+            Ok(DProtoHook::InitShell { value }) if value.request_zsh_init => {
+                self.handler
+                    .initialize_wsl_zsh(value.session_id, self.writer);
+            }
             Ok(DProtoHook::InitShell { value }) => self.handler.init_shell(value),
             Ok(DProtoHook::InputBuffer { value }) => self.handler.input_buffer(value),
             Ok(DProtoHook::ExternalShellWidgetSelection { value }) => {
@@ -638,7 +642,9 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
             return;
         }
         match hook {
-            Ok(DProtoHook::InitShell { value }) => self.handler.init_shell(value),
+            Ok(DProtoHook::InitShell { value }) if !value.request_zsh_init => {
+                self.handler.init_shell(value)
+            }
             Ok(DProtoHook::InitSubshell { value }) => {
                 self.handler.init_subshell(value);
             }

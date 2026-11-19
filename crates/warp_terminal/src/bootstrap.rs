@@ -165,6 +165,22 @@ pub fn init_shell_script_for_shell(
     };
     script.replace(SESSION_ID_PLACEHOLDER, &session_id.as_u64().to_string())
 }
+
+/// Init script passed as an argument rather than interpolated into shell code.
+pub(crate) fn init_shell_script_argument(
+    shell_type: ShellType,
+    assets: &dyn AssetProvider,
+    session_id: SessionId,
+) -> String {
+    let path = match shell_type {
+        ShellType::Bash => "bundled/bootstrap/bash_init_shell.sh",
+        ShellType::Fish => "bundled/bootstrap/fish_init_shell.sh",
+        _ => unreachable!("only Bash and Fish take a WSL init argument"),
+    };
+    load_script(path, assets)
+        .replace(SESSION_ID_PLACEHOLDER, &session_id.as_u64().to_string())
+        .replace("@@USING_CON_PTY_BOOLEAN@@", "true")
+}
 /// Generates a cryptographically random session ID for use as both a session
 /// identifier and an integrity token for DCS hook validation.
 pub fn generate_session_id() -> SessionId {

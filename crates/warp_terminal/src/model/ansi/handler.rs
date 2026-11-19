@@ -292,6 +292,9 @@ pub trait Handler {
     /// logic into the PTY
     fn init_shell(&mut self, _data: InitShellValue) {}
 
+    /// Write the initial zsh command in response to a WSL dispatcher request.
+    fn initialize_wsl_zsh<W: io::Write>(&mut self, _session_id: SessionId, _writer: &mut W) {}
+
     /// Callback for the Warp exit-shell hook — emitted by the remote shell right
     /// before it exits. Gives the Warp client a chance to drop per-session
     /// resources (e.g. the `ssh … remote-server-proxy` child) before the outer

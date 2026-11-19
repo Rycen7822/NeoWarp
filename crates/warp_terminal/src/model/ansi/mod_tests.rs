@@ -228,6 +228,10 @@ impl Handler for MockHandler {
             .push(DProtoHook::InitShell { value: data });
     }
 
+    fn initialize_wsl_zsh<W: io::Write>(&mut self, session_id: SessionId, writer: &mut W) {
+        write!(writer, "{}", session_id.as_u64()).unwrap();
+    }
+
     fn clear(&mut self, data: ClearValue) {
         self.d_proto_hooks.push(DProtoHook::Clear { value: data });
     }
@@ -947,6 +951,26 @@ fn parse_dcs_init_shell_7bit_st() {
         ),
         _ => panic!("incorrect dcs value"),
     };
+}
+
+#[test]
+fn wsl_zsh_request_replies_without_starting_the_shell_epoch() {
+    let payload =
+        r#"{"hook":"InitShell","value":{"session_id":123,"shell":"zsh","request_zsh_init":true}}"#;
+    let request = format!("\x1b]9278;d;{}\x07", hex::encode(payload));
+    let mut parser = Processor::new();
+    let mut handler = MockHandler {
+        should_validate_dcs_hook_session_id: true,
+        ..Default::default()
+    };
+    let mut response = Vec::new();
+    parser.parse_bytes(&mut handler, request.as_bytes(), &mut response);
+    assert!(response.is_empty());
+
+    handler.registered_session_ids.insert(123.into());
+    parser.parse_bytes(&mut handler, request.as_bytes(), &mut response);
+    assert_eq!(response, b"123");
+    assert!(handler.d_proto_hooks.is_empty());
 }
 
 #[test]
