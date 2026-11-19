@@ -1,4 +1,3 @@
- setopt interactivecomments
  # Set PS2 to an empty string to prevent zsh from printing a secondary prompt
  # (e.g.: 'heredoc> '), which would otherwise be printed repeatedly when we
  # paste the bootstrap script into the PTY.
@@ -17,5 +16,10 @@
  # rather than on its own line after the HEREDOC.  This seems to work around a bug in zsh
  # where the buffer was getting messed up after processing the heredoc about 1/50 of the time.
  read -r -d '' WARP_BOOTSTRAP_VAR << 'EOM'; eval "$WARP_BOOTSTRAP_VAR"; unset WARP_BOOTSTRAP_VAR
+ if (( ${+ORIGINAL_PS2} )); then
+   PS2="$ORIGINAL_PS2"
+ else
+   unset PS2
+ fi
 #include bundled/bootstrap/zsh_body.sh
 EOM

@@ -4,16 +4,8 @@
 # Throughout, command -p is used to call external binaries. command -p resolves the
 # given command using the system default $PATH, which ensures the shells can locate
 # the corresponding binaries even if the user has a clobbered value of $PATH.
+setopt interactivecomments
 if [[ -z $WARP_BOOTSTRAPPED ]]; then
-  # Return PS2 to its original value.  We set this to an empty string in zsh.sh,
-  # and want to reset it now that we've received the bootstrap script and started
-  # to eval it.
-  if (( ${+ORIGINAL_PS2} )); then
-    PS2="$ORIGINAL_PS2"
-  else
-    unset PS2
-  fi
-
   # Byte sequence used to signal the start of a DCS. ([0x1b, 0x50, 0x24] which
   # maps to <ESC>, P, $ in ASCII.)
   DCS_START="$(printf '\eP$')"

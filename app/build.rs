@@ -76,12 +76,9 @@ fn main() -> Result<()> {
 }
 
 fn stage_wsl_zsh_bootstrap(target_dir: &Path) -> Result<()> {
-    println!("cargo:rerun-if-changed=assets/bundled/bootstrap/zsh.sh");
     println!("cargo:rerun-if-changed=assets/bundled/bootstrap/zsh_body.sh");
-    let body = include_str!("assets/bundled/bootstrap/zsh_body.sh")
-        .replace("@@USING_CON_PTY_BOOLEAN@@", "true");
-    let script = include_str!("assets/bundled/bootstrap/zsh.sh")
-        .replace("#include bundled/bootstrap/zsh_body.sh", &body)
+    let script = include_str!("assets/bundled/bootstrap/zsh_body.sh")
+        .replace("@@USING_CON_PTY_BOOLEAN@@", "true")
         .replace("\r\n", "\n");
     fs::write(target_dir.join("wsl-zsh-bootstrap.sh"), script)?;
     Ok(())
