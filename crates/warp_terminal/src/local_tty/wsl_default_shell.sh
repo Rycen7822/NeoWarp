@@ -9,9 +9,9 @@ case "$selected" in
         exec "$selected" -c 'exec -a bash "$1" --rcfile <(printf "BASH=%q;%s\n" "$1" "$2")' bash "$selected" "$1"
         ;;
     *zsh*)
-        # The interactive zsh receives its existing init command from NeoWarp.
+        # Keep the initial command out of ZLE. The bootstrap restores ZLE before sourcing user configuration.
         printf '\033]9278;d;%s\007' "$3"
-        exec "$selected" -c 'exec -a -zsh "$1" -g --no-rcs' zsh "$selected"
+        exec "$selected" -c 'exec -a -zsh "$1" -g --no-rcs --no-zle' zsh "$selected"
         ;;
     *fish*)
         exec "$selected" -f no-mark-prompt --login --init-command "$2"

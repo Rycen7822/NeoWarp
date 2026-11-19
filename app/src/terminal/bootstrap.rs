@@ -25,7 +25,14 @@ pub(super) fn wsl_zsh_init_script(session_id: SessionId) -> String {
         .map(warp_util::path::convert_windows_path_to_wsl)
         .unwrap_or_default();
     let path = warp_terminal::shell::shell_escape_single_quotes(&path, ShellType::Zsh);
-    format!(" _warp_bootstrap_path='{path}';{init}")
+    let prefix = format!(" _warp_bootstrap_path='{path}';");
+    // WSL's canonical tty input includes the final Enter in its 4096-byte line limit.
+    // When the path will not fit, the existing InitShell handshake requests the streamed bootstrap.
+    if prefix.len() + init.len() >= 4096 {
+        format!(" unset _warp_bootstrap_path;{init}")
+    } else {
+        format!("{prefix}{init}")
+    }
 }
 
 #[cfg(feature = "local_fs")]
