@@ -15,7 +15,8 @@ use crate::terminal::shell::ShellType;
 
 #[cfg(windows)]
 pub(super) fn wsl_zsh_init_script(session_id: SessionId) -> String {
-    let init = init_shell_script_for_shell(ShellType::Zsh, &crate::ASSETS, session_id);
+    let init = load_and_escape_script("bundled/bootstrap/wsl_zsh_init_shell.sh", &crate::ASSETS)
+        .replace(SESSION_ID_PLACEHOLDER, &session_id.as_u64().to_string());
     let path = crate::util::windows::install_dir()
         .ok()
         .map(|dir| dir.join("wsl-zsh-bootstrap.sh"));
