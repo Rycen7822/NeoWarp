@@ -3,7 +3,8 @@ use std::io::Write;
 use serde_json::json;
 
 use super::*;
-use crate::project_sessions::{command, config::Host};
+use crate::project_sessions::command;
+use crate::project_sessions::config::Host;
 
 #[test]
 fn pi_reader_keeps_progress_across_bad_lines_and_transcript_replacement() {

@@ -360,10 +360,6 @@ impl Drop for LastTurn {
     }
 }
 
-pub(crate) fn now() -> u64 {
-    chrono::Utc::now().timestamp_millis().max(0) as u64
-}
-
 #[cfg(all(test, windows))]
 #[path = "last_turn_tests.rs"]
 mod tests;

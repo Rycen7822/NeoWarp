@@ -59,7 +59,7 @@ fn native_tool_diffs_never_hold_terminal_input_or_scan_workspace() {
                     environment: BTreeMap::new(),
                     parsed: cli_command::parse(&cli, ShellType::PowerShell),
                     launched: false,
-                    started_at: crate::code_review::last_turn::now() as i64,
+                    started_at: chrono::Utc::now().timestamp_millis(),
                 };
                 ProjectSessions::handle(ctx)
                     .update(ctx, |sessions, ctx| sessions.observe(observation, ctx));
@@ -103,9 +103,7 @@ fn native_tool_diffs_never_hold_terminal_input_or_scan_workspace() {
         let model = terminal
             .read(&app, |view, _| view.last_turn.clone())
             .unwrap();
-        append(
-            serde_json::json!({"role":"user", "timestamp":crate::code_review::last_turn::now(), "content":[{"type":"text","text":"request"}]}),
-        );
+        append(serde_json::json!({"role":"user", "content":[{"type":"text","text":"request"}]}));
         append(serde_json::json!({"role":"assistant", "content":[{
             "type":"toolCall", "id":"edit-1", "name":"edit",
             "arguments":{"path":"ignored.txt","oldText":"before","newText":"after"}
