@@ -442,7 +442,8 @@ jobs:
 
       - name: Check licenses for dependencies
         run: |
-          cargo binstall --force -y cargo-deny
+          # cargo-deny 0.22 requires a newer Rust toolchain than this workspace.
+          cargo binstall --force --locked -y cargo-deny --version '=0.21.0'
           # Make sure all of our dependencies use licenses that are compatible with
           # our usage.
           cargo deny -L error check licenses
