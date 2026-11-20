@@ -1,5 +1,5 @@
 //! Successful tool observations, not a reconstruction of the working tree.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -8,6 +8,7 @@ use super::config::Provider;
 
 const MAX_DIFF_BYTES: usize = 64 * 1024;
 const MAX_PENDING: usize = 128;
+const MAX_NESTED_EDITS: usize = 1024;
 
 #[derive(Clone)]
 pub(crate) struct Change {
@@ -15,20 +16,30 @@ pub(crate) struct Change {
     pub(crate) diff: String,
     pub(crate) additions: usize,
     pub(crate) deletions: usize,
+    pub(crate) truncated: bool,
 }
 
 impl Change {
-    fn new(path: &str, diff: String) -> Option<Self> {
-        if path.is_empty() || diff.len() > MAX_DIFF_BYTES {
+    fn new(path: &str, mut diff: String) -> Option<Self> {
+        if path.is_empty() {
             return None;
         }
         let additions = diff.lines().filter(|line| line.starts_with('+')).count();
         let deletions = diff.lines().filter(|line| line.starts_with('-')).count();
+        let truncated = diff.len() > MAX_DIFF_BYTES;
+        if truncated {
+            let end = diff.as_bytes()[..MAX_DIFF_BYTES]
+                .iter()
+                .rposition(|byte| *byte == b'\n')
+                .map_or(0, |index| index + 1);
+            diff.truncate(end);
+        }
         (additions + deletions > 0).then(|| Self {
             path: path.into(),
             diff,
             additions,
             deletions,
+            truncated,
         })
     }
 }
@@ -36,13 +47,24 @@ impl Change {
 #[derive(Clone, Default)]
 pub(crate) struct Tools {
     pending: HashMap<String, (String, Arc<Value>)>,
+    nested: HashSet<Arc<str>>,
+    nested_order: VecDeque<Arc<str>>,
+    pub(crate) limited: bool,
 }
 
 impl Tools {
+    pub(crate) fn new_request(&mut self) {
+        self.pending.clear();
+    }
+
     pub(crate) fn observe(&mut self, record: &Value, provider: Provider) -> Vec<Change> {
         let mut changes = Vec::new();
         match provider {
             Provider::Pi | Provider::Claude => {
+                if provider == Provider::Pi && record["customType"] == "context-prune-index" {
+                    self.observe_archive(record, &mut changes);
+                    return changes;
+                }
                 let message = &record["message"];
                 if let Some(parts) = message["content"].as_array() {
                     for part in parts {
@@ -68,22 +90,35 @@ impl Tools {
                 }
                 if message["role"] == "toolResult"
                     && let Some((name, args)) = self.take(&message["toolCallId"])
-                    && message["isError"] != true
                 {
-                    changes.extend(tool_change(&name, &args, &message["details"]));
+                    let details = &message["details"];
+                    if message["isError"] != true
+                        || (provider == Provider::Pi
+                            && details["metisActionFusion"]["version"] == 1
+                            && details["metisActionFusion"]["mutationStatus"] == "success"
+                            && (details["patch"].is_string()
+                                || details["diff"].is_string()
+                                || details["metisWriteDiff"].is_object()))
+                    {
+                        changes.extend(tool_change(&name, &args, details));
+                    }
                 }
                 // Pi records nested ctx.executeTool calls (including codemode)
                 // with their own outcome, even when the parent later fails.
-                if message["role"] == "toolResult"
-                    && let Some(calls) = message["nestedCalls"]["calls"].as_array()
-                {
-                    for call in calls {
+                if provider == Provider::Pi && message["role"] == "toolResult" {
+                    let nested = &message["nestedCalls"];
+                    for call in nested["calls"].as_array().into_iter().flatten() {
                         if call["status"] == "ok"
                             && let Some(name) = call["name"].as_str()
                         {
-                            changes.extend(tool_change(name, &call["arguments"], &Value::Null));
+                            changes.extend(self.nested_change(
+                                &call["id"],
+                                name,
+                                &call["arguments"],
+                            ));
                         }
                     }
+                    self.limited |= nested["complete"] == false;
                 }
             }
             Provider::Codex => {
@@ -113,6 +148,38 @@ impl Tools {
         changes
     }
 
+    fn observe_archive(&mut self, record: &Value, changes: &mut Vec<Change>) {
+        for call in record["data"]["toolCalls"].as_array().into_iter().flatten() {
+            if call["parentToolCallId"].is_string()
+                && call["toolCallId"].is_string()
+                && call["archiveOnly"] == true
+                && call["toolName"] == "edit"
+                && call["isError"] == false
+            {
+                changes.extend(self.nested_change(&call["toolCallId"], "edit", &call["args"]));
+            }
+        }
+    }
+
+    fn nested_change(&mut self, id: &Value, name: &str, args: &Value) -> Option<Change> {
+        let id = id.as_str();
+        if id.is_some_and(|id| self.nested.contains(id)) {
+            return None;
+        }
+        let change = tool_change(name, args, &Value::Null)?;
+        if let Some(id) = id {
+            if self.nested_order.len() >= MAX_NESTED_EDITS
+                && let Some(old) = self.nested_order.pop_front()
+            {
+                self.nested.remove(&old);
+            }
+            let id: Arc<str> = id.into();
+            self.nested_order.push_back(id.clone());
+            self.nested.insert(id);
+        }
+        Some(change)
+    }
+
     fn remember(&mut self, id: &Value, name: &Value, args: &Value) {
         let (Some(id), Some(name)) = (id.as_str(), name.as_str()) else {
             return;
@@ -123,14 +190,21 @@ impl Tools {
         ) {
             return;
         }
-        if args.to_string().len() > MAX_DIFF_BYTES {
-            return;
-        }
         if self.pending.len() >= MAX_PENDING {
             self.pending.clear();
+            self.limited = true;
         }
+        let args = if matches!(name, "write" | "Write") || args.to_string().len() > MAX_DIFF_BYTES {
+            let Some(path) = tool_path(args) else {
+                self.limited = true;
+                return;
+            };
+            serde_json::json!({"path": path})
+        } else {
+            args.clone()
+        };
         self.pending
-            .insert(id.into(), (name.into(), Arc::new(args.clone())));
+            .insert(id.into(), (name.into(), Arc::new(args)));
     }
 
     fn take(&mut self, id: &Value) -> Option<(String, Arc<Value>)> {
@@ -138,19 +212,21 @@ impl Tools {
     }
 }
 
+fn tool_path(args: &Value) -> Option<&str> {
+    args["path"].as_str().or_else(|| args["file_path"].as_str())
+}
+
 fn tool_change(name: &str, args: &Value, details: &Value) -> Option<Change> {
     if !matches!(name, "edit" | "Edit" | "MultiEdit" | "write" | "Write") {
         return None;
     }
-    let path = args["path"]
-        .as_str()
-        .or_else(|| args["file_path"].as_str())?;
+    let path = tool_path(args)?;
+    if let Some(patch) = details["patch"].as_str()
+        && let Some(header) = patch.find("\n@@ ")
+    {
+        return Change::new(path, patch[header + 1..].into());
+    }
     if let Some(diff) = details["diff"].as_str() {
-        if let Some(patch) = details["patch"].as_str()
-            && let Some(header) = patch.find("\n@@ ")
-        {
-            return Change::new(path, patch[header + 1..].into());
-        }
         if details["firstChangedLine"].is_number() {
             return Change::new(path, strip_pi_line_numbers(diff));
         }
@@ -173,13 +249,31 @@ fn tool_change(name: &str, args: &Value, details: &Value) -> Option<Change> {
         }
     }
     if matches!(name, "write" | "Write") {
-        // New content alone cannot prove a creation or reconstruct an overwrite.
-        return None;
+        let write = &details["metisWriteDiff"];
+        if !matches!(write["kind"].as_str(), Some("add" | "update")) {
+            return None;
+        }
+        let mut diff = String::new();
+        for row in write["rows"].as_array()? {
+            let marker = match row["kind"].as_str()? {
+                "add" => '+',
+                "remove" => '-',
+                "context" => ' ',
+                "separator" => {
+                    diff.push_str("@@\n");
+                    continue;
+                }
+                _ => continue,
+            };
+            diff.push(marker);
+            diff.push_str(row["content"].as_str()?);
+            diff.push('\n');
+        }
+        return Change::new(path, diff);
     }
-    let replacements: Vec<_> = args["edits"]
+    let replacements = args["edits"]
         .as_array()
-        .map(|edits| edits.iter().collect())
-        .unwrap_or_else(|| vec![args]);
+        .map_or(std::slice::from_ref(args), Vec::as_slice);
     let mut diff = String::new();
     for edit in replacements {
         let before = edit["oldText"]

@@ -87,6 +87,7 @@ impl VerticalTabsPaneContextMenuTarget {
 pub enum WorkspaceAction {
     OpenGitReview(Option<crate::code::buffer_location::LocalOrRemotePath>),
     CloseGitReview,
+    SyncGitReviewTools,
     ActivateTab(usize),
     ActivatePrevTab,
     ActivateNextTab,
@@ -616,6 +617,7 @@ impl WorkspaceAction {
             | FocusRightPanel
             | OpenGitReview(_)
             | CloseGitReview
+            | SyncGitReviewTools
             | DumpDebugInfo
             | ToggleRecordingMode
             | ToggleInBandGenerators

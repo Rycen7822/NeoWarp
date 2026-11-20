@@ -169,6 +169,7 @@ impl TerminalView {
         let block = state.block.clone();
         let provider = state.provider;
         let (bytes, separate_enter) = submission(provider, &text);
+        self.last_turn_review(ctx);
         self.write_user_bytes_to_pty(bytes, ctx);
         editor.update(ctx, |editor, ctx| editor.system_reset_buffer_text("", ctx));
         if provider == Provider::Claude {

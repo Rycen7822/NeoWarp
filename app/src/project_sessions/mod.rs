@@ -372,6 +372,7 @@ impl ProjectSessions {
         Some(turns::Source {
             block: running.block.clone(),
             query: running.query.clone(),
+            ambiguous: running.ambiguous,
             identity: self
                 .catalog
                 .session(live.session_id)
@@ -770,6 +771,7 @@ impl ProjectSessions {
                             .and_then(|live| live.running.as_mut())
                             .expect("running entry was checked")
                             .ambiguous = true;
+                        ctx.notify();
                     } else if let Some(identity) = candidates.into_iter().next() {
                         me.bind_identity(id, identity, query.provider, ctx);
                     }
@@ -992,7 +994,30 @@ fn move_entry<T>(
 
 fn load(path: &Path) -> Result<Catalog> {
     match fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Ok(bytes) => {
+            let mut catalog: Catalog = serde_json::from_slice(&bytes)?;
+            for project in &mut catalog.projects {
+                for session in &mut project.sessions {
+                    if session.provider == config::Provider::Pi
+                        && let Some(identity) = &mut session.identity
+                        && !command::pi_session_is_path(&identity.id)
+                        && let Some(path) = &identity.transcript
+                        && project.host.same_path(
+                            path,
+                            &format!(
+                                "{}/{}",
+                                project.directory.trim_end_matches(['/', '\\']),
+                                identity.id
+                            ),
+                        )
+                    {
+                        // Older versions persisted an ID selector as a path relative to the repo.
+                        identity.transcript = None;
+                    }
+                }
+            }
+            Ok(catalog)
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Catalog::default()),
         Err(error) => Err(error.into()),
     }

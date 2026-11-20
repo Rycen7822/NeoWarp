@@ -114,6 +114,7 @@ pub struct GitReviewView {
     fold_mouse: MouseStateHandle,
     last_turn: Option<ModelHandle<LastTurn>>,
     turn_selected: bool,
+    prefer_tool_changes: bool,
     turn_refresh_id: u64,
 }
 
@@ -222,6 +223,7 @@ impl GitReviewView {
             fold_mouse: Default::default(),
             last_turn: None,
             turn_selected: false,
+            prefer_tool_changes: true,
             turn_refresh_id: 0,
         };
         if !snapshot.is_some_and(|snapshot| view.restore_snapshot(snapshot, ctx)) {
@@ -230,29 +232,51 @@ impl GitReviewView {
         view
     }
 
-    pub(crate) fn attach_last_turn(
+    pub(crate) fn matches_root(&self, root: &std::path::Path) -> bool {
+        crate::util::path::local_path_for_io(&self.root)
+            == crate::util::path::local_path_for_io(root)
+    }
+
+    pub(crate) fn sync_last_turn(
         &mut self,
-        model: ModelHandle<LastTurn>,
+        terminal: Option<EntityId>,
+        model: Option<ModelHandle<LastTurn>>,
         ctx: &mut ViewContext<Self>,
     ) {
-        if model.as_ref(ctx).root != self.root {
+        let model = model.filter(|model| self.matches_root(&model.as_ref(ctx).root));
+        if self.last_turn.as_ref().map(ModelHandle::id) == model.as_ref().map(ModelHandle::id) {
             return;
         }
-        if self
-            .last_turn
-            .as_ref()
-            .is_none_or(|previous| previous.id() != model.id())
+        // Keep the same terminal's previous model through its final drain.
+        if model.is_none()
+            && self
+                .last_turn
+                .as_ref()
+                .is_some_and(|previous| Some(previous.as_ref(ctx).terminal) == terminal)
         {
-            if let Some(previous) = self.last_turn.replace(model.clone()) {
-                ctx.unsubscribe_to_model(&previous);
-            }
-            ctx.subscribe_to_model(&model, |me, _, _, ctx| {
+            return;
+        }
+        if let Some(previous) = self.last_turn.take() {
+            ctx.unsubscribe_to_model(&previous);
+        }
+        if let Some(model) = &model {
+            ctx.subscribe_to_model(model, |me, _, _, ctx| {
                 if me.turn_selected {
                     me.refresh_last_turn(ctx);
                 }
             });
         }
-        self.select_last_turn(ctx);
+        self.last_turn = model;
+        self.selector.update(ctx, |selector, ctx| {
+            selector.set_last_turn_available(self.last_turn.is_some() || self.turn_selected, ctx)
+        });
+        if self.last_turn.is_some() && self.prefer_tool_changes {
+            self.select_last_turn(ctx);
+        } else if self.turn_selected {
+            self.set_files(Vec::new(), ctx);
+            self.message = tr("Waiting for CLI session log…").into();
+            ctx.notify();
+        }
     }
 
     fn select_last_turn(&mut self, ctx: &mut ViewContext<Self>) {
@@ -260,6 +284,7 @@ impl GitReviewView {
             return;
         }
         self.turn_selected = true;
+        self.prefer_tool_changes = true;
         self.selector
             .update(ctx, |selector, ctx| selector.set_last_turn(ctx));
         self.refresh_last_turn(ctx);
@@ -410,6 +435,7 @@ impl GitReviewView {
     }
 
     fn select_mode(&mut self, mode: DiffMode, ctx: &mut ViewContext<Self>) {
+        self.prefer_tool_changes = false;
         if self.mode == mode && !self.turn_selected {
             return;
         }
@@ -506,6 +532,11 @@ impl GitReviewView {
                 .as_ref()
                 .and_then(|model| model.as_ref(ctx).change(&card.entry.path))
             {
+                if change.diff.is_empty() {
+                    card.message = tr("Some tool changes or diff lines were omitted").into();
+                    ctx.notify();
+                    return;
+                }
                 let (base, current, ops) = captured_review(&change.diff);
                 apply_file_result(
                     self,
@@ -983,7 +1014,10 @@ impl TypedActionView for GitReviewView {
         match action {
             GitReviewAction::Refresh => {
                 if self.turn_selected {
-                    self.refresh_last_turn(ctx);
+                    ctx.dispatch_typed_action_deferred(WorkspaceAction::SyncGitReviewTools);
+                    if let Some(model) = &self.last_turn {
+                        model.as_ref(ctx).refresh();
+                    }
                     return;
                 }
                 self.status
@@ -1185,9 +1219,9 @@ impl View for GitReviewView {
                 .last_turn
                 .as_ref()
                 .map(|model| model.as_ref(app).label())
-                .unwrap_or("");
+                .unwrap_or_default();
             column.add_child(
-                Text::new_inline(status.to_owned(), font, 12.)
+                Text::new_inline(status, font, 12.)
                     .with_color(theme.sub_text_color(theme.background()).into())
                     .finish(),
             );

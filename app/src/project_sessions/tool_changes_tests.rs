@@ -3,6 +3,45 @@ use serde_json::json;
 use super::*;
 
 #[test]
+fn metis_tool_changes_use_mutation_receipts_and_deduplicate_early_edits() {
+    let mut tools = Tools::default();
+    let edit = json!({"path":"code.rs","edits":[{"oldText":"before","newText":"after"}]});
+    let archive = json!({"type":"custom","customType":"context-prune-index","data":{"toolCalls":[{
+        "toolCallId":"parent/1","parentToolCallId":"parent","toolName":"edit","isError":false,"archiveOnly":true,"args":edit
+    }]}});
+    let parent = json!({"message":{"role":"toolResult","toolCallId":"parent","nestedCalls":{"calls":[
+        {"id":"parent/1","name":"edit","status":"ok","arguments":edit},
+        {"id":"parent/2","name":"edit","status":"ok","arguments":edit}
+    ]}}});
+    assert_eq!(tools.observe(&archive, Provider::Pi).len(), 1);
+    assert_eq!(tools.observe(&parent, Provider::Pi).len(), 1);
+    assert!(tools.observe(&archive, Provider::Pi).is_empty());
+
+    tools.observe(&json!({"message":{"role":"assistant","content":[
+        {"type":"toolCall","id":"e","name":"edit","arguments":{"path":"code.rs","oldText":"x".repeat(70_000),"newText":"after"}},
+        {"type":"toolCall","id":"w","name":"write","arguments":{"path":"doc.md","content":"after"}}
+    ]}}), Provider::Pi);
+    let edit = json!({"message":{"role":"toolResult","toolCallId":"e","isError":true,"details":{
+        "patch":"--- a/code.rs\n+++ b/code.rs\n@@ -1 +1 @@\n-before\n+after\n",
+        "metisActionFusion":{"version":1,"mutationStatus":"success","command":{"status":"failed"}}
+    }}});
+    let changes = tools.observe(&edit, Provider::Pi);
+    assert_eq!(changes[0].diff, "@@ -1 +1 @@\n-before\n+after\n");
+    let write = json!({"message":{"role":"toolResult","toolCallId":"w","isError":false,"details":{
+        "metisWriteDiff":{"kind":"update","rows":[{"kind":"remove","content":"before"},{"kind":"add","content":"after"}]}
+    }}});
+    let changes = tools.observe(&write, Provider::Pi);
+    assert_eq!(
+        (
+            &*changes[0].path,
+            changes[0].additions,
+            changes[0].deletions
+        ),
+        ("doc.md", 1, 1)
+    );
+}
+
+#[test]
 fn only_successful_tools_with_known_differences_are_shown() {
     let mut tools = Tools::default();
     tools.observe(&json!({"message":{"role":"assistant","content":[

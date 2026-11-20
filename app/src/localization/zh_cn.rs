@@ -10,6 +10,10 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         }
         "Unable to read tool changes" => "无法读取工具变更",
         "Session ended" => "会话已结束",
+        "Waiting for CLI session log…" => "正在等待会话日志…",
+        "CLI session log is ambiguous" => "无法确认会话对应的日志",
+        "Some tool changes or diff lines were omitted" => "部分工具变更或差异行已省略",
+        "Previous turn" => "上一轮",
         "Auto-collapse diff above (lines)" => "差异默认折叠阈值（行）",
         "Counts displayed code and context lines. 0 collapses every file. Range: 0–10000." => {
             "统计实际显示的代码与上下文行。0 表示全部默认折叠，范围为 0–10000。"
@@ -290,7 +294,7 @@ pub(super) fn lookup(english: &str) -> Option<&'static str> {
         "Venv path or Conda prefix/name" => "虚拟环境路径或 Conda 路径/名称",
         "Conda executable (optional)" => "Conda 可执行文件（可选）",
         "Startup command" => "启动命令",
-        "Session ID (Pi: session file)" => "会话 ID（Pi：会话文件）",
+        "Session ID (Pi: ID or session file)" => "会话 ID（Pi：ID 或会话文件）",
         "Explicit resume command (optional)" => "自定义恢复命令（可选）",
         "Choose Bash, Zsh, Fish or PowerShell" => "请选择 Bash、Zsh、Fish 或 PowerShell",
         "Variables must be a JSON object of string values" => {

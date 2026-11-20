@@ -16,20 +16,30 @@ use crate::project_sessions::tool_changes::Change;
 use crate::project_sessions::turns::{self, Cursor, Observation, Source};
 use crate::util::path::local_path_for_io;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CaptureState {
+    Following,
+    Draining,
+    Ended,
+}
+
 pub(crate) struct LastTurn {
     pub(crate) root: PathBuf,
     pub(crate) block: BlockId,
     pub(crate) provider: Provider,
-    terminal: EntityId,
+    pub(crate) terminal: EntityId,
+    source: Source,
     path: Option<PathBuf>,
     cursor: Option<Cursor>,
-    since: u64,
     generation: u64,
     changes: BTreeMap<String, Change>,
+    request_pending: bool,
+    limited: bool,
     message: String,
     poll: Option<SpawnedFutureHandle>,
     log_events: Option<BoxStream<'static, ()>>,
-    closed: bool,
+    refresh: (async_channel::Sender<()>, async_channel::Receiver<()>),
+    state: CaptureState,
 }
 
 impl LastTurn {
@@ -39,29 +49,49 @@ impl LastTurn {
         terminal: EntityId,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
+        let message = waiting_label(&source).into();
         let mut me = Self {
             root,
             block: source.block.clone(),
             provider: source.provider(),
             terminal,
+            source,
             path: None,
             cursor: None,
-            since: now(),
             generation: 0,
             changes: BTreeMap::new(),
-            message: tr("Captured tool changes · partial coverage").into(),
+            request_pending: false,
+            limited: false,
+            message,
             poll: None,
             log_events: None,
-            closed: false,
+            refresh: async_channel::bounded(1),
+            state: CaptureState::Following,
         };
-        if source.supports_turns() {
+        if me.source.supports_turns() {
+            ctx.observe(&ProjectSessions::handle(ctx), |me, sessions, ctx| {
+                let source = sessions.as_ref(ctx).turn_source(me.terminal);
+                me.sync_source(source, ctx);
+            });
+            if me.source.identity.is_some() {
+                me.refresh();
+            }
             me.schedule_poll(ctx);
         }
         me
     }
 
-    pub(crate) fn label(&self) -> &str {
-        &self.message
+    pub(crate) fn label(&self) -> String {
+        let mut label = self.message.clone();
+        if self.request_pending && !self.changes.is_empty() {
+            label.push_str(" · ");
+            label.push_str(tr("Previous turn"));
+        }
+        if self.limited || self.changes.values().any(|change| change.truncated) {
+            label.push_str(" · ");
+            label.push_str(tr("Some tool changes or diff lines were omitted"));
+        }
+        label
     }
 
     pub(crate) fn changes(&self) -> impl Iterator<Item = &Change> {
@@ -76,48 +106,92 @@ impl LastTurn {
         self.generation
     }
 
+    pub(crate) fn refresh(&self) {
+        let _ = self.refresh.0.try_send(());
+    }
+
     pub(crate) fn end(&mut self, ctx: &mut ModelContext<Self>) {
+        if self.state != CaptureState::Following {
+            return;
+        }
+        self.state = CaptureState::Draining;
         if let Some(task) = self.poll.take() {
             task.abort();
         }
         self.log_events = None;
-        self.cursor = None;
-        self.closed = true;
-        self.message = tr("Session ended").into();
-        ctx.emit(());
+        self.schedule_poll(ctx);
     }
 
-    fn schedule_poll(&mut self, ctx: &mut ModelContext<Self>) {
-        if self.poll.is_some() || self.closed {
+    fn sync_source(&mut self, source: Option<Source>, ctx: &mut ModelContext<Self>) {
+        if self.state != CaptureState::Following {
             return;
         }
-        let Some(source) = ProjectSessions::as_ref(ctx)
-            .turn_source(self.terminal)
-            .filter(|source| source.block == self.block)
-        else {
+        let Some(source) = source.filter(|source| source.block == self.block) else {
             self.end(ctx);
             return;
         };
+        if source.identity == self.source.identity && source.ambiguous == self.source.ambiguous {
+            return;
+        }
+        if let Some(task) = self.poll.take() {
+            task.abort();
+        }
+        self.path = None;
+        self.cursor = None;
+        self.log_events = None;
+        self.clear_changes();
+        self.message = waiting_label(&source).into();
+        self.source = source;
+        ctx.emit(());
+        self.refresh();
+        self.schedule_poll(ctx);
+    }
+
+    fn schedule_poll(&mut self, ctx: &mut ModelContext<Self>) {
+        if self.poll.is_some()
+            || self.state == CaptureState::Ended
+            || (self.state == CaptureState::Following && self.source.identity.is_none())
+        {
+            return;
+        }
+        let source = self.source.clone();
         let path = self.path.clone();
         let cursor = self.cursor.clone();
-        let since = self.since;
+        let state = self.state;
+        let draining = state == CaptureState::Draining;
+        let refresh = self.refresh.1.clone();
+        let generation = self.generation;
         let mut log_events = self.log_events.take();
         // A full read may leave more records without a new file notification.
-        let interval =
-            if log_events.is_some() && !cursor.as_ref().is_some_and(|cursor| cursor.full_batch) {
-                Duration::from_secs(2)
-            } else {
-                Duration::from_millis(500)
-            };
+        let interval = if draining || cursor.as_ref().is_some_and(|cursor| cursor.full_batch) {
+            Duration::ZERO
+        } else if log_events.is_some()
+            || source
+                .identity
+                .as_ref()
+                .is_some_and(|id| path.is_none() && id.transcript.is_none())
+        {
+            Duration::from_secs(2)
+        } else {
+            Duration::from_millis(500)
+        };
         self.poll = Some(ctx.spawn(
             async move {
-                let timer = Timer::after(interval);
-                if let Some(events) = log_events.as_mut() {
-                    if matches!(select(events.next(), timer).await, Either::Left((None, _))) {
-                        log_events = None;
-                    }
-                } else {
-                    timer.await;
+                if !interval.is_zero() {
+                    let wait = async {
+                        let timer = Timer::after(interval);
+                        if let Some(events) = log_events.as_mut() {
+                            if matches!(select(events.next(), timer).await, Either::Left((None, _)))
+                            {
+                                log_events = None;
+                            }
+                        } else {
+                            timer.await;
+                        }
+                    };
+                    let refresh = refresh.recv();
+                    futures::pin_mut!(refresh, wait);
+                    let _ = select(refresh, wait).await;
                 }
                 let result = blocking::unblock(move || -> anyhow::Result<_> {
                     let path = match match path {
@@ -127,27 +201,25 @@ impl LastTurn {
                         Some(path) => path,
                         None => return Ok(None),
                     };
-                    let cursor = match cursor {
-                        Some(cursor) => cursor,
-                        None => Cursor::tail(&path)?,
-                    };
-                    let (cursor, observations) =
-                        turns::read(&path, source.provider(), cursor, since)?;
+                    let (cursor, observations) = turns::read(&path, source.provider(), cursor)?;
                     Ok(Some((path, cursor, observations, source)))
                 })
                 .await;
                 (log_events, result)
             },
-            |me, (log_events, result), ctx| {
-                if me.closed {
+            move |me, (log_events, result), ctx| {
+                if me.state != state || me.generation != generation {
                     return;
                 }
                 me.poll = None;
                 me.log_events = log_events;
+                let previous_message = me.message.clone();
+                let unread = !matches!(&result, Ok(Some(_)));
+                let mut changed = false;
                 match result {
                     Ok(Some((path, cursor, observations, source))) => {
                         #[cfg(windows)]
-                        if me.path.is_none() {
+                        if me.path.is_none() && !draining {
                             me.log_events = Some(crate::file_watcher::file_events(
                                 &path,
                                 &ctx.background_executor(),
@@ -158,14 +230,25 @@ impl LastTurn {
                         me.message = tr("Captured tool changes · partial coverage").into();
                         if !observations.is_empty() {
                             me.apply_observations(observations, &source);
-                            ctx.emit(());
+                            changed = true;
                         }
                     }
                     Ok(None) => (),
                     Err(error) => {
+                        if let Some(cursor) = &mut me.cursor {
+                            cursor.full_batch = false;
+                        }
                         me.message = format!("{}: {error:#}", tr("Unable to read tool changes"));
-                        ctx.emit(());
                     }
+                }
+                if draining {
+                    me.state = CaptureState::Ended;
+                    me.limited |=
+                        unread || me.cursor.take().is_some_and(|cursor| cursor.full_batch);
+                    me.message = tr("Session ended").into();
+                }
+                if changed || me.message != previous_message {
+                    ctx.emit(());
                 }
                 me.schedule_poll(ctx);
             },
@@ -179,9 +262,17 @@ impl LastTurn {
         for observation in observations {
             let mut change = match observation {
                 Observation::Request => {
-                    self.changes.clear();
-                    self.generation = self.generation.wrapping_add(1);
+                    self.request_pending = true;
+                    self.limited = false;
+                    continue;
+                }
+                Observation::Reset => {
+                    self.clear_changes();
                     bytes = 0;
+                    continue;
+                }
+                Observation::Incomplete => {
+                    self.limited = true;
                     continue;
                 }
                 Observation::Change(change) => change,
@@ -192,22 +283,53 @@ impl LastTurn {
             else {
                 continue;
             };
+            if std::mem::take(&mut self.request_pending) {
+                self.changes.clear();
+                self.generation = self.generation.wrapping_add(1);
+                bytes = 0;
+            }
             if let Some(previous) = self.changes.get_mut(&path) {
                 let appended = SEPARATOR.len() + change.diff.len();
-                if previous.diff.len() + appended <= 64 * 1024 && bytes + appended <= MAX_TURN_BYTES
+                if !previous.truncated
+                    && previous.diff.len() + appended <= 64 * 1024
+                    && bytes + appended <= MAX_TURN_BYTES
                 {
                     previous.diff.push_str(SEPARATOR);
                     previous.diff.push_str(&change.diff);
-                    previous.additions += change.additions;
-                    previous.deletions += change.deletions;
                     bytes += appended;
+                } else {
+                    previous.truncated = true;
                 }
-            } else if self.changes.len() < 128 && bytes + change.diff.len() <= MAX_TURN_BYTES {
+                previous.additions += change.additions;
+                previous.deletions += change.deletions;
+                previous.truncated |= change.truncated;
+            } else if self.changes.len() < 128 {
+                if bytes + change.diff.len() > MAX_TURN_BYTES {
+                    change.diff.clear();
+                    change.truncated = true;
+                }
                 change.path = path.clone();
                 bytes += change.diff.len();
                 self.changes.insert(path, change);
+            } else {
+                self.limited = true;
             }
         }
+    }
+
+    fn clear_changes(&mut self) {
+        self.changes.clear();
+        self.generation = self.generation.wrapping_add(1);
+        self.request_pending = false;
+        self.limited = false;
+    }
+}
+
+fn waiting_label(source: &Source) -> &'static str {
+    if source.ambiguous {
+        tr("CLI session log is ambiguous")
+    } else {
+        tr("Waiting for CLI session log…")
     }
 }
 

@@ -1332,6 +1332,18 @@ impl Workspace {
 
         terminal::platform::init().expect("Terminal platform initialized");
 
+        #[cfg(feature = "local_fs")]
+        if ctx.has_singleton_model::<crate::project_sessions::ProjectSessions>() {
+            ctx.observe(
+                &crate::project_sessions::ProjectSessions::handle(ctx),
+                |me, _, ctx| {
+                    if me.git_review_view.is_some() {
+                        ctx.dispatch_typed_action_deferred(WorkspaceAction::SyncGitReviewTools);
+                    }
+                },
+            );
+        }
+
         let (tab_right_click_menu, new_session_dropdown_menu, move_to_group_sidecar_menu) =
             Self::build_menus(ctx);
 
@@ -7204,6 +7216,12 @@ impl Workspace {
                 self.update_pane_dimming_for_current_focus_region(ctx);
             }
             pane_group::Event::RepoChanged => {
+                #[cfg(feature = "local_fs")]
+                if self.git_review_view.is_some()
+                    && self.active_tab_pane_group().id() == pane_group.id()
+                {
+                    ctx.dispatch_typed_action_deferred(WorkspaceAction::SyncGitReviewTools);
+                }
                 if FeatureFlag::DirectoryTabColors.is_enabled()
                     && let Some(tab) = self
                         .tabs
@@ -7838,6 +7856,10 @@ impl Workspace {
 
     /// Update the active session model state.
     fn update_active_session(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        if self.git_review_view.is_some() {
+            ctx.dispatch_typed_action_deferred(WorkspaceAction::SyncGitReviewTools);
+        }
         let pane_group_handle = self.active_tab_pane_group();
 
         // Update working directories for the current pane group
@@ -7863,6 +7885,27 @@ impl Workspace {
                 Some(terminal_handle.id()),
                 ctx,
             );
+        });
+    }
+
+    #[cfg(feature = "local_fs")]
+    fn sync_git_review_tools(&mut self, ctx: &mut ViewContext<Self>) {
+        let Some(review) = self.git_review_view.clone() else {
+            return;
+        };
+        let terminal = self.active_session_view(ctx).filter(|terminal| {
+            let Some(crate::code::buffer_location::LocalOrRemotePath::Local(root)) =
+                terminal.as_ref(ctx).current_repo_path()
+            else {
+                return false;
+            };
+            review.as_ref(ctx).matches_root(root)
+        });
+        let model = terminal.as_ref().and_then(|terminal| {
+            terminal.update(ctx, |terminal, ctx| terminal.last_turn_review(ctx))
+        });
+        review.update(ctx, |review, ctx| {
+            review.sync_last_turn(terminal.as_ref().map(ViewHandle::id), model, ctx)
         });
     }
 
@@ -11559,6 +11602,10 @@ impl TypedActionView for Workspace {
                     ctx.notify();
                 }
             }
+            SyncGitReviewTools => {
+                #[cfg(feature = "local_fs")]
+                self.sync_git_review_tools(ctx);
+            }
             OpenGitReview(repo) => {
                 #[cfg(feature = "local_fs")]
                 {
@@ -11576,22 +11623,13 @@ impl TypedActionView for Workspace {
                             .update(ctx, |model, ctx| model.subscribe(&location, ctx));
                         match status {
                             Ok(status) => {
-                                let last_turn =
-                                    self.active_session_view(ctx).and_then(|terminal| {
-                                        terminal.update(ctx, |terminal, ctx| {
-                                            terminal.last_turn_review(ctx)
-                                        })
-                                    });
                                 let snapshot = self.git_review_snapshot.take();
                                 self.git_review_view = Some(ctx.add_typed_action_view(|ctx| {
-                                    let mut review = crate::code_review::review::GitReviewView::new(
+                                    crate::code_review::review::GitReviewView::new(
                                         root, status, snapshot, ctx,
-                                    );
-                                    if let Some(model) = last_turn {
-                                        review.attach_last_turn(model, ctx);
-                                    }
-                                    review
+                                    )
                                 }));
+                                self.sync_git_review_tools(ctx);
                                 self.current_workspace_state.is_keybindings_open = false;
                                 ctx.notify();
                             }

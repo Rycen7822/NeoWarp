@@ -183,8 +183,13 @@ fn explicit_identity(provider: Provider, argv: &[String]) -> Option<Identity> {
     }
     Some(Identity {
         id: value.to_owned(),
-        transcript: (provider == Provider::Pi).then(|| value.to_owned()),
+        transcript: (provider == Provider::Pi && pi_session_is_path(value))
+            .then(|| value.to_owned()),
     })
+}
+
+pub(super) fn pi_session_is_path(value: &str) -> bool {
+    value.contains(['/', '\\']) || value.ends_with(".jsonl")
 }
 
 fn option<'a>(argv: &'a [String], name: &str) -> Option<&'a str> {

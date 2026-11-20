@@ -149,6 +149,11 @@ impl DiffSelector {
         ctx.notify();
     }
 
+    pub(super) fn set_last_turn_available(&mut self, available: bool, ctx: &mut ViewContext<Self>) {
+        self.last_turn_available = available;
+        ctx.notify();
+    }
+
     fn update_menu(&mut self, ctx: &mut ViewContext<Self>) {
         let query = self.search.as_ref(ctx).buffer_text(ctx).to_lowercase();
         let mut items: Vec<_> = self

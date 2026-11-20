@@ -62,7 +62,7 @@ impl Field {
             Self::Environment => "Venv path or Conda prefix/name",
             Self::Conda => "Conda executable (optional)",
             Self::Command => "Startup command",
-            Self::Identity => "Session ID (Pi: session file)",
+            Self::Identity => "Session ID (Pi: ID or session file)",
             Self::Resume => "Explicit resume command (optional)",
         })
     }
@@ -308,9 +308,11 @@ impl SessionEditor {
             },
             _ => bail!("Choose none, uv or conda and supply its environment path/name"),
         };
-        let id = self.text(Field::Identity, app);
+        let id = self.text(Field::Identity, app).trim().to_owned();
         session.identity = (!id.trim().is_empty()).then(|| Identity {
-            transcript: (session.provider == Provider::Pi).then(|| id.clone()),
+            transcript: (session.provider == Provider::Pi
+                && super::command::pi_session_is_path(&id))
+            .then(|| id.clone()),
             id,
         });
         session.resume_command =

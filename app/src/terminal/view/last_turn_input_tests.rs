@@ -133,11 +133,30 @@ fn native_tool_diffs_never_hold_terminal_input_or_scan_workspace() {
         assert_eq!(change.path, "ignored.txt");
         assert_eq!(change.diff, "-1 before\n+1 after");
         assert_eq!((change.additions, change.deletions), (1, 1));
+
+        append(
+            serde_json::json!({"role":"user", "content":[{"type":"text","text":"next request"}]}),
+        );
+        assert_eventually!(3000 => model.read(&app, |model, _| {
+            model.changes().count() == 2 && model.label().contains(crate::localization::tr("Previous turn"))
+        }), "starting a request erased the previous edits");
+        append(
+            serde_json::json!({"role":"toolResult", "nestedCalls":{"calls":[
+                {"id":"last", "name":"edit", "status":"ok", "arguments":{
+                    "path":"last.txt", "oldText":"old", "newText":"new"
+                }}
+            ]}}),
+        );
         terminal.update(&mut app, |view, ctx| {
             view.handle_action(&TerminalAction::SubmitKeyDown("\r".into()), ctx);
             view.shutdown_pty(ctx);
         });
         assert_eq!(writes.borrow().last().unwrap(), b"\r");
         assert!(terminal.read(&app, |view, _| view.last_turn.is_none()));
+        assert_eventually!(3000 => model.read(&app, |model, _| {
+            model.changes().count() == 1
+                && model.change("last.txt").is_some()
+                && model.label() == crate::localization::tr("Session ended")
+        }), "the final tool result was lost when the CLI exited");
     });
 }

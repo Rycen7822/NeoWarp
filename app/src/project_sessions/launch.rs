@@ -212,10 +212,7 @@ fn resume_command(session: &Session) -> Result<String> {
         }
         Provider::Pi => resumed.extend([
             "--session".into(),
-            identity
-                .transcript
-                .clone()
-                .context("Pi requires its session file")?,
+            identity.transcript.as_ref().unwrap_or(&identity.id).clone(),
         ]),
         Provider::Custom => bail!("Set an explicit resume command for this CLI"),
     }

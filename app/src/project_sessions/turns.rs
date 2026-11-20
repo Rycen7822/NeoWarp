@@ -2,8 +2,9 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
 use serde_json::Value;
 use warp_terminal::model::BlockId;
 
@@ -15,7 +16,8 @@ use super::tool_changes::{Change, Tools};
 pub(crate) struct Source {
     pub(crate) block: BlockId,
     pub(super) query: Query,
-    pub(super) identity: Option<Identity>,
+    pub(crate) identity: Option<Identity>,
+    pub(crate) ambiguous: bool,
 }
 
 impl Source {
@@ -53,18 +55,29 @@ impl Source {
             return Ok(None);
         };
         if let Some(path) = &identity.transcript {
-            return Ok(self.query.host.native_path(path));
+            return Ok(self.native_path(path));
         }
         // Old launch records can have an identity without its transcript path.
         // Reuse the bounded identity reader once, matching the exact session ID.
         let mut query = self.query.clone();
         query.resuming = true;
         query.started_at = 0;
-        Ok(provider::candidates(&query)?
-            .into_iter()
+        let candidates = provider::candidates(&query)?;
+        if let Some(exact) = candidates
+            .iter()
             .find(|candidate| candidate.same_session(identity, query.provider, &query.host))
-            .and_then(|candidate| candidate.transcript)
-            .and_then(|path| query.host.native_path(&path)))
+        {
+            return Ok(exact
+                .transcript
+                .as_deref()
+                .and_then(|path| self.native_path(path)));
+        }
+        let mut matches = candidates.into_iter().filter(|candidate| {
+            query.provider == Provider::Pi && candidate.id.starts_with(&identity.id)
+        });
+        let first = matches.next().and_then(|candidate| candidate.transcript);
+        anyhow::ensure!(matches.next().is_none(), "Ambiguous Pi session ID");
+        Ok(first.as_deref().and_then(|path| self.native_path(path)))
     }
 }
 
@@ -73,48 +86,72 @@ pub(crate) struct Cursor {
     pub(crate) full_batch: bool,
     offset: u64,
     skip_partial: bool,
+    checkpoint: Vec<u8>,
+    modified: Option<SystemTime>,
     tools: Tools,
 }
 
+const MAX_READ: u64 = 4 * 1024 * 1024;
+const CHECKPOINT_BYTES: usize = 256;
+
 impl Cursor {
-    pub(crate) fn tail(path: &Path) -> Result<Self> {
-        let offset = File::open(path)?
-            .metadata()?
-            .len()
-            .saturating_sub(4 * 1024 * 1024);
+    fn tail(file: &mut File, length: u64) -> Result<Self> {
+        let offset = length.saturating_sub(MAX_READ);
+        let mut previous = [b'\n'];
+        if offset > 0 {
+            file.seek(SeekFrom::Start(offset - 1))?;
+            file.read_exact(&mut previous)?;
+        }
         Ok(Self {
-            full_batch: false,
             offset,
-            skip_partial: offset > 0,
-            tools: Tools::default(),
+            skip_partial: previous[0] != b'\n',
+            ..Self::default()
         })
     }
 }
 
 pub(crate) enum Observation {
     Request,
+    Reset,
+    Incomplete,
     Change(Change),
 }
 
 pub(crate) fn read(
     path: &Path,
     provider: Provider,
-    mut cursor: Cursor,
-    since: u64,
+    cursor: Option<Cursor>,
 ) -> Result<(Cursor, Vec<Observation>)> {
-    const MAX_READ: u64 = 4 * 1024 * 1024;
     let mut file = File::open(path)?;
-    let length = file.metadata()?.len();
-    ensure!(length >= cursor.offset, "Transcript was rewritten");
-    if length == cursor.offset {
+    let metadata = file.metadata()?;
+    let length = metadata.len();
+    let modified = metadata.modified().ok();
+    let mut observations = Vec::new();
+    let mut cursor = match cursor {
+        Some(cursor) => cursor,
+        None => Cursor::tail(&mut file, length)?,
+    };
+    if length == cursor.offset && modified.is_some() && modified == cursor.modified {
         cursor.full_batch = false;
-        return Ok((cursor, Vec::new()));
+        return Ok((cursor, observations));
     }
+    let mut previous = [0; CHECKPOINT_BYTES];
+    let check = &mut previous[..cursor.checkpoint.len()];
+    if length >= cursor.offset && !check.is_empty() {
+        file.seek(SeekFrom::Start(cursor.offset - check.len() as u64))?;
+        file.read_exact(check)?;
+    }
+    let same_size_rewrite =
+        length == cursor.offset && modified != cursor.modified && !check.is_empty();
+    if length < cursor.offset || same_size_rewrite || &*check != cursor.checkpoint.as_slice() {
+        cursor = Cursor::tail(&mut file, length)?;
+        observations.push(Observation::Reset);
+    }
+    cursor.modified = modified;
     file.seek(SeekFrom::Start(cursor.offset))?;
     let mut bytes = Vec::new();
     file.take(MAX_READ).read_to_end(&mut bytes)?;
     cursor.full_batch = bytes.len() == MAX_READ as usize;
-    let mut requests = Vec::new();
     let mut consumed = 0;
     for (index, byte) in bytes.iter().enumerate() {
         if *byte != b'\n' {
@@ -125,36 +162,39 @@ pub(crate) fn read(
         if std::mem::take(&mut cursor.skip_partial) || line.is_empty() {
             continue;
         }
-        let record: Value = serde_json::from_slice(line).context("Invalid transcript record")?;
-        let timestamp = record["message"]["timestamp"].as_u64().or_else(|| {
-            record["timestamp"]
-                .as_str()
-                .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
-                .map(|time| time.timestamp_millis().max(0) as u64)
-        });
-        if timestamp.is_none_or(|timestamp| timestamp < since) {
+        let Ok(record) = serde_json::from_slice::<Value>(line) else {
+            if !matches!(observations.last(), Some(Observation::Incomplete)) {
+                observations.push(Observation::Incomplete);
+            }
             continue;
-        }
+        };
         if user_request(&record, provider) {
-            cursor.tools = Tools::default();
-            requests.push(Observation::Request);
+            cursor.tools.new_request();
+            observations.push(Observation::Request);
         } else {
-            requests.extend(
+            observations.extend(
                 cursor
                     .tools
                     .observe(&record, provider)
                     .into_iter()
                     .map(Observation::Change),
             );
+            if std::mem::take(&mut cursor.tools.limited) {
+                observations.push(Observation::Incomplete);
+            }
         }
     }
     if consumed == 0 && cursor.full_batch {
         // Skip an oversized record incrementally; never reread it forever.
         cursor.skip_partial = true;
         consumed = bytes.len();
+        observations.push(Observation::Incomplete);
+    }
+    if consumed > 0 {
+        cursor.checkpoint = bytes[consumed.saturating_sub(CHECKPOINT_BYTES)..consumed].to_vec();
     }
     cursor.offset += consumed as u64;
-    Ok((cursor, requests))
+    Ok((cursor, observations))
 }
 
 fn user_request(record: &Value, provider: Provider) -> bool {
@@ -195,3 +235,7 @@ fn user_request(record: &Value, provider: Provider) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "turns_tests.rs"]
+mod tests;

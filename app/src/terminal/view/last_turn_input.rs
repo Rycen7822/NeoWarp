@@ -15,6 +15,9 @@ impl TerminalView {
             return None;
         }
         let source = ProjectSessions::as_ref(ctx).turn_source(ctx.view_id())?;
+        if !source.supports_turns() {
+            return None;
+        }
         let Some(LocalOrRemotePath::Local(root)) = self.current_repo_path.clone() else {
             return None;
         };

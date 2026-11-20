@@ -175,6 +175,15 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
         .host
         .native_path(&root)
         .context("CLI data directory is not an absolute path")?;
+    let pi_project = native_root.join(format!(
+        "--{}--",
+        query
+            .directory
+            .trim_end_matches(['/', '\\'])
+            .strip_prefix(['/', '\\'])
+            .unwrap_or(query.directory.trim_end_matches(['/', '\\']))
+            .replace(['/', '\\', ':'], "-")
+    ));
     let scopes: Vec<PathBuf> = match query.provider {
         Provider::Codex if !query.resuming => {
             let date = Utc::now().date_naive();
@@ -198,6 +207,7 @@ pub(crate) fn candidates(query: &Query) -> Result<Vec<Identity>> {
                 .collect();
             vec![native_root.join(encoded)]
         }
+        Provider::Pi if pi_project.is_dir() => vec![pi_project],
         Provider::Codex | Provider::Pi | Provider::Hermes => vec![native_root.clone()],
         Provider::Custom => return Ok(Vec::new()),
     };
