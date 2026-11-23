@@ -61,7 +61,7 @@ use crate::tab::TAB_BAR_BORDER_HEIGHT;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
-use crate::util::path::{display_name_with_host, display_path_with_host};
+use crate::util::path::{clipboard_local_path, display_name_with_host, display_path_with_host};
 use crate::view_components::DismissibleToast;
 use crate::workspace::{ActiveSession, TabBarDropTargetData, ToastStack, WorkspaceRegistry};
 
@@ -472,6 +472,14 @@ impl CodeView {
 
     pub fn active_tab_index(&self) -> usize {
         self.active_tab_index
+    }
+
+    pub(crate) fn clipboard_file_path(&self) -> Option<String> {
+        let location = self.tab_at(self.active_tab_index)?.location()?;
+        Some(match location {
+            LocalOrRemotePath::Local(path) => clipboard_local_path(path),
+            LocalOrRemotePath::Remote(_) => location.display_path(),
+        })
     }
 
     pub fn source(&self) -> &CodeSource {
@@ -1829,12 +1837,7 @@ impl CodeView {
 
         #[cfg(feature = "local_fs")]
         {
-            let active_location = self
-                .tab_at(self.active_tab_index)
-                .and_then(|t| t.location.as_ref());
-            let local_path = self.local_path(ctx);
-
-            if active_location.is_some() {
+            if self.preview_tab().is_some() {
                 items.push(MenuItem::Separator);
                 items.push(
                     MenuItemFields::new("Copy file path")
@@ -1843,7 +1846,7 @@ impl CodeView {
                 );
             }
 
-            if local_path.is_some() {
+            if self.local_path(ctx).is_some() {
                 let reveal_label = if cfg!(target_os = "macos") {
                     "Reveal in Finder"
                 } else if cfg!(target_os = "windows") {
@@ -1969,11 +1972,7 @@ impl TypedActionView for CodeView {
 
             #[cfg(feature = "local_fs")]
             CodeViewAction::CopyFilePath => {
-                if let Some(location) = self
-                    .tab_at(self.active_tab_index)
-                    .and_then(|t| t.location.as_ref())
-                {
-                    let path = crate::util::path::clipboard_file_path(location);
+                if let Some(path) = self.clipboard_file_path() {
                     ctx.clipboard().write(ClipboardContent::plain_text(path));
                 }
             }

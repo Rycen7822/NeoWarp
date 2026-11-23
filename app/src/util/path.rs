@@ -25,14 +25,6 @@ pub(crate) fn clipboard_local_path(path: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Formats a path usable in the shell on the file's own host.
-pub(crate) fn clipboard_file_path(location: &LocalOrRemotePath) -> String {
-    match location {
-        LocalOrRemotePath::Local(path) => clipboard_local_path(path),
-        LocalOrRemotePath::Remote(_) => location.display_path(),
-    }
-}
-
 /// Maps a WSL command address back to the native file access path (notably `/mnt/<drive>`).
 pub fn local_path_for_io(path: &std::path::Path) -> std::borrow::Cow<'_, std::path::Path> {
     #[cfg(windows)]

@@ -7060,19 +7060,14 @@ impl TerminalView {
             ) => {
                 let mut items = match highlighted_link {
                     GridHighlightedLink::Url(url) => {
-                        let url_content =
-                            Some(model.link_at_range(url, RespectObfuscatedSecrets::Yes));
-                        url_content
-                            .map(|url_content| {
-                                vec![
-                                    MenuItemFields::new(tr("Copy URL"))
-                                        .with_on_select_action(TerminalAction::ContextMenu(
-                                            ContextMenuAction::CopyUrl { url_content },
-                                        ))
-                                        .into_item(),
-                                ]
-                            })
-                            .unwrap_or_default()
+                        let url_content = model.link_at_range(url, RespectObfuscatedSecrets::Yes);
+                        vec![
+                            MenuItemFields::new(tr("Copy URL"))
+                                .with_on_select_action(TerminalAction::ContextMenu(
+                                    ContextMenuAction::CopyUrl { url_content },
+                                ))
+                                .into_item(),
+                        ]
                     }
                     #[cfg(feature = "local_fs")]
                     GridHighlightedLink::File(file_link) => {
@@ -9279,12 +9274,6 @@ impl TerminalView {
 
     fn context_menu_copy_filtered_block_outputs(&mut self, ctx: &mut ViewContext<Self>) {
         self.copy_blocks(BlockEntity::FilteredOutput, ctx);
-    }
-
-    fn context_menu_copy_url(&mut self, url_content: &str, ctx: &mut ViewContext<Self>) {
-        let text = clipboard_local_path(Path::new(url_content));
-        ctx.clipboard().write(ClipboardContent::plain_text(text));
-        self.close_context_menu(ctx, true);
     }
 
     fn num_non_hidden_selected_blocks(&self) -> usize {
@@ -11508,7 +11497,11 @@ impl TerminalView {
         match action {
             InsertSelectedText => self.context_menu_insert_selected_text(ctx),
             CopySelectedText => self.context_menu_copy_selected_text(ctx),
-            CopyUrl { url_content } => self.context_menu_copy_url(url_content, ctx),
+            CopyUrl { url_content } => {
+                let text = clipboard_local_path(Path::new(url_content));
+                ctx.clipboard().write(ClipboardContent::plain_text(text));
+                self.close_context_menu(ctx, true);
+            }
             CopyBlocks => self.context_menu_copy_blocks(ctx),
             CopyBlockCommands => self.context_menu_copy_block_commands(ctx),
             CopyBlockOutputs => self.context_menu_copy_block_outputs(ctx),

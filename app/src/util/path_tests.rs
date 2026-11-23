@@ -6,18 +6,18 @@ use warp_terminal::shell::{ShellLaunchData, ShellType};
 
 use super::*;
 
-#[cfg(all(windows, feature = "local_fs"))]
+#[cfg(windows)]
 #[test]
-fn clipboard_file_path_uses_the_linux_absolute_path_for_wsl() {
-    let path = LocalOrRemotePath::Local(PathBuf::from(
+fn clipboard_local_path_uses_the_linux_absolute_path_for_wsl() {
+    let path = std::path::Path::new(
         r"\\WSL$\Ubuntu-24.04-F\home\xu\project\harness\metis-pi\\.work\performance\pi-quiet-resident\IMPLEMENTATION-PLAN.md",
-    ));
+    );
     assert_eq!(
-        clipboard_file_path(&path),
+        clipboard_local_path(path),
         "/home/xu/project/harness/metis-pi/.work/performance/pi-quiet-resident/IMPLEMENTATION-PLAN.md",
     );
-    let native = LocalOrRemotePath::Local(PathBuf::from(r"D:\repo\file.md"));
-    assert_eq!(clipboard_file_path(&native), r"D:\repo\file.md");
+    let native = std::path::Path::new(r"D:\repo\file.md");
+    assert_eq!(clipboard_local_path(native), r"D:\repo\file.md");
 }
 
 #[cfg(unix)]

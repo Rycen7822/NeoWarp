@@ -1713,12 +1713,20 @@ fn copying_terminal_links_formats_wsl_paths_and_preserves_file_uris() {
         let terminal = add_window_with_terminal(&mut app, None);
 
         terminal.update(&mut app, |view, ctx| {
-            view.context_menu_copy_url(r"\\?\UNC\WSL$\Ubuntu\home\user\repo\src\main.rs", ctx);
-            assert_eq!(read_from_clipboard(ctx), "/home/user/repo/src/main.rs");
-
             let uri = "file://wsl.localhost/Ubuntu/home/user/repo/src/main.rs";
-            view.context_menu_copy_url(uri, ctx);
-            assert_eq!(read_from_clipboard(ctx), uri);
+            for (target, expected) in [
+                (
+                    r"\\?\UNC\WSL$\Ubuntu\home\user\repo\src\main.rs",
+                    "/home/user/repo/src/main.rs",
+                ),
+                (uri, uri),
+            ] {
+                let action = TerminalAction::ContextMenu(ContextMenuAction::CopyUrl {
+                    url_content: target.into(),
+                });
+                view.handle_action(&action, ctx);
+                assert_eq!(read_from_clipboard(ctx), expected);
+            }
         });
     })
 }

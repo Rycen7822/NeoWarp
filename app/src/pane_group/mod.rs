@@ -1405,21 +1405,13 @@ impl PaneGroup {
                 .unwrap_or(false)
     }
 
-    /// Returns the path to copy for the currently focused pane: the open file's display path
-    /// if the focused pane is the code editor
-    /// (`CodePane`), otherwise the focused terminal session's working directory (raw pwd,
-    /// falling back to the user-friendly display form). `None` if the focused pane is none of
-    /// those, or yields no path.
+    /// Returns the clipboard path of the focused editor or terminal, if available.
     pub fn path_from_focused_pane(&self, ctx: &AppContext) -> Option<String> {
         let focused_pane_id = self.focused_pane_id(ctx);
 
         if let Some(code_pane) = self.downcast_pane_by_id::<CodePane>(focused_pane_id) {
             let code_view = code_pane.file_view(ctx);
-            let code_view = code_view.as_ref(ctx);
-            return code_view
-                .tab_at(code_view.active_tab_index())
-                .and_then(|tab| tab.location())
-                .map(crate::util::path::clipboard_file_path);
+            return code_view.as_ref(ctx).clipboard_file_path();
         }
 
         let terminal_view = self.focused_session_view(ctx)?;
