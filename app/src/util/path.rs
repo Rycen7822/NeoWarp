@@ -16,14 +16,21 @@ pub fn display_local_path(path: &std::path::Path) -> String {
     }
 }
 
-/// Copies a path usable in the shell on the file's own host.
-#[cfg(feature = "local_fs")]
-pub(crate) fn clipboard_file_path(location: &LocalOrRemotePath) -> String {
+/// Formats a local path for copying, using Linux paths for WSL shares.
+pub(crate) fn clipboard_local_path(path: &std::path::Path) -> String {
     #[cfg(windows)]
-    if let Some(wsl) = location.to_local_path().and_then(parse_wsl_unc_path) {
+    if let Some(wsl) = parse_wsl_unc_path(path) {
         return wsl.linux_path;
     }
-    location.display_path()
+    path.to_string_lossy().into_owned()
+}
+
+/// Formats a path usable in the shell on the file's own host.
+pub(crate) fn clipboard_file_path(location: &LocalOrRemotePath) -> String {
+    match location {
+        LocalOrRemotePath::Local(path) => clipboard_local_path(path),
+        LocalOrRemotePath::Remote(_) => location.display_path(),
+    }
 }
 
 /// Maps a WSL command address back to the native file access path (notably `/mnt/<drive>`).

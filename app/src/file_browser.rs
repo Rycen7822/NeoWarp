@@ -10,7 +10,6 @@ use futures_lite::StreamExt;
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
 use pathfinder_geometry::vector::Vector2F;
 use warp_core::ui::theme::color::internal_colors;
-use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::elements::new_scrollable::{NewScrollableElement, SingleAxisConfig};
 use warpui::elements::{
@@ -34,7 +33,7 @@ use crate::localization::tr;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::ui_components::icons::Icon;
 use crate::util::file::external_editor::{self, Editor, SUPPORTED_EDITORS};
-use crate::util::path::clipboard_file_path;
+use crate::util::path::clipboard_local_path;
 use crate::workspace::ActiveSession;
 
 struct Entry {
@@ -689,7 +688,7 @@ impl TypedActionView for FileBrowserView {
                 return;
             }
             FileBrowserAction::CopyPath(path) => {
-                let path = clipboard_file_path(&LocalOrRemotePath::Local(path.clone()));
+                let path = clipboard_local_path(path);
                 ctx.clipboard()
                     .write(warpui::clipboard::ClipboardContent::plain_text(path));
                 return;

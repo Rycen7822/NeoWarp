@@ -530,11 +530,7 @@ impl TabData {
             Self::push_copy_metadata_menu_item(
                 &mut menu_items,
                 "Copy working directory",
-                Self::copyable_metadata_value(
-                    terminal_view
-                        .pwd()
-                        .or_else(|| terminal_view.display_working_directory(ctx)),
-                ),
+                Self::copyable_metadata_value(terminal_view.clipboard_working_directory(ctx)),
             );
             Self::push_copy_metadata_menu_item(
                 &mut menu_items,

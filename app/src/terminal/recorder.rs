@@ -8,6 +8,7 @@ use warpui::r#async::SpawnedFutureHandle;
 use warpui::{Entity, ModelContext, SingletonEntity, WindowId};
 
 use crate::settings::{DebugSettings, DebugSettingsChangedEvent};
+use crate::util::path::clipboard_local_path;
 use crate::view_components::{DismissibleToast, ToastLink};
 use crate::workspace::{ToastStack, WorkspaceAction};
 
@@ -165,7 +166,7 @@ impl PtyRecorder {
         ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
             let mut toast = DismissibleToast::default(message);
             if let Some(path) = recording_path {
-                let path_str = path.to_string_lossy().into_owned();
+                let path_str = clipboard_local_path(&path);
                 toast = toast
                     .with_link(
                         ToastLink::new("Open".to_string())

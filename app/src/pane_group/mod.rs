@@ -1419,14 +1419,11 @@ impl PaneGroup {
             return code_view
                 .tab_at(code_view.active_tab_index())
                 .and_then(|tab| tab.location())
-                .map(|path| path.display_path());
+                .map(crate::util::path::clipboard_file_path);
         }
 
         let terminal_view = self.focused_session_view(ctx)?;
-        let terminal_view = terminal_view.as_ref(ctx);
-        terminal_view
-            .pwd()
-            .or_else(|| terminal_view.display_working_directory(ctx))
+        terminal_view.as_ref(ctx).clipboard_working_directory(ctx)
     }
 
     /// Iterate over the terminal sessions in this pane group.

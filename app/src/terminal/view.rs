@@ -291,6 +291,7 @@ use crate::util::color::darken;
 use crate::util::file::external_editor::{EditorSettings, settings::EditorLayout};
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::{FileTarget, is_binary_file};
+use crate::util::path::clipboard_local_path;
 use crate::util::repo_detection::{RepoDetectionSessionType, detect_possible_git_repo};
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use crate::view_components::{DismissibleToast, ToastFlavor};
@@ -7111,9 +7112,6 @@ impl TerminalView {
                         .unwrap_or_default()
                     }
                     GridHighlightedLink::Hyperlink { uri, .. } => {
-                        // OSC 8 hyperlink right-click. "Copy link" copies the
-                        // URI verbatim; "Open link" dispatches through
-                        // `OpenGridLink`.
                         vec![
                             MenuItemFields::new(tr("Open link"))
                                 .with_on_select_action(TerminalAction::OpenGridLink {
@@ -8704,6 +8702,14 @@ impl TerminalView {
                     .unwrap_or_default(),
             },
         };
+        let to_copy = if matches!(
+            part,
+            PromptPart::Pwd | PromptPart::ContextChip(ContextChipKind::WorkingDirectory)
+        ) {
+            clipboard_local_path(Path::new(&to_copy))
+        } else {
+            to_copy
+        };
         ctx.clipboard().write(ClipboardContent::plain_text(to_copy));
 
         self.close_context_menu(ctx, true);
@@ -9276,8 +9282,8 @@ impl TerminalView {
     }
 
     fn context_menu_copy_url(&mut self, url_content: &str, ctx: &mut ViewContext<Self>) {
-        ctx.clipboard()
-            .write(ClipboardContent::plain_text(url_content.to_string()));
+        let text = clipboard_local_path(Path::new(url_content));
+        ctx.clipboard().write(ClipboardContent::plain_text(text));
         self.close_context_menu(ctx, true);
     }
 

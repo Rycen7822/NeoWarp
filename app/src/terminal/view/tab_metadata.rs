@@ -1,8 +1,11 @@
+use std::path::Path;
+
 use warpui::AppContext;
 
 use crate::context_chips::display_chip::GitLineChanges;
 use crate::context_chips::{ContextChipKind, git_line_changes_from_chips};
 use crate::terminal::TerminalView;
+use crate::util::path::clipboard_local_path;
 
 impl TerminalView {
     fn prompt_chip_value(&self, chip_kind: &ContextChipKind, ctx: &AppContext) -> Option<String> {
@@ -22,6 +25,12 @@ impl TerminalView {
             .and_then(|session_id| self.sessions.as_ref(ctx).get(session_id))
             .and_then(|session| session.home_dir().map(str::to_owned));
         Some(warp_util::path::user_friendly_path(&raw, home_dir.as_deref()).to_string())
+    }
+
+    pub(crate) fn clipboard_working_directory(&self, ctx: &AppContext) -> Option<String> {
+        self.pwd()
+            .or_else(|| self.display_working_directory(ctx))
+            .map(|path| clipboard_local_path(Path::new(&path)))
     }
 
     pub fn terminal_title_from_shell(&self) -> String {
