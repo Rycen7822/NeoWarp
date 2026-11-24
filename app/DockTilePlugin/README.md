@@ -1,23 +1,33 @@
-Implements a dock tile plugin for Warp.
+# Dock tile plugin
 
-The plugin is used to update the dock tile icon when the app icon changes and allows for app icon changes to be persisted across app restarts. Without the plugin, the icon state reverts to the default upon the first time the app quits (although for some reason after the first quit the icon state is preserved).
+The macOS dock tile plugin updates NeoWarp's Dock icon when the app icon changes. It preserves the selected icon
+across app restarts.
 
-The plugin is implemented in Objective-C and is built using the `clang` compiler
-with the `-bundle` flag.  See the Makefile for more details.
+The Objective-C plugin uses `NSDockTilePlugIn`. It observes icon change notifications from the app and updates the
+current Dock tile. See Apple's [NSDockTilePlugIn documentation](https://developer.apple.com/documentation/appkit/nsdocktileplugin?language=objc).
 
-The plugin is installed into the app bundle at `Contents/PlugIns/WarpDockTilePlugin.docktileplugin` and is bundled using the script/mac/bundle script.  It is built as a universal binary for both arm64 and x86_64.
+## Build and bundle
 
-The plugin is a simple Objective-C program that listens for notifications from the main application when the app icon changes. When it receives a notification, it updates the dock tile icon.
+The Makefile compiles the plugin with `clang` and the `-bundle` flag. It creates a universal binary for arm64 and
+x86_64. The app's macOS build script runs `make` and sets `OUTPUT_DIR` and `MACOSX_DEPLOYMENT_TARGET` for the active
+build.
 
-See Mac documentation for more details:
-https://developer.apple.com/documentation/appkit/nsdocktileplugin?language=objc
+`script/macos/bundle` copies the built plugin to
+`NeoWarp.app/Contents/PlugIns/WarpDockTilePlugin.docktileplugin`. It also adds the plugin name and app bundle
+identifier to the bundle property lists. The `WarpDockTilePlugin` name is an internal identifier retained by the
+NeoWarp fork.
 
-Note, that during development, MacOS is not great about reloading the plugin when changes are made. 
+## Debug plugin changes
 
-The suggested workflow after rebuilding is to
-1. Remove the icon from the dock.
-2. Run `killall Dock && killall SystemUIServer`
+macOS can continue using an older loaded plugin after a rebuild. If the Dock does not pick up the new plugin, remove
+NeoWarp's icon from the Dock and restart the Dock process:
 
-Also, there is a sample plugin at [MacDockTileSample](https://github.com/CartBlanche/MacDockTileSample) that is helpful for installing and iterating on.
+```bash
+killall Dock
+```
 
-Another tip is to add file based debug logs rather than using NSLog, as it's impossible to find where NSLogs are being written to.
+Add NeoWarp to the Dock again after rebuilding and launching the new bundle.
+
+The plugin writes diagnostic logs to `/tmp/neowarp_docktile_<timestamp>.log`. Use these logs when `NSLog` output is
+not visible in Console. The [MacDockTileSample](https://github.com/CartBlanche/MacDockTileSample) project provides
+another example of a Dock tile plugin.

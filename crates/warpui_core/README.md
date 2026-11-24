@@ -1,14 +1,20 @@
 # WarpUI
 
-## Whirlwind tour
+## Overview
 
-WarpUI contains many interlocking concepts. It's difficult to explain any one part of the system without reference to other parts. Because of this, this guide tries to provide an overview by exploring the relationships between the major concepts before providing a lot of detail on any one of them.
+WarpUI connects application state, views, layout elements, and event handlers. This overview introduces those
+relationships before the more detailed module documentation.
 
-Rust's strict ownership rules are a challenge for user interfaces, where multi-directional dataflow is often critical. If every object has one and only one owner, how do we express things like event handlers?
+Rust ownership rules affect user interfaces because views and models often refer to each other. WarpUI uses a
+global `App` object, entity handles, and short-lived contexts to express those references.
 
 ## The global App object, entities, and handles
 
-WarpUI solves this problem with the `App` object, which is the sole owner of all the views and models in the application. We collectively refer to views and models as **entities**. Entities can hold references to other entities via **handles**. A handle provides access to an entity in specific, limited circumstances. Take for example a multi-tabbed terminal. The application window is occupied by a `WorkspaceView`, and we want this workspace to contain multiple `TerminalView`s. Rather than holding the `TerminalView`s directly, the `Workspace` instead holds a vector of `ViewHandle<TerminalView>`.
+`App` owns the application's views and models. Views and models are entities. An entity refers to another entity
+through a handle.
+
+For example, a workspace that contains multiple terminal views stores a vector of handles rather than owning the
+views directly:
 
 ```rust
 struct WorkspaceView {
@@ -16,39 +22,33 @@ struct WorkspaceView {
 }
 ```
 
-On its own, a `ViewHandle` can't do much. Its existence prevents the referenced view from being discarded by the global `App` object, but it doesn't provide direct access to the referenced view. A handle is basically a glorified identifier. To convert a handle into an actual reference, you need a reference to an **app context** object, which will be provided by the global `App` object at specific points in time.
+A handle retains the referenced view in `App`. To access the view, pass an app context to the handle. `App` supplies
+that context during operations such as rendering.
 
-An example of one of those times could be the `render` method on `WorkspaceView`, which will be called by the framework whenever the workspace's on-screen representation is updated. One of the parameters to `render` is an `&AppContext`, which can be passed to the `as_ref` method on a `ViewHandle` to retrieve a reference to the underlying object.
-
-Many details are elided in the code example below so we can focus on the topic at hand, but imagine we wanted to know the titles of all our terminal sessions so we could render them in tabs:
+`WorkspaceView::render` receives an `&AppContext`. Inside that method, the view can resolve each `ViewHandle` and
+read the terminal titles:
 
 ```rust
-impl View for WorkspaceView {
-    fn render<'a>(&self, ..., ctx: &AppContext) -> ... {
-        let titles = self.sessions.iter().map(|handle| handle.as_ref(ctx).title()).collect::<Vec<String>>;
-        ...
-    }
-
-    ...
-}
+let titles = self
+    .sessions
+    .iter()
+    .map(|handle| handle.as_ref(ctx).title())
+    .collect::<Vec<String>>();
 ```
 
-After we return from the `render` method and lose access to the `&AppContext` parameter provided during its call, we no longer have access to the terminal views they reference.
+The `&AppContext` is valid only for the current framework operation. Do not store the references returned by
+`handle.as_ref(ctx)` after that operation ends.
 
-Entities are of course entitled to own any state they like directly as well. Handles are only required when an entity needs to reference an entity. The reasons it would make sense to express a piece of application state as its own entity will become clearer as we sketch in more aspects of the system.
+Entities can also own state directly. Use a handle when an entity needs to refer to another entity owned by `App`.
 
 ## Elements
 
-The framework requires all views to implement the `View` trait, and a key method of this trait is `render`, which we showcased above. This method's job is to compute a visual description of the view based on its current state, and it is called whenever the view's state changes.
+Every view implements `View`. Its `render` method computes an element tree from the current state. The framework
+calls `render` when the view's state changes.
 
-To describe the view's appearance, render returns an **element**. While a single view may exist for an arbitrary amount of time, changing its state as the user interacts with the application, an element is designed to exist for only a single frame. More precisely, elements returned by views that haven't changed are recycled across multiple frames, but conceptually you can think of an element as a throwaway object that is discarded and replaced whenever the view that returned it changes.
+An element describes one version of a view's appearance. Elements can be recycled when their views do not change.
+When a view changes, the framework can discard the old element tree and use the new one.
 
-The framework ships with several elements that can be composed to perform common tasks such as drawing backgrounds and borders, adding padding, rendering label text, laying out elements horizontally and vertically, handling events, etc. The stock elements are loosely based on the Flutter framework. It's also straightforward to define your own custom elements, giving you detailed control over layout and the ability to imperatively paint pixels on scene via the hardware-accelerated `Scene` API.
-
-## Actions
-
-### Action handlers
-
-### Action dispatch
-
-## Views
+WarpUI includes elements for backgrounds, borders, padding, text, layout, and event handling. Their design is
+loosely based on Flutter. Custom elements can control layout and paint pixels through the hardware-accelerated
+`Scene` API.

@@ -1,75 +1,83 @@
 ---
 name: gui-integration-test-video
-description: 'GUI desktop app only. Run and author Warp Rust integration tests (the `crates/integration` harness) that capture screenshots and video via `TestStep::with_start_recording()` / `with_take_screenshot()`, including mouse and keyboard event overlays. TRIGGER only for the integration-test recording pipeline: recording or screenshotting a named integration test, authoring a test that captures video/screenshots, or reviewing artifacts a test produced. SKIP for any general request to screenshot or record the running Warp app or a UI flow — capture those with the computer use tool''s built-in screen recording / screenshots, not this skill.'
+description: >-
+  Run and author NeoWarp GUI integration tests that capture screenshots and video through
+  `TestStep::with_start_recording()` and `with_take_screenshot()`, including mouse and keyboard overlays.
+  Use only for the `crates/integration` recording pipeline, a named test recording, or the artifacts it produced.
+  Skip general requests to capture a live app or UI flow. Follow the root desktop-control rules for those requests.
 ---
 
-# Integration Test Video Recording
+# Integration test video recording
 
-**Scope — GUI desktop app only.** This skill applies to Warp's **GUI** desktop front-end (the `app/` crate on the WarpUI pixel/GPU framework). It does **not** apply to the headless **TUI** front-end (`crates/warp_tui`; cell-grid `TuiElement` library under `crates/warpui_core/src/elements/tui`), which has its own components, tests, and change-verification workflow. For TUI work, see the `tui-ui-guidelines`, `tui-testing`, and `tui-verify-change` skills instead.
+This skill applies only to NeoWarp's GUI desktop front end in the `app/` crate and its WarpUI framework.
 
-Use this skill when working with Warp's integration test recording pipeline on this branch.
+Use this skill for NeoWarp's integration test recording pipeline.
 
-## When NOT to use this skill
+## When not to use this skill
 
-This skill is **only** for capturing screenshots/video from within the Rust
-integration-test harness (`crates/integration`). It is **not** the way to fulfill
-a general "take a screenshot" or "record a video" request against the running
-Warp app or a live UI flow. For those, use the **computer use** tool, which
-exposes screenshot and screen-recording (start/stop recording) capabilities that
-drive the real app — don't reach for this integration-test tooling just because a
-request mentions "recording" or "screenshot."
+Use this skill only for screenshots and video captured by the Rust integration test harness in
+`crates/integration`. For a general request to capture a live app or UI flow, follow the root desktop-control
+instructions. If the project-local `agent-desktop` tool is available, read its installed instructions and use only
+its permitted headless operations. Do not use integration test recording solely because a request mentions a
+screenshot or recording.
 
 The relevant implementation lives in:
-- `integration/src/bin/integration.rs`
-- `integration/src/test/video_recording.rs`
-- `integration/tests/integration/ui_tests.rs`
-- `ui/src/integration/driver.rs`
-- `ui/src/integration/step.rs`
-- `ui/src/integration/video_recorder.rs`
-- `ui/src/integration/artifacts.rs`
-- `ui/src/integration/overlay.rs`
+- `crates/integration/src/bin/integration.rs`
+- `crates/integration/src/test/video_recording.rs`
+- `crates/integration/tests/integration/ui_tests.rs`
+- `crates/warpui_core/src/integration/driver.rs`
+- `crates/warpui_core/src/integration/step.rs`
+- `crates/warpui_core/src/integration/video_recorder.rs`
+- `crates/warpui_core/src/integration/artifacts.rs`
+- `crates/warpui_core/src/integration/overlay.rs`
 
 ## Command to invoke a test
 
-For a single manually-invoked recording test, prefer the integration binary:
+Run commands from the repository root with the configured Rust environment. Add `--offline` only when the required
+dependencies are cached. Recording opens a real app window. Follow the root isolation and desktop-control rules
+before running it. The current integration binary supports Unix. Its non-Unix branch is unimplemented.
+
+For a single manually invoked recording test, prefer the integration binary:
 
 ```bash
 WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 \
-cargo run -p integration --bin integration -- test_video_recording
+cargo +1.92.0 run -p integration --bin integration --locked -j2 -- test_video_recording
 ```
 
-That is the command shown by the sample test in `integration/src/test/video_recording.rs`.
+This invokes the sample test in `crates/integration/src/test/video_recording.rs` with a real display.
 
 If you want the driver to auto-record a test or set of tests, add `WARP_INTEGRATION_TEST_VIDEO`:
 
 ```bash
 WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 \
 WARP_INTEGRATION_TEST_VIDEO=test_video_recording \
-cargo run -p integration --bin integration -- test_video_recording
+cargo +1.92.0 run -p integration --bin integration --locked -j2 -- test_video_recording
 ```
 
-For broader integration test runs, the same env vars work with the normal test runner:
+For broader integration test runs, the same environment variables work with nextest. Use a filter expression that
+includes every selected test:
 
 ```bash
 WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 \
 WARP_INTEGRATION_TEST_VIDEO=test_foo,test_bar \
-cargo nextest run --no-fail-fast --workspace test_foo
+cargo +1.92.0 nextest run -p integration --locked --no-fail-fast --build-jobs 2 --test-threads 1 \
+  -E 'test(test_foo) or test(test_bar)'
 ```
 
 ## Environment variables
 
 ### `WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS`
-- Set this to `1` when you need real frame capture.
-- Use it for screenshot/video workflows and manual visual verification.
-- Without a real display, expect recording workflows to be incomplete or unusable.
+
+Set this to `1` for real frame capture and manual visual verification. Recording requires a supported real display.
 
 ### `WARP_INTEGRATION_TEST_VIDEO`
-This is the main env var that controls driver-managed video recording in `ui/src/integration/driver.rs`.
 
-Behavior:
-- Unset or empty: auto-recording is disabled.
-- `1` or `all`: auto-record every test in the run.
-- Comma-separated test names: auto-record only those tests.
+This environment variable controls driver-managed video recording in
+`crates/warpui_core/src/integration/driver.rs`.
+
+- Unset or empty values disable automatic recording.
+- `1` and `all` record every test in the run.
+- A comma-separated list records only the named tests.
 
 Examples:
 
@@ -83,18 +91,16 @@ WARP_INTEGRATION_TEST_VIDEO=all
 WARP_INTEGRATION_TEST_VIDEO=test_foo,test_bar
 ```
 
-Important nuance:
-- You do not need `WARP_INTEGRATION_TEST_VIDEO` if the test itself explicitly calls `with_start_recording()` and `with_stop_recording()`.
-- Use the env var when you want whole-test recording without changing the test code.
+A test that explicitly calls `with_start_recording()` and `with_stop_recording()` does not need
+`WARP_INTEGRATION_TEST_VIDEO`. Use the environment variable for whole-test recording without changing test code.
 
 ### `WARP_INTEGRATION_TEST_ARTIFACTS_DIR`
-This controls the root artifact directory used by `TestArtifacts` in `ui/src/integration/artifacts.rs`.
 
-If unset, artifacts go under:
+This variable controls the root artifact directory used by `TestArtifacts` in
+`crates/warpui_core/src/integration/artifacts.rs`. Set it to a directory under `.work/` for local runs.
 
-```text
-$TMPDIR/warp_integration_test_artifacts
-```
+If it is unset, artifacts go to `warp_integration_test_artifacts` under the system temporary directory returned by
+`std::env::temp_dir()`.
 
 Each run gets a timestamped directory:
 
@@ -102,53 +108,47 @@ Each run gets a timestamped directory:
 <artifacts_root>/<test_name>/<timestamp>/
 ```
 
-This is the main directory to inspect for screenshots, logs, and the final `recording.mp4`.
+Inspect this directory for screenshots, logs, and the final `recording.mp4`.
 
 ### `WARP_INTEGRATION_TEST_VIDEO_DIR`
-This env var exists in `ui/src/integration/video_recorder.rs` as the lower-level recorder output root helper, defaulting to:
 
-```text
-$TMPDIR/warp_integration_video_captures
-```
+This variable controls the lower-level recorder output root in
+`crates/warpui_core/src/integration/video_recorder.rs`. Its default is `warp_integration_video_captures` under the
+system temporary directory.
 
-On this branch, the normal integration driver flow writes the finalized video into the test artifacts directory instead, so `WARP_INTEGRATION_TEST_ARTIFACTS_DIR` is the one you usually care about when reviewing results.
+The integration driver writes the finalized video into the test artifacts directory. Inspect
+`WARP_INTEGRATION_TEST_ARTIFACTS_DIR` for the test results.
 
 ## How to specify which tests to record
 
 There are two modes:
 
-### 1. Record in test code
-Use `TestStep::with_start_recording()` and `TestStep::with_stop_recording()` inside the test itself. This is best when you only want to capture a specific span of the test.
+### Record in test code
 
-### 2. Record from the environment
-Set `WARP_INTEGRATION_TEST_VIDEO` to:
-- `all`
-- `1`
-- or a comma-separated list like `test_a,test_b`
+Call `TestStep::with_start_recording()` and `TestStep::with_stop_recording()` in the test to capture a specific
+span.
 
-This starts recording at the beginning of matching tests and writes the video when the test completes.
+### Record from the environment
+
+Set `WARP_INTEGRATION_TEST_VIDEO` to `1`, `all`, or a comma-separated list such as `test_a,test_b`.
+The driver starts recording at the beginning of each matching test and writes the video when the test completes.
 
 ## How overlays work
 
-There is no separate overlay env var on this branch.
+No separate overlay environment variable is required. The driver creates overlays from input events dispatched
+while recording is active. `crates/warpui_core/src/integration/overlay.rs` implements the overlay pipeline.
+`crates/warpui_core/src/integration/step.rs` captures the input events.
 
-Overlay annotations are produced from the input events the test dispatches while recording is active. The overlay pipeline is implemented in `ui/src/integration/overlay.rs`, and the event capture hooks live in `ui/src/integration/step.rs`.
+Use APIs that emit mouse and keyboard events:
 
-To get useful overlays in the final video, drive the test with APIs that emit mouse and keyboard events, such as:
 - `with_event(...)`
 - `with_event_fn(...)`
 - `with_click_on_saved_position(...)`
 - `with_keystrokes(...)`
 
-Overlay types currently exercised by the sample test:
-- mouse click indicators
-- drag trails
-- keyboard shortcut pills
-
-In practice:
-- Mouse down / drag / mouse up events create click and drag overlays.
-- KeyDown events create keyboard overlay pills.
-- If a test only records frames and never dispatches relevant input events, the resulting video will not show these annotations.
+The sample test exercises mouse click indicators, drag trails, and keyboard shortcut pills. Mouse down, drag, and
+mouse up events create click and drag overlays. Key down events create keyboard overlay pills. A recording without
+these input events has no corresponding annotations.
 
 ## How to write a test that takes screenshots
 
@@ -161,14 +161,16 @@ TestStep::new("Take screenshot after bootstrap")
     .with_take_screenshot("after_bootstrap.png")
 ```
 
-The screenshot request is stored during the step and written by the driver after the step renders. The PNG lands in the test's timestamped artifacts directory.
+The driver stores the screenshot request during the step and writes the PNG after rendering. The file goes into
+the test's timestamped artifacts directory.
 
 ## How to write a test that records video
 
 ### Minimum pattern
+
 1. Use `Builder::new().with_real_display()`.
 2. Add a step with `with_start_recording()`.
-3. Run the actions/events you want captured.
+3. Run the actions and events to capture.
 4. Add a step with `with_stop_recording()`.
 
 Example shape:
@@ -181,43 +183,34 @@ Builder::new()
     .with_step(TestStep::new("Stop recording").with_stop_recording())
 ```
 
-### For overlay-friendly recordings
-Prefer explicit UI-driving steps that emit mouse and key events:
-- click with `with_click_on_saved_position(...)`
-- dispatch raw mouse events with `with_event(...)` / `with_event_fn(...)`
-- send keyboard shortcuts with `with_keystrokes(...)`
+### Record visible input overlays
 
-For drag overlays, send a sequence like:
-- `LeftMouseDown`
-- one or more `LeftMouseDragged`
-- `LeftMouseUp`
+Prefer steps that emit mouse and key events:
 
-### Optional validation
-It is reasonable to add an `with_on_finish(...)` hook that checks for expected artifacts such as:
-- `recording.mp4`
-- `recording.log`
-- screenshot PNGs
+- Click with `with_click_on_saved_position(...)`.
+- Dispatch mouse events with `with_event(...)` or `with_event_fn(...)`.
+- Send keyboard shortcuts with `with_keystrokes(...)`.
 
-The sample test does exactly that.
+For a drag overlay, dispatch `LeftMouseDown`, one or more `LeftMouseDragged` events, and `LeftMouseUp`.
+
+### Validate the artifacts
+
+Add a `with_on_finish(...)` hook that checks expected artifacts such as `recording.mp4`, `recording.log`, and
+screenshot PNGs. The sample test checks these artifacts.
 
 ## Where the video assets go
 
 The normal output location is:
 
 ```text
-${WARP_INTEGRATION_TEST_ARTIFACTS_DIR:-$TMPDIR/warp_integration_test_artifacts}/<test_name>/<timestamp>/
+<artifacts_root>/<test_name>/<timestamp>/
 ```
 
-Common artifacts in that directory:
-- `recording.mp4`
-- `recording.log`
-- any screenshots requested with `with_take_screenshot(...)`
+The directory contains `recording.mp4`, `recording.log`, and screenshots requested with
+`with_take_screenshot(...)`.
 
-For `test_video_recording`, the sample test expects:
-- `after_bootstrap.png`
-- `after_commands.png`
-- `recording.mp4`
-- `recording.log`
+The `test_video_recording` sample checks `after_bootstrap.png`, `after_commands.png`, `recording.mp4`, and
+`recording.log`.
 
 If MP4 encoding fails during finalization, the recorder falls back to per-frame PNGs in a sibling directory like:
 
@@ -234,30 +227,26 @@ recording_0000.png
 ## How to review the assets
 
 1. Open the latest timestamped artifact directory for the test.
-2. Review `recording.mp4` first to confirm:
-   - the UI state is correct
-   - recording actually started and stopped in the intended window
-   - overlay annotations appear at the right moments
-3. Review any PNG screenshots captured by the test.
-4. Check `recording.log` if the output looks incomplete or suspicious.
-5. If `recording.mp4` is missing, look for fallback frame PNGs.
+2. Review `recording.mp4` to check the UI state, recording boundaries, and overlay timing.
+3. Review every PNG screenshot captured by the test.
+4. Check `recording.log` if the output is incomplete or unexpected.
+5. If `recording.mp4` is missing, inspect the fallback frame PNGs.
 
-When summarizing results for the user, include the exact artifact directory path.
+Include the exact artifact directory path in the result summary.
 
 ## Sample test for video recording
 
-The sample manual test is `test_video_recording`.
+The manual sample test is `test_video_recording`.
 
-It is:
-- registered in `integration/src/bin/integration.rs`
-- listed in `integration/tests/integration/ui_tests.rs`
-- implemented in `integration/src/test/video_recording.rs`
+- `crates/integration/src/bin/integration.rs` registers it.
+- `crates/integration/tests/integration/ui_tests.rs` lists it.
+- `crates/integration/src/test/video_recording.rs` implements it.
 
 Run it with:
 
 ```bash
 WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 \
-cargo run -p integration --bin integration -- test_video_recording
+cargo +1.92.0 run -p integration --bin integration --locked -j2 -- test_video_recording
 ```
 
 If you want full-test auto-recording from the environment as well, use:
@@ -265,14 +254,16 @@ If you want full-test auto-recording from the environment as well, use:
 ```bash
 WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1 \
 WARP_INTEGRATION_TEST_VIDEO=test_video_recording \
-cargo run -p integration --bin integration -- test_video_recording
+cargo +1.92.0 run -p integration --bin integration --locked -j2 -- test_video_recording
 ```
 
 ## Working pattern for agents
 
-When asked to record or debug an integration test with video:
+When recording or debugging an integration test:
+
 1. Identify the exact test name.
-2. Decide whether recording should be explicit in the test or enabled via `WARP_INTEGRATION_TEST_VIDEO`.
-3. Ensure the run uses `WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1`.
-4. If the user wants visible interaction overlays, make sure the test dispatches mouse and keyboard events while recording is active.
-5. After the run, inspect the timestamped artifact directory and report the output paths back to the user.
+2. Choose explicit test recording or `WARP_INTEGRATION_TEST_VIDEO`.
+3. Set `WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS=1`.
+4. Dispatch mouse and keyboard events when the video needs interaction overlays.
+5. Inspect the timestamped artifact directory.
+6. Report the exact output paths and any missing artifacts.

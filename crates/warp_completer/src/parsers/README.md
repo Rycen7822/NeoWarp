@@ -1,276 +1,103 @@
-# Basic parser
+# Completion parser architecture
 
-This parser is a type driven, recursive descent parser. This work in progress guide goes over a friendly overview of the workings of it with examples. In some places `Did you know?` notes are included, they are good to know tips because the parser relies on them.
+The completion parser turns shell input into commands with source spans. It can then classify a command against a
+registered command signature. The lexer and recursive descent parser are private implementation details. Call the
+public functions in `simple` or `classify_command` instead.
 
-# Steps
-1. Lex. - [What happens when we start the parse](#what-happens-when-we-start-the-parse)
-2. Lite Parse. - [Working with the tokens](#working-with-the-tokens)
-3. Type driven full parse. - [Full parse](#)
+## Parse a command for completion
 
-## What happens when we start the parse?
-
-Let's say we are interested in parsing the input `warp --disable-telemetry`. Command calls generally have the form `cmd <arg1> <arg2> <argN>` where `<arg>`s are positional parameters. Let's use the primary functions of the parser and inspect. The first step we do is calling the tokenizer (the function `lex` here):
+Use `simple::parse_for_completions` to find the last unclosed command. Its arguments are the source string, the
+shell's escape character, and whether to parse quotes as literals. It returns `Option<LiteCommand>`.
 
 ```rust
-let input = "warp --disable_telemetry";
-let start_offset = 0;
+use warp_util::path::EscapeChar;
 
-let (tokens, _) = lex(input, start_offset);
-println!("{:#?}", tokens);
-```
+use crate::parsers::simple::parse_for_completions;
 
-The output is:
-
-```rust
-(
-    [
-        Token {
-            contents: Baseline(
-                "warp",
-            ),
-            span: Span {
-                start: 0,
-                end: 4,
-            },
-        },
-        Token {
-            contents: Space,
-            span: Span {
-                start: 4,
-                end: 5,
-            },
-        },
-        Token {
-            contents: Baseline(
-                "--disable-telemetry",
-            ),
-            span: Span {
-                start: 5,
-                end: 24,
-            },
-        },
-    ],
-    None,
+let command = parse_for_completions(
+    "warp --disable-telemetry",
+    EscapeChar::Backslash,
+    false,
 )
+.expect("input contains a command");
+
+let parts = command.parts.iter().map(|part| part.item.as_str()).collect::<Vec<_>>();
+assert_eq!(parts, ["warp", "--disable-telemetry"]);
+assert_eq!(command.parts[0].span.start(), 0);
+assert_eq!(command.parts[0].span.end(), 4);
+assert_eq!(command.parts[1].span.start(), 5);
+assert_eq!(command.parts[1].span.end(), 24);
 ```
 
-In effect, we receive here the input source *tokenized*. The `start_offset` is used by the parser to calculate the spans of each bare word. Inspecting a little more we can notice the tokens with a `span` field on them. The `Span` [struct type](../meta.rs) has the fields `start` and `end` number that are helpful for knowing where something is.
+The parser returns the last command when the input contains command separators. It descends into an open subshell
+when that subshell contains the command being completed. An input without a command returns `None`.
 
-#### Did you know? The `Span` struct type.
+`LiteCommand::parts` contains the command name and arguments as `Spanned<String>` values. `post_whitespace`
+records trailing whitespace after the last part. Call `LiteCommand::joined_by_space` when a consumer needs the
+parts joined by single spaces rather than the original source.
 
-Let's use the span numbers from the output above, and use the `Span` struct associated `slice` function. This function takes a string as input and will return a slice of it using the `Span`'s `start` and `end` values. Let's create three `Span`s with the numbers from the output above and slice each from the input string fed to the lexer.
+## Choose an entry point
+
+The `simple` module provides these public parsing operations:
+
+- `parse_for_completions` returns the last unclosed command for completion generation.
+- `top_level_command` returns the first command name after removing leading environment variable assignments.
+- `command_at_cursor_position` returns the innermost command containing a `ByteOffset`.
+- `all_parsed_commands` iterates over all parsed commands and removes their leading environment assignments.
+- `command_without_leading_env_vars` returns the first command's source without leading environment assignments.
+- `decompose_command` returns nested command strings and whether the input contains input or output redirection.
+
+Each entry point takes an `EscapeChar`. Pass the escape character for the active shell rather than assuming that
+every shell uses a backslash.
+
+## Track source spans
+
+`Span` stores start and end byte offsets. The end offset is exclusive. `Spanned<T>` pairs a value with its span.
+The parser uses these types to connect completion results to the original input.
+
+`Span::slice` returns the corresponding source slice. It clamps out-of-range offsets and moves offsets back to
+UTF-8 character boundaries before slicing.
 
 ```rust
+use crate::meta::{Span, SpannedItem};
+
 let input = "warp --disable-telemetry";
+let command_name = Span::new(0, 4);
+let argument = Span::new(5, 24);
 
-let word1 = Span::new(0,4);
-let word2 = Span::new(4,5);
-let word3 = Span::new(5,24);
+assert_eq!(command_name.slice(input), "warp");
+assert_eq!(argument.slice(input), "--disable-telemetry");
+assert_eq!(command_name.until(argument), Span::new(0, 24));
 
-assert_eq!(word1.slice(input), "warp");
-assert_eq!(word2.slice(input), " ");
-assert_eq!(word3.slice(input), "--disable-telemetry");
+let spanned = "warp".spanned(command_name);
+assert_eq!(spanned.item, "warp");
+assert_eq!(spanned.span, command_name);
 ```
 
-## Working with the tokens
+Use `Span::new` only when `end >= start`. The constructor asserts this invariant.
 
-The next step of the basic parser isn't all that different from lexing/parsing from traditional parsing. The task right now is to understand the boundaries of the tokens and get the general forms ready for a full parse. We are not interested here in doing anything more just yet since each of these tokens can be passed to commands that have no signature registered (*more on this later*). We call this step the `Lite` parse step.
+## Classify a parsed command
 
-A very simplistic view of the grammar rules below:
+`classify_command` converts a `LiteCommand` into a `ClassifiedCommand`. It uses the `CommandRegistry` to find a
+matching signature and the `TopLevelCommandCaseSensitivity` value to control command-name matching.
 
-```
-LiteRootNode    := LiteGroup
-LiteGroup       := LitePipeline (';' LitePipeline)*
-LitePipeline    := LiteCommand ('|' LiteCommand)*
-LiteCommand     := argument+
-// (*more grammar later*)
-```
+Classification performs these operations:
 
-These are represented as structs that basic parser generates, they are:
+1. Extract leading environment variable assignments and remove their tokens from the supplied token vector.
+2. Find a registered command signature.
+3. Classify flags, options, positional arguments, variables, and literal arguments.
+4. Return a `Command::Classified` value for a registered signature or `Command::Unclassified` for an external
+   command.
 
-```rust
-pub struct LiteRootNode {
-    pub groups: Vec<LiteGroup>,
-}
+`ClassifiedCommand` contains the typed command, the leading environment assignments, and an optional `ParseError`.
+An empty command returns `None`. The [parser tests](test.rs) show complete registry setup and classification
+assertions.
 
-pub struct LiteGroup {
-    pub pipelines: Vec<LitePipeline>,
-}
+## Source map
 
-pub struct LitePipeline {
-    pub commands: Vec<LiteCommand>,
-}
-
-pub struct LiteCommand {
-    // this is important!
-    pub parts: Vec<Spanned<String>>,
-    pub post_whitespace: Option<Span>,
-}
-```
-
-#### Did you know? The `Spanned<T>` generic struct.
-
-The `LiteCommand` has a `parts` field that holds a vector of `Spanned<String>`. We mentioned about the `Span` type before. Here, we talk about a generic `Spanned<T>` that allows wrapping any `T` with a `Span` value along with it. Here is the type along with a few examples using it's helper functions.
-
-```rust
-pub struct Spanned<T> {
-    pub span: Span,
-    pub item: T,
-}
-
-let example = Spanned { item: String::from("warp"), span: Span::new(0,4) };
-assert_eq!(example.item, "warp".to_string());
-assert_eq!(example.span, Span::new(0,4));
-
-let example = String::from("warp").spanned(Span::new(0,4));
-assert_eq!(example.item, "warp".to_string());
-assert_eq!(example.span, Span::new(0,4));
-
-let example = "warp -p --disable-telemetry";
-
-let full_span = Span::new(0, example.len());
-let first_flag_span = Span::new(5,7);
-
-assert_eq!(first_flag_span.slice(example), "-p");
-assert_eq!(first_flag_span.until(full_span), Span::new(5,27));
-assert_eq!(first_flag_span.until(full_span).slice(example), "-p --disable-telemetry");
-
-```
-
-This is useful because as soon as the `lite` parse step happens. We get as output everything we need with `spans` correctly calculated. Let's go ahead and do a lite parse (the function `parse_tokens`) to our original example using as input the tokens generated by the lexer when processing the input `warp --disable-telemetry`, like so:
-
-```rust
-let input = "warp --disable-telemetry";
-let start_offset = 0;
-
-let (tokens, _) = lex(input, start_offset);
-let (lite_node, _) = parse_tokens(tokens);
-
-let expected_word1 = String::from("warp").spanned(Span::new(0,4));
-let expected_word2 = String::from("--disable-telemetry").spanned(Span::new(5,24));
-
-assert_eq!(lite_node.groups[0].pipelines[0].commands[0].parts, vec![expected_word1, expected_word2]);
-assert_eq!(lite_node.groups[0].pipelines[0].commands.len(), 1);
-
-println!("{:#?}", lite_node);
-```
-
-We get a nice lite node:
-```rust
-LiteRootNode {
-    groups: [
-        LiteGroup {
-            pipelines: [
-                LitePipeline {
-                    commands: [
-                        LiteCommand {
-                            parts: [
-                                Spanned {
-                                    span: Span {
-                                        start: 0,
-                                        end: 4,
-                                    },
-                                    item: "warp",
-                                },
-                                Spanned {
-                                    span: Span {
-                                        start: 5,
-                                        end: 24,
-                                    },
-                                    item: "--disable-telemetry",
-                                },
-                            ],
-                            post_whitespace: None,
-                        },
-                    ],
-                },
-            ],
-        },
-    ],
-}
-```
-
-For more involved inputs (say commands separated by `|` and/or having `;`) the lite parser will effectively create the necessary `LitePipeline`s to express it, let's explore what happens if we lite parse the input `warp config-set --extension-path="/path/to/dir" ; echo $WARP_VAR"` (*two pipelines here due to the ; character*), like so:
-
-```rust
-let input = "warp config-set --extension-path=\"/path/to/dir\" ; echo $WARP_VAR";
-let start_offset = 0;
-
-let (tokens, _) = lex(input, start_offset);
-let (lite_node, _) = parse_tokens(tokens);
-
-println!("{:#?}", lite_node);
-```
-
-```rust
-LiteRootNode {
-    groups: [
-        LiteGroup {
-            pipelines: [
-                LitePipeline {
-                    commands: [
-                        LiteCommand {
-                            parts: [
-                                Spanned {
-                                    span: Span {
-                                        start: 0,
-                                        end: 4,
-                                    },
-                                    item: "warp",
-                                },
-                                Spanned {
-                                    span: Span {
-                                        start: 5,
-                                        end: 15,
-                                    },
-                                    item: "config-set",
-                                },
-                                Spanned {
-                                    span: Span {
-                                        start: 16,
-                                        end: 47,
-                                    },
-                                    item: "--extension-path=\"/path/to/dir\"",
-                                },
-                            ],
-                            post_whitespace: Some(
-                                Span {
-                                    start: 47,
-                                    end: 48,
-                                },
-                            ),
-                        },
-                    ],
-                },
-                LitePipeline {
-                    commands: [
-                        LiteCommand {
-                            parts: [
-                                Spanned {
-                                    span: Span {
-                                        start: 50,
-                                        end: 54,
-                                    },
-                                    item: "echo",
-                                },
-                                Spanned {
-                                    span: Span {
-                                        start: 55,
-                                        end: 64,
-                                    },
-                                    item: "$WARP_VAR",
-                                },
-                            ],
-                            post_whitespace: None,
-                        },
-                    ],
-                },
-            ],
-        },
-    ],
-}
- ```
-
- ## Type driven full parse
-
-TODO
+- `simple/lexer.rs` tokenizes shell input.
+- `simple/parser.rs` parses commands, command separators, quotes, concatenation, and subshells.
+- `simple/convert.rs` converts the internal representation to `LiteCommand`.
+- `legacy.rs` applies command signatures to lite commands.
+- `hir/mod.rs` defines the typed command representation.
+- `../meta.rs` defines `Span` and `Spanned<T>`.

@@ -1,20 +1,18 @@
-# Test Images
+# Markdown image fixtures
 
-This directory contains test images for validating markdown image rendering.
+These images support manual Markdown image rendering checks.
 
 ## Files
 
-- `image_test.md` - Markdown file with various image references
-- `sample1.jpg` - 400x300 JPEG with vertical gradient (blue to red-orange) and white border
-- `sample2.jpg` - 600x400 JPEG with checkered pattern and orange circle overlay
-- `sample3.png` - 300x300 PNG with radial pattern and transparency (alpha channel)
-- `parent_test.jpg` - 300x200 JPEG with diagonal blue stripes, located in parent directory for testing relative path resolution
+- `image_test.md` contains the image references and rendering cases.
+- `sample1.jpg` is a 400 by 300 JPEG photograph of water and the horizon.
+- `sample2.jpg` is a 600 by 400 grayscale JPEG photograph of musicians on a stage.
+- `sample3.png` is a 300 by 300 photograph of palm trees. The file contains JPEG data despite its `.png` suffix.
+- `parent_test.jpg` is a 300 by 200 JPEG photograph of a covered dock and water. It is in the parent directory to
+  test relative path resolution.
 
-## Purpose
+## Coverage
 
-These images test different aspects of image rendering:
-- Different formats (JPEG, PNG)
-- Different dimensions (300x300, 400x300, 600x400)
-- Transparency (PNG with alpha channel)
-- Visual patterns to verify proper rendering (gradients, patterns, shapes)
-- Relative path resolution (parent directory references)
+The fixtures provide several image sizes, a parent directory reference, and a mismatch between a filename suffix
+and the image data. Every image fixture contains JPEG data. They do not provide PNG decoding or alpha transparency
+coverage.

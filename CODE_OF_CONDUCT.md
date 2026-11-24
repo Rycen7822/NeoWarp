@@ -1,4 +1,4 @@
-# NeoWarp Code of Conduct
+# NeoWarp code of conduct
 
 ## Participation
 
@@ -8,7 +8,7 @@ Treat people respectfully, accept constructive feedback, and discuss technical d
 Harassment, discrimination, threats, sexualized attention, personal attacks, and disclosure of another person's
 private information without permission are unacceptable.
 
-## Scope and Moderation
+## Scope and moderation
 
 These standards apply to NeoWarp issues, pull requests, discussions, and other project spaces,
 as well as anyone officially representing the project.
@@ -19,9 +19,9 @@ decisions when appropriate while protecting the people involved.
 
 ## Reporting
 
-Report incidents privately to NeoWarp maintainers. If no private contact is listed, ask a maintainer to arrange
-one without publishing incident details or personal information. Maintainers should respect reporter privacy
-and assess reports fairly. For software vulnerabilities, follow [SECURITY.md](SECURITY.md).
+Email the [repository owner](https://github.com/Rycen7822) at the public address shown on their GitHub profile.
+Do not publish incident details or personal information in an issue or pull request. Maintainers should respect
+reporter privacy and assess reports fairly. For software vulnerabilities, follow [SECURITY.md](SECURITY.md).
 
 ## Attribution
 

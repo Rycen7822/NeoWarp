@@ -1,44 +1,44 @@
-# MacOS User Notifcations
+# macOS user notifications
 
-The Apple framework we use to support notifications is `UNUserNotifications`: https://developer.apple.com/documentation/usernotifications?language=objc
+NeoWarp uses Apple's `UserNotifications` framework. The Objective-C bridge requests authorization and schedules
+notifications through `UNUserNotificationCenter`. See Apple's
+[UserNotifications documentation](https://developer.apple.com/documentation/usernotifications?language=objc).
 
-## Developing notifications locally
-The framework needs a signed app to be able to request authorization and schedule notifications to Apple's Notification Center. For this reason, it is not enough to `cargo build && cargo run`. Instead, there are a couple of options:
+## Build and run a signed app
 
-### 1. Bundle the app
-This takes a longer time than option 2, but it is more stable, and it is what the user will ultimately experience.
+Notification authorization requires an app bundle with a valid signature. A bare `cargo run` process does not
+provide that bundle identity.
 
-1. Run `script/user_notifications --nouniversal --open`
+From the repository root, use the configured development environment and run:
 
-If you want to test the authorization flow specifically, you will have to:
-1. Delete all the `WarpDev` apps you have installed locally
-2. Ensure that `WarpDev` isn't an app in your Notification Center by checking which apps show up in `Notifications` in your System Preferences.
-3. Log out*
-4. Log back in and bundle&run the app again.
+```bash
+./script/run
+```
 
-### 2. Nosign the local build (script)
-This is less stable than option 1 and is not recommended if you're testing the authorization flow.
+The macOS runner builds `NeoWarp.app`, signs it with an existing Apple Development identity, and falls back to
+ad-hoc signing. It then runs the bundled executable. The default output path is
+`.work/target/debug/bundle/osx/NeoWarp.app`.
 
-1. Ensure that you have a WarpDev app installed, _and in your Applications folder_. It's important to have the app in your Applications, or Apple won't be able to find the app while testing notifications.
-2. Run `script/local_build_and_sign`
+To launch the app through LaunchServices instead, run:
 
-If you want to test the authorization flow specifically, you will have to:
-1. Delete all the `WarpDev` apps you have installed locally, including the one in your Applications folder.
-2. Ensure that `WarpDev` isn't an app in your Notification Center by checking which apps show up in `Notifications` in your System Preferences.
-3. Log out* and log back in.
-4. Move the `WarpDev` from `Bin` to `Applications` (i.e. install `WarpDev`).
-5. Run the script to nosign and run the app again: `script/local_build_and_sign`.
+```bash
+./script/run --open_with_launchd
+```
 
-*NB: If you already have all the permissions to send notifications, and you're not testing the authorization flow, you should be able to do the following instead of logging out & in:
-1. Delete all `WarpDev` apps.
-2. Run `sudo lsof | grep usernoted | grep db2` to find the path to a database that Notification Center uses.
-3. Run `killall usernoted && killall NotificationCenter`
-4. Run `rm <path-to-notification-center-db>`
-5. Build and run the app again (if you're not bundling, you still have to move `WarpDev` back to your `Applications` folder).
+This mode opens the app with `/usr/bin/open` and tails `~/Library/Logs/neowarp.log`. Pressing Ctrl+C stops the log
+command. It does not stop an app launched by LaunchServices.
 
-## Debugging notifications
-Some useful methods for debugging errors / if things aren't working as expected:
-- Check Notification Center to figure out if `WarpDev` is a registered app and to play around with the settings (e.g. turning on/off, enabling sound, etc)
-- Use `NSLog` to print debug statements in local builds
-- Use the Console app for more helpful framework errors - this is particularly helpful when you don't see any error from your own logs. Filter the messages by `NotificationCenter` or `usernoted` or `dev`
-- When in doubt, delete all `WarpDev` apps and restart your laptop. Sometimes Notification Center needs a gentle nudge.
+## Check authorization and delivery
+
+macOS stores notification authorization for the app bundle identity. NeoWarp uses `dev.neowarp.NeoWarp`.
+If the current identity already has an authorization decision, the system does not show the first-run prompt again.
+
+1. Open **System Settings → Notifications → NeoWarp** to inspect the current permissions.
+2. Trigger the notification path in the app.
+3. Check Notification Center for the notification.
+4. Inspect `~/Library/Logs/neowarp.log` for application errors.
+5. Use Console to inspect messages from NeoWarp, NotificationCenter, and usernoted when the app log does not explain
+   the failure.
+
+Do not delete Notification Center databases or kill system services to reset authorization. Use a separate test
+account when a clean first-run authorization state is required.

@@ -1,75 +1,76 @@
-# Input Box
+# Terminal input editor
 
-## 1. APIs of the Input Box
+## View ownership and communication
 
-The input box is a child view named `EditorView` instantiated within `TerminalView`.
+`TerminalView` owns a `ViewHandle<Input>` for the terminal input area. `Input` owns the `ViewHandle<EditorView>`
+that edits the input text.
 
-For the editor view to communicate with the terminal view, have the editor view send an action and register the action in the parent view.
+`EditorView` communicates with `Input` through editor actions. `Input` updates the editor through its view handle.
+For example, `Input::input_enter` checks whether Enter should insert a newline. In that branch, it calls
+`EditorView::user_initiated_insert` with `"\n"` and `PlainTextEditorViewAction::NewLine`. Other Enter branches can
+accept a completion suggestion or execute the command.
 
-For the terminal view to communicate with the editor view, the terminal view can directly access the editor view via a field in its struct. For it to input a newline, for example, it calls:
+## Buffer storage
 
-```
-fn input_newline(&mut self, _: &(), ctx: &mut ViewContext<Self>) {
-...
-    self.input.update(ctx, |input, ctx| input.insert(&'\n'.into(), ctx));
-...
-```
+The editor's `Buffer` stores text and edit history in a `SumTree<Fragment>`. Each fragment contains `Text`.
+`Text` stores its contents as `Rc<str>` and indexes newline and character runs with a `SumTree<Run>`.
+These runs summarize character counts, byte counts, and line positions.
 
-## 2. Editor
+Use `Buffer::chars_at` to iterate over characters from a buffer position. Use `Buffer::line_len` to get a row's
+length in Rust `char` values, excluding the terminating newline. Both APIs return a `Result` when the input position
+can be invalid.
 
-### Buffer
+## Buffer positions
 
-The data structure that contains the text in the EditorView is the `Buffer`.
+`Point` identifies a row and column in buffer coordinates. Within `Buffer`, the column counts Rust `char` values,
+not UTF-8 bytes or display cells. `CharOffset` counts Rust `char` values from the start of the buffer.
+`ByteOffset` counts UTF-8 bytes. These offset types are distinct newtypes rather than bare `usize` values.
 
-Its most commonly used API of the `Buffer` is `chars_at()`, which returns an iterator we can use to traverse characters from a certain point.
+The `ToCharOffset` trait converts positions to `CharOffset`. The `ToBufferOffset` trait converts positions to
+`ByteOffset`. Implementations exist for position types such as `Point` and `Anchor`. Conversion methods take the
+buffer and return a `Result` because a position can be out of range.
 
-Under the hood, the buffer is a `SumTree<Fragment>`. Each `Fragment` has a `Text`. The `Text` consists of `text` which is an `Arc<str>` and `runs` which is a `SumTree<Run>`. A run describes how much space the fragment is taking.
+## Display positions
 
-Another useful API of `Buffer` is `line_len(row_number)` which gives you the length of a row number.
+`DisplayPoint` identifies a row and column in the `DisplayMap`, which describes the visual coordinate system.
+The buffer does not store display layout. Multiple views can display the same buffer differently.
 
-### Indexing into the Buffer
+Display points and buffer points differ when code folding or soft wrapping changes the visible layout.
+Use the `DisplayMap` to convert between these coordinate systems.
 
-We use `Point` and `Offset` to index into the buffer. `Point` is a 2-dimensional location with `row` and `column` within the `Buffer`. `Offset` is a 1-dimensional `usize` within the `Buffer`. You can easily convert `Point` and `Anchor` to `Offset` via `to_offset()`. `Offset` is useful for traversing through the characters without having to worry about changing row and column numbers.
+## Selections and cursors
 
-### DisplayPoints and DisplayMap
+`EditorView` holds a `ModelHandle<EditorModel>`. The model accesses local selections through its buffer.
+`LocalSelections` stores established selections in `Vec1<LocalSelection>`, so at least one selection is present.
+It also stores pending selection and marked text state.
 
-Another struct with `row` and `column` is the `DisplayPoint`. `DisplayPoint` is only relevant in `EditorView` and `DisplayMap`, but not the `Buffer`.
-`DisplayPoint` describes the location in the `DisplayMap`. The `DisplayMap` describes how the points **appear**—the visual coordinate system. The `Buffer` has no concept of how it's being displayed and could in fact be displayed in multiple views.
+Each `LocalSelection` contains a `Selection` and the display state needed to extend it. `Selection::start` and
+`Selection::end` are anchors. The start anchor never sorts after the end anchor. When `reversed` is `false`, `end`
+is the selection head. When `reversed` is `true`, `start` is the head. The head positions the cursor and is the end
+extended by selection changes. An empty selection has equal start and end anchors.
 
-The values of `DisplayPoint`s and `Point`s differ when code folding or softwrapping occurs. We can translate between the `DisplayPoint` and `Point` using the `DisplayMap`.
+## Anchors and insertion bias
 
-### Selections and Cursors
+An `Anchor` identifies a logical text position that remains resolvable after edits. Buffer and display map
+conversions can resolve an anchor to a `Point`, an offset, or a `DisplayPoint`.
 
-The input box supports the multiple selections we are used to in VSCode. So our `EditorView` has a `Vec<Selection>`.
+For a cursor between `l` and `E` in `PartialEq`:
 
-A `Selection` has a `start` anchor and an `end` anchor to denote its start and end position.
-
-Selections and cursors are closely intertwined—wherever there is a selection, there is a cursor. **A cursor on its own is just an empty selection where `start==end`.** As such, there is always at least one `Selection`, with the first selection being the cursor.
-
-### Anchors
-
-An `Anchor` is a bookmark into the text. It allows us to index for a relative position in the text even if its absolute position has changed. An `Anchor` can be converted to a `DisplayPoint` or a `Point`.
-
-For example, imagine my cursor is between the characters 'l' and 'E' in 'PartialEq'. Say the absolute position is row 3 column 7:
-
-```
+```text
 Partial|Eq
 ```
 
-Then, we add 10 characters:
+After inserting ten characters with a right-biased anchor, the cursor follows the original text:
 
-```
+```text
 Partial1234567890|Eq
 ```
 
-The cursor's absolute position is now at row 3 column 17. To easily calculate this position, we can convert the `Anchor` to row 3 column 17.
+A left-biased anchor stays before the inserted text:
 
-#### `AnchorBias::Left`, `AnchorBias::Right`
-
-The AnchorBias determines whether the cursor ends up on the right side or the left side of the inserted text. The above example is when AnchorBias is `Right`. `AnchorBias::Left` looks like this:
-
-```
+```text
 Partial|1234567890Eq
 ```
 
-`Anchor`s are most useful when we introduce collaborative editing, and it is important for users to know where they are typing in even when another user inserts text in the line they are on.
+Pass `AnchorBias::Left` or `AnchorBias::Right` to `Buffer::anchor_at` to select this behavior when creating an
+anchor.

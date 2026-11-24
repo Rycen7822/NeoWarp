@@ -1,104 +1,133 @@
-# Escape sequences
+# Escape sequences sent to the PTY
 
-Escape sequence is a group (sequence) of characters that have a special meaning, usually different than the literal meaning of the characters used. 
-In Warp we operate on ANSI escape codes, so they always have a form of:
-`<ESC> <separating char> <some combination>`
+This reference describes sequences that NeoWarp encodes for terminal input. It does not describe every sequence
+that an application can write to the terminal or that NeoWarp can parse from the shell.
 
-The `<ESC>` is decimal 27 (0x1b) character. 
-`<separating char>` is usually `[`, but can be something else too. The combination `<ESC><separating char>` is referred to as `C1 (8-Bit) Control Characters`.
-The rest depends on the actual operation performed. May contain other characters and separators, and is defined on case-by-case basis. Some example operations include mouse tracking, moving the cursor in the apps or handling the special key combinations.
+The escape character `ESC` is decimal 27, or `0x1b`. The encoder uses 7-bit forms such as `ESC [` for CSI and
+`ESC O` for SS3. It does not emit the single 8-bit C1 bytes `0x9b` and `0x8f` for these forms.
 
-Note that this doc describes just the combinations **we (on behalf of user) write to pty** and doesn't include description of other sequences written by the applications or read from the shell. 
+The terminal mode and keyboard protocol affect the selected sequence. See `escape_sequences.rs` for the encoder and
+`escape_sequences_tests.rs` for exact byte assertions.
 
+## C1 reference
 
-### Helpful reading
-1. https://vt100.net/docs/vt100-ug/chapter3.html
-2. https://www.xfree86.org/current/ctlseqs.html#PC-Style%20Function%20Keys
-3. https://en.wikipedia.org/wiki/ANSI_escape_code
+| 7-bit form | Control | Meaning |
+| --- | --- | --- |
+| `ESC D` | IND | Index |
+| `ESC E` | NEL | Next line |
+| `ESC H` | HTS | Tab set |
+| `ESC M` | RI | Reverse index |
+| `ESC N` | SS2 | Single shift to G2 for the next character |
+| `ESC O` | SS3 | Single shift to G3 for the next character |
+| `ESC P` | DCS | Device control string |
+| `ESC V` | SPA | Start of guarded area |
+| `ESC W` | EPA | End of guarded area |
+| `ESC X` | SOS | Start of string |
+| `ESC Z` | DECID | Obsolete return terminal ID form |
+| `ESC [` | CSI | Control sequence introducer |
+| `ESC \` | ST | String terminator |
+| `ESC ]` | OSC | Operating system command |
+| `ESC ^` | PM | Privacy message |
+| `ESC _` | APC | Application program command |
 
+NeoWarp's input encoder primarily uses CSI and SS3. CSI is the default for cursor keys. Unmodified cursor keys use
+SS3 when `TermMode::APP_CURSOR` is active. Unmodified F1 through F4 also use SS3, regardless of that mode.
 
-## C1 sequences - what are they and when do we use them?
-List of all the C1 control characters [source](https://www.xfree86.org/current/ctlseqs.html#C1%20(8-Bit)%20Control%20Characters):
+## SGR mouse reports
 
-C1 sequence | Description
------------ | -----------
-ESC D       | Index ( IND is 0x84)
-ESC E       | Next Line ( NEL is 0x85)
-ESC H       | Tab Set ( HTS is 0x88)
-ESC M       | Reverse Index ( RI is 0x8d)
-ESC N       | Single Shift Select of G2 Character Set ( SS2 is 0x8e): affects next character only
-ESC O       | Single Shift Select of G3 Character Set ( SS3 is 0x8f): affects next character only
-ESC P       | Device Control String ( DCS is 0x90)
-ESC V       | Start of Guarded Area ( SPA is 0x96)
-ESC W       | End of Guarded Area ( EPA is 0x97)
-ESC X       | Start of String ( SOS is 0x98)
-ESC Z       | Return Terminal ID (DECID is 0x9a). Obsolete form of CSI c (DA).
-ESC [       | Control Sequence Introducer ( CSI is 0x9b)
-ESC \       | String Terminator ( ST is 0x9c)
-ESC ]       | Operating System Command ( OSC is 0x9d)
-ESC ^       | Privacy Message ( PM is 0x9e)
-ESC _       | Application Program Command ( APC is 0x9f)
+`MouseState` uses the SGR mouse format:
 
+```text
+CSI <button>;<column>;<row>M
+CSI <button>;<column>;<row>m
+```
 
-So far, we're mostly using 2: CSI (ESC [) or SS3 (ESC O). Below there's a table that shows conditions for when to use each of those sequences:
+The final byte follows the row immediately. There is no semicolon between the row and the final byte.
 
-| C1 sequence 	| terminal mode 	| modifiers (shift, ctrl, alt) 	| keys                                              	|
-|-------------	|---------------	|------------------------------	|---------------------------------------------------	|
-| CSI         	| Any           	| Optional                     	| Any                                               	|
-| SS3         	| APP_CURSOR    	| Not used                     	| Arrow keys (up, down, right, left)<br>Home<br>End 	|
+- `M` represents press, drag, motion, and wheel events.
+- `m` represents release.
+- Column and row are 1-based coordinates.
+- Left, right, left-drag, and motion use button codes 0, 2, 32, and 35.
+- Wheel up and wheel down use 64 and 65. The encoder repeats the sequence for the number of scrolled lines.
 
-In short: `SS3` can only be used iff `TermMode::APP_CURSOR` is set && no modifiers were used and only for a certain group of keys. Otherwise, CSI is most likely the way to go.
+The current encoder does not add modifier bits to these button codes.
 
+## Cursor keys
 
-## Use cases already covered in Warp
+Unmodified arrow, Home, and End keys depend on `APP_CURSOR` mode:
 
-### Mouse tracking
-Programs such as `vim` or `tmux` allow users to use the mouse within the app. There's couple modes of operations for mouse tracking (more [here](https://www.xfree86.org/current/ctlseqs.html#Mouse%20Tracking)), but the one we care about in Warp is `SGR`. 
+| Key | Normal mode | `APP_CURSOR` mode |
+| --- | --- | --- |
+| Up | `CSI A` | `SS3 A` |
+| Down | `CSI B` | `SS3 B` |
+| Right | `CSI C` | `SS3 C` |
+| Left | `CSI D` | `SS3 D` |
+| Home | `CSI H` | `SS3 H` |
+| End | `CSI F` | `SS3 F` |
 
-Basically, some sort of low-res mouse tracking has been implemented before - it only allowed for tracking the mouse movement up to 223 columns, meaning, it wouldn't work in the bigger terminal window. As of 2012 xterm spec introduced `SGR`, which is supposed to support 'higher resolution' mouse tracking. Each of those modes expect different escape sequences to specify the mouse position, however, it is safe to assume that in modern world applications will favor SGR if supported by the terminal emulator, so we don't worry about the other sequences.
+A modified cursor key always uses CSI, even in `APP_CURSOR` mode:
 
-Below is the explanation of the sequences used:
+```text
+CSI 1;<modifier><key>
+```
 
-`CSI < <button> ; <column> ; <row> ; <action>`
+The `1` is the xterm key number for these cursor keys. `<key>` is the final letter from the table above. For
+example, Cmd+Left uses `CSI 1;9D`.
 
-- `<button>` denotes the mouse button that was used. Left mouse button is 0, right one - 2, wheel has another number, dragging or pressing buttons with modifiers will have another number. As of now we only care about the Left mouse button and the Wheel and mouse dragging.
-- `<column>` & `<row>` are basically coordinates of the mouse pointer at the moment of performing action.
-- `<action>` can have 2 values: `M` for pressing and dragging; `m` for releasing the button.
+## Function keys
 
-Note that dragging is essentially *pressing a drag mouse button*.
+Unmodified F1 through F4 use `SS3 P`, `SS3 Q`, `SS3 R`, and `SS3 S`. Unmodified F5 through F20 use CSI with the
+key's numeric code and a final `~`. For example, F5 uses `CSI 15~` and F12 uses `CSI 24~`.
 
-### Cursor movement (with keyboard)
-Regular cursor movement within the terminal - **unmodified** arrows and home/end key press actions - behave differently depending on the terminal mode. The terminal mode is set based on the program Warp is running, for example, long running command such as `vim` or `emacs` will set the `APP_CURSOR` mode (it's set using CSI ? 1h and unset with CSI ? 1l sequences). Warp keeps track of the mode in terminal_model (`is_term_mode_set` method can be of help).
+Modified F1 through F4 use `CSI 1;<modifier>P` through `CSI 1;<modifier>S`. Other modified function keys insert the
+modifier parameter before `~`. For example, Shift+F5 uses `CSI 15;2~`.
 
-|                            	| Normal mode 	| APP_CURSOR mode 	|
-|----------------------------	|-------------	|-----------------	|
-| Previous line (arrow up)   	| CSI A       	| SS3 A           	|
-| Next line (arrow down)     	| CSI B       	| SS3 B           	|
-| Next char (arrow right)    	| CSI C       	| SS3 C           	|
-| Previous char (arrow left) 	| CSI D       	| SS3 D           	|
-| First line (home)          	| CSI H       	| SS3 H           	|
-| Last line (end)            	| CSI F       	| SS3 F           	|
+## Modifier parameters
 
+The xterm and Kitty modifier parameter is one plus the modifier bitmask:
 
-### All the special keys and modifiers
-Function keys? Function keys with Shift? Arrow with Meta or Alt? Shift + CMD + Key?
-Unless we explicitly specified the binding somewhere in the `app/src/` code with a custom operation, then it should be handled by a proper escape sequence. This is a work in progress (and so is this README). Each of such sequences starts with `CSI` sequence, followed by proper combinations.
+| Bit | Modifier |
+| --- | --- |
+| 1 | Shift |
+| 2 | Alt, or Meta when Option as Meta is enabled on macOS |
+| 4 | Ctrl |
+| 8 | Cmd or Super |
 
-If modifiers are at play, below is the table with the values that should be used:
+This produces the following values:
 
-| Code 	| Modifier           	|
-|------	|--------------------	|
-| 2    	| Shift              	|
-| 3    	| Alt                	|
-| 4    	| Shift + Alt        	|
-| 5    	| Ctrl               	|
-| 6    	| Ctrl + Shift       	|
-| 7    	| Ctrl + Alt         	|
-| 8    	| Ctrl + Shift + Alt 	|
+| Value | Modifiers |
+| --- | --- |
+| 1 | None |
+| 2 | Shift |
+| 3 | Alt |
+| 4 | Shift+Alt |
+| 5 | Ctrl |
+| 6 | Ctrl+Shift |
+| 7 | Ctrl+Alt |
+| 8 | Ctrl+Shift+Alt |
+| 9 | Cmd |
+| 10 | Shift+Cmd |
+| 11 | Alt+Cmd |
+| 12 | Shift+Alt+Cmd |
+| 13 | Ctrl+Cmd |
+| 14 | Ctrl+Shift+Cmd |
+| 15 | Ctrl+Alt+Cmd |
+| 16 | Ctrl+Shift+Alt+Cmd |
 
-For example, sequence for arrows with modifiers has the following pattern:
-`CSI 1 ; <modifier> <arrow code>`
+The modifier value is omitted in some legacy forms when it is 1. Modified cursor and function keys include it.
 
-(TODO: where exactly does `1 ;` come from?)
+## Encoding order and other forms
 
-Other key combinations can have different values or completely different format. Best to follow the reading materials linked above to determine the right sequence. 
+`KeystrokeWithDetails::to_escape_sequence` first checks whether the Kitty keyboard protocol supplies a CSI u
+sequence. Its legacy fallback then checks function keys, C0 control codes, cursor keys, Delete, Meta-prefixed keys,
+and Backspace. Therefore, special-key sequences do not all start with CSI, and modified keys do not all use the
+legacy cursor format.
+
+`to_pty_bytes` adds fallbacks for Ctrl+letter control bytes, printable UTF-8 text, and named control keys. The
+module also defines bracketed paste delimiters, focus reports, and tmux DCS passthrough.
+
+## References
+
+- [VT100 user guide](https://vt100.net/docs/vt100-ug/chapter3.html)
+- [Xterm control sequences](https://www.xfree86.org/current/ctlseqs.html)
+- [ANSI escape code overview](https://en.wikipedia.org/wiki/ANSI_escape_code)
